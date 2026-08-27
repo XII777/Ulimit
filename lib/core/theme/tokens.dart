@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 
-/// Design tokens. One accent color, used everywhere, per the design
-/// direction — the only intentional exception is [AppColors.alert],
-/// reserved exclusively for the blocking-overlay / invincible-lock
-/// screens where a second color is load-bearing for safety, not decor.
+/// Design tokens. The ring/bar/badge language communicates state through
+/// exactly three colors — pick one of these, never an ad-hoc color:
+///   - [accent] (violet) — the primary brand color: focus sessions, chart
+///     lines, anything that isn't a live "budget state" signal.
+///   - [calm] (teal) — on track / plenty of budget left.
+///   - [alert] (amber) — near your limit, AND the blocking-overlay /
+///     invincible-lock state. One color for both on purpose: a live
+///     warning ring and the overlay it leads to are the same state,
+///     not two different ones.
 abstract final class AppColors {
   static const bg = Color(0xFF0F1116);
   static const surface = Color(0xFF1A1D25);
@@ -14,12 +19,14 @@ abstract final class AppColors {
   static const inkDim = Color(0xFF9497A3);
   static const inkFaint = Color(0xFF5C606C);
 
-  /// The single accent. Every ring, bar, badge, and highlight in the
-  /// app uses this — do not introduce a second "brand" color.
+  /// Primary brand accent.
   static const accent = Color(0xFF8B7FE8);
   static const accentSoft = Color(0xFFB7AEF5);
 
-  /// Reserved for blocking-overlay screens only.
+  /// On-track / plenty-of-budget ring & badge state.
+  static const calm = Color(0xFF5FC9AE);
+
+  /// Near-limit warning AND blocking-overlay / invincible-lock state.
   static const alert = Color(0xFFF2A94D);
   static const danger = Color(0xFFE8697A);
 }

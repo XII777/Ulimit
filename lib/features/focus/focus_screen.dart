@@ -15,6 +15,12 @@ class _FocusScreenState extends State<FocusScreen> {
   Duration _remaining = _total;
   Timer? _ticker;
 
+  // Placeholder — swap for a real todaysSessionsProvider (Drift query on
+  // FocusSessions where startedAt is today) once that lands. Matches the
+  // 3-dot pattern in the design: completed sessions filled, the current
+  // one shown as an accent-to-calm gradient chip, empty slots as tracks.
+  static const _completedSessions = 2;
+
   @override
   void initState() {
     super.initState();
@@ -73,7 +79,11 @@ class _FocusScreenState extends State<FocusScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: 20),
+            const _LockNote(),
             const Spacer(),
+            const _TodaysSessions(completed: _completedSessions),
+            const SizedBox(height: 20),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
               child: SizedBox(
@@ -132,5 +142,105 @@ class _InvincibleChip extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// "12 apps paused · DND on" — reinforces what invincible mode is
+/// actually doing while the ring runs, so the state isn't only
+/// communicated once at the top of the screen.
+class _LockNote extends StatelessWidget {
+  const _LockNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Icon(Icons.notifications_off_rounded, size: 13, color: AppColors.inkFaint),
+        const SizedBox(width: 6),
+        Text('12 apps paused · DND on', style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11.5)),
+      ],
+    );
+  }
+}
+
+class _TodaysSessions extends StatelessWidget {
+  const _TodaysSessions({required this.completed, this.total = 3});
+  final int completed;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          "TODAY'S SESSIONS",
+          style: Theme.of(context).textTheme.labelSmall,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (var i = 0; i < total; i++) ...[
+              if (i > 0) const SizedBox(width: 6),
+              _SessionDot(state: i < completed
+                  ? _SessionState.done
+                  : i == completed
+                      ? _SessionState.active
+                      : _SessionState.empty),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+enum _SessionState { done, active, empty }
+
+class _SessionDot extends StatelessWidget {
+  const _SessionDot({required this.state});
+  final _SessionState state;
+
+  @override
+  Widget build(BuildContext context) {
+    switch (state) {
+      case _SessionState.active:
+        return Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [AppColors.accent, AppColors.calm],
+            ),
+            border: Border.all(color: AppColors.accent, width: 3),
+          ),
+        );
+      case _SessionState.done:
+        return Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: AppColors.accent.withOpacity(0.25),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.accent),
+          ),
+          child: const Icon(Icons.check_rounded, size: 16, color: AppColors.accentSoft),
+        );
+      case _SessionState.empty:
+        return Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: AppColors.surface2,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.stroke),
+          ),
+        );
+    }
   }
 }

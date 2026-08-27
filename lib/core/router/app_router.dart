@@ -3,6 +3,7 @@ import '../../shared/widgets/nav_shell.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/focus/focus_screen.dart';
 import '../../features/limits/limits_screen.dart';
+import '../../features/bedtime/bedtime_screen.dart';
 import 'morph_transition.dart';
 
 /// Route paths as constants — avoids magic strings scattered across
@@ -52,8 +53,17 @@ final appRouter = GoRouter(
                 tabMorph(child, animation),
           ),
         ),
-        // Bedtime / Settings screens plug in the same way — omitted here
-        // to keep this scaffold focused; see features/ for the pattern.
+        GoRoute(
+          path: Routes.bedtime,
+          pageBuilder: (context, state) => CustomTransitionPage(
+            key: state.pageKey,
+            child: const BedtimeScreen(),
+            transitionsBuilder: (_, animation, __, child) =>
+                tabMorph(child, animation),
+          ),
+        ),
+        // Settings plugs in the same way — omitted here to keep this
+        // scaffold focused; see features/ for the pattern.
       ],
     ),
     // Detail screens (App Limits detail, Internet & Sites, blocking
