@@ -24,6 +24,16 @@ jobs:
       - name: Remove default widget test
         run: rm -f test/widget_test.dart
 
+      - name: Patch Android Gradle config
+        run: |
+          sed -E -i \
+            -e 's/(id "org\.jetbrains\.kotlin\.android" version )"[^"]+"/\1"1.9.24"/' \
+            -e 's/(id "com\.android\.application" version )"[^"]+"/\1"8.6.0"/' \
+            android/settings.gradle
+          sed -E -i \
+            -e 's/compileSdk(Version)? *=? *flutter\.compileSdkVersion/compileSdk = 35/' \
+            android/app/build.gradle
+
       - name: Install dependencies
         run: flutter pub get
 
