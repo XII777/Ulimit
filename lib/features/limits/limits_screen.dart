@@ -76,7 +76,7 @@ class _GroupCard extends StatelessWidget {
           ),
           if (locked) ...[
             const SizedBox(height: 8),
-            Row(
+            const Row(
               mainAxisSize: MainAxisSize.min,
               children: const [
                 Icon(Icons.lock_rounded, size: 11, color: AppColors.accent),

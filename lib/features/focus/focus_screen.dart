@@ -123,7 +123,7 @@ class _InvincibleChip extends StatelessWidget {
         border: Border.all(color: AppColors.accent.withOpacity(0.4)),
         borderRadius: BorderRadius.circular(AppRadius.pill),
       ),
-      child: Row(
+      child: const Row(
         mainAxisSize: MainAxisSize.min,
         children: const [
           Icon(Icons.lock_rounded, size: 12, color: AppColors.accentSoft),

@@ -42,7 +42,7 @@ class HomeScreen extends ConsumerWidget {
                 // Skeleton state instead of a spinner — a spinner would
                 // be the only moving thing on a static-looking screen
                 // and reads as slower than it is.
-                loading: () => LimitRing(
+                loading: () => const LimitRing(
                   progress: 0,
                   size: 118,
                   trackColor: AppColors.stroke,
