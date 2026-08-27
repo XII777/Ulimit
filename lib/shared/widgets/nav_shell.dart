@@ -1,0 +1,157 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/router/app_router.dart';
+
+class NavShell extends StatelessWidget {
+  const NavShell({super.key, required this.child});
+  final Widget child;
+
+  static const _tabs = [
+    (Routes.home, Icons.home_rounded, 'Home'),
+    (Routes.focus, Icons.track_changes_rounded, 'Focus'),
+    (Routes.limits, Icons.grid_view_rounded, 'Limits'),
+    (Routes.bedtime, Icons.dark_mode_rounded, 'Bedtime'),
+    (Routes.settings, Icons.settings_rounded, 'Settings'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final location = GoRouterState.of(context).uri.path;
+
+    return Scaffold(
+      // `child` is the current tab's screen; Stack lets the nav float
+      // over it without stealing layout space, matching the mockup.
+      body: Stack(
+        children: [
+          child,
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 16,
+            child: _FloatingNavBar(
+              tabs: _tabs,
+              activeIndex: _tabs.indexWhere((t) => t.$1 == location).clamp(0, 4),
+              onTap: (i) => context.go(_tabs[i].$1),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FloatingNavBar extends StatelessWidget {
+  const _FloatingNavBar({
+    required this.tabs,
+    required this.activeIndex,
+    required this.onTap,
+  });
+
+  final List<(String, IconData, String)> tabs;
+  final int activeIndex;
+  final ValueChanged<int> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0B0C10),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.55),
+            blurRadius: 30,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: List.generate(tabs.length, (i) {
+          final isActive = i == activeIndex;
+          final (_, icon, label) = tabs[i];
+          return _NavItem(
+            icon: icon,
+            label: label,
+            isActive: isActive,
+            onTap: () => onTap(i),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+/// The morph: an AnimatedContainer widens from an icon-only circle into
+/// an icon+label pill. AnimatedContainer is the right tool here — it's
+/// implicitly driven by the widget tree diff, so there's no
+/// AnimationController to leak or forget to dispose, and Flutter batches
+/// the size/color tween into a single compositor-friendly pass.
+class _NavItem extends StatelessWidget {
+  const _NavItem({
+    required this.icon,
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        height: 38,
+        padding: EdgeInsets.symmetric(horizontal: isActive ? 14 : 0),
+        decoration: BoxDecoration(
+          color: isActive ? AppColors.ink : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+        ),
+        alignment: Alignment.center,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 38,
+              child: Icon(
+                icon,
+                size: 18,
+                color: isActive ? AppColors.bg : AppColors.inkFaint,
+              ),
+            ),
+            // AnimatedSize + fade avoids laying out invisible text every
+            // frame for the four inactive tabs — cheaper than always
+            // building the label and toggling opacity to zero.
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              child: isActive
+                  ? Padding(
+                      padding: const EdgeInsets.only(right: 2),
+                      child: Text(
+                        label,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.bg,
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

@@ -1,0 +1,47 @@
+name: ulimit
+description: Local-first focus & screen-time control.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State — chosen over Provider/Bloc for granular rebuilds without
+  # boilerplate; AsyncNotifier keeps DB-driven state off the main thread's
+  # critical path.
+  flutter_riverpod: ^2.5.1
+
+  # Local storage — typed SQL, compiles to real prepared statements.
+  # No account/cloud layer; everything below is on-device only.
+  drift: ^2.18.0
+  sqlite3_flutter_libs: ^0.5.24
+  path_provider: ^2.1.3
+  path: ^1.9.0
+
+  # Navigation — declarative, and lets us own the transition builder
+  # instead of pulling in a whole animation package for "morphing" nav.
+  go_router: ^14.2.0
+
+  # Type only. Weight is negligible (variable font, subset at build time
+  # via --tree-shake-icons equivalent for fonts is manual: we ship only
+  # the 2 families used across the whole app, not a bundle).
+  google_fonts: ^6.2.1
+
+  # Native Android integration point for Accessibility Service +
+  # Device Admin (see android/ — MethodChannel, not a plugin, since no
+  # existing plugin exposes AccessibilityService the way we need it).
+  # No package here; implemented as platform channel in android/.
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  drift_dev: ^2.18.0
+  build_runner: ^2.4.11
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

@@ -1,0 +1,49 @@
+# Flutter/Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+pubspec.lock
+
+# Drift/build_runner generated code — regenerated via build_runner,
+# not hand-edited, so it doesn't need to live in git history. Remove
+# this line if your team prefers committing generated code for
+# reproducible CI builds without a build_runner step.
+*.g.dart
+
+# Android
+android/.gradle/
+android/captures/
+android/gradlew
+android/gradlew.bat
+android/local.properties
+android/**/GeneratedPluginRegistrant.java
+android/key.properties
+*.jks
+*.keystore
+
+# iOS
+ios/Flutter/.last_build_id
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+**/*.xcuserstate
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local env / secrets — this app has no backend, but keep this in
+# place for API keys (e.g. future crash reporting, IAP config) rather
+# than adding it later after something's already been committed.
+.env
+*.env.local
