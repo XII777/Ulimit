@@ -1,3 +1,16 @@
+#!/usr/bin/env bash
+# Fixes flutter analyze: prefer_const_constructors warnings in the
+# weekly trend card header (home_screen.dart).
+# Applies the fix, commits, pushes, then deletes itself.
+set -e
+
+if [ ! -f pubspec.yaml ]; then
+  echo "Run this from inside your repo root (where pubspec.yaml lives)."
+  exit 1
+fi
+
+mkdir -p "lib/features/home"
+cat > "lib/features/home/home_screen.dart" << 'PATCH_EOF'
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/tokens.dart';
@@ -449,3 +462,11 @@ class _ControlTile extends StatelessWidget {
     );
   }
 }
+PATCH_EOF
+
+git add -A
+git -c user.email="dev@ulimit.app" -c user.name="Ulimit Dev" commit -m "Fix flutter analyze: prefer_const_constructors in weekly trend card header"
+git push
+
+echo "Pushed. Removing this script."
+rm -- "$0"
