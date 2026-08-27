@@ -7,6 +7,11 @@ class Profile extends Table {
   TextColumn get displayName => text().withDefault(const Constant('You'))();
   TextColumn get photoPath => text().nullable()();
   TextColumn get themeId => text().withDefault(const Constant('violet'))();
+  // Daily screen-time budget in minutes, used by the Home ring and the
+  // score formula's screen-time component. Configurable in Settings;
+  // defaults to 4h for a fresh install so the ring has something
+  // meaningful to show before the user sets their own number.
+  IntColumn get dailyBudgetMinutes => integer().withDefault(const Constant(240))();
 }
 
 class FocusSessions extends Table {
@@ -87,4 +92,19 @@ class EmergencyUnlocks extends Table {
   DateTimeColumn get usedAt => dateTime()();
   TextColumn get packageName => text()();
   IntColumn get grantedSeconds => integer()();
+}
+
+/// One row per day. Incremented every time the AccessibilityService
+/// reports a foreground-app transition — this is what "Pickups / day"
+/// on Home actually measures. Approximate by nature (a true "unlock"
+/// signal would need ACTION_USER_PRESENT from a separate BroadcastReceiver,
+/// which is a reasonable v2 addition), but every foreground switch is a
+/// real, on-device event, not a guess.
+class PickupsLog extends Table {
+  DateTimeColumn get day => dateTime()(); // truncated to midnight
+
+  IntColumn get count => integer().withDefault(const Constant(0))();
+
+  @override
+  Set<Column> get primaryKey => {day};
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/providers.dart';
+import '../../data/home_data_providers.dart';
 import '../../shared/widgets/limit_ring.dart';
 import '../../shared/widgets/trend_chart.dart';
 import '../../shared/widgets/pressable_scale.dart';
@@ -11,10 +12,14 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Only this value rebuilds on DB change — everything else on the
-    // screen is const or driven by its own narrow provider, so a
-    // usage-row insert never repaints the whole page.
     final screenTime = ref.watch(todayScreenTimeProvider);
+    final budgetMinutes = ref.watch(dailyBudgetProvider);
+    final score = ref.watch(limitScoreProvider);
+    final streak = ref.watch(currentStreakProvider);
+    final weeklyUsage = ref.watch(weeklyScreenTimeHoursProvider);
+    final weeklyFocusSeconds = ref.watch(weeklyFocusSecondsProvider);
+    final weeklyFocusHours = ref.watch(weeklyFocusHoursByDayProvider);
+    final weeklyPickups = ref.watch(weeklyPickupsProvider);
 
     return DecoratedBox(
       decoration: const BoxDecoration(
@@ -29,44 +34,36 @@ class HomeScreen extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
           children: [
-            const _Header(),
+            _Header(streak: streak.valueOrNull ?? 0),
             const SizedBox(height: 18),
 
-            const _LimitScoreBanner(score: 475, tier: 'Focused'),
+            _LimitScoreBanner(score: score),
             const SizedBox(height: 22),
 
             Center(
-              child: screenTime.when(
-                data: (used) => _ScreenTimeRing(used: used, budget: const Duration(hours: 4)),
-                loading: () => const LimitRing(progress: 0, size: 122, trackColor: AppColors.stroke),
-                error: (_, __) => const Icon(Icons.error_outline, color: AppColors.danger),
-              ),
+              child: _buildRing(screenTime, budgetMinutes),
             ),
             const SizedBox(height: 28),
 
             const _SectionLabel('THIS WEEK'),
             const SizedBox(height: 10),
-            const _WeeklyTrendCard(),
+            _WeeklyTrendCard(weeklyHours: weeklyUsage),
             const SizedBox(height: 10),
-            const Row(
+            Row(
               children: [
                 Expanded(
                   child: _MiniTrendCard(
                     label: 'Focus time',
-                    value: '11h 20m',
-                    delta: '▲ 12%',
-                    deltaGood: true,
-                    values: [4, 5, 4.5, 7, 6, 8.5, 9],
+                    valueText: _formatFocusTotal(weeklyFocusSeconds.valueOrNull),
+                    values: weeklyFocusHours.valueOrNull ?? const [0, 0, 0, 0, 0, 0, 0],
                   ),
                 ),
-                SizedBox(width: 10),
+                const SizedBox(width: 10),
                 Expanded(
                   child: _MiniTrendCard(
                     label: 'Pickups / day',
-                    value: '48',
-                    delta: '▼ 9%',
-                    deltaGood: true,
-                    values: [58, 55, 56, 48, 50, 44, 48],
+                    valueText: _formatPickupsAvg(weeklyPickups.valueOrNull),
+                    values: weeklyPickups.valueOrNull ?? const [0, 0, 0, 0, 0, 0, 0],
                   ),
                 ),
               ],
@@ -81,10 +78,34 @@ class HomeScreen extends ConsumerWidget {
       ),
     );
   }
+
+  Widget _buildRing(AsyncValue<Duration> screenTime, AsyncValue<int> budgetMinutes) {
+    if (screenTime.isLoading || budgetMinutes.isLoading) {
+      return const LimitRing(progress: 0, size: 130, trackColor: AppColors.stroke);
+    }
+    final used = screenTime.valueOrNull ?? Duration.zero;
+    final budget = Duration(minutes: budgetMinutes.valueOrNull ?? 240);
+    return _ScreenTimeRing(used: used, budget: budget);
+  }
+
+  String _formatFocusTotal(int? seconds) {
+    if (seconds == null || seconds == 0) return '0m';
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    if (h <= 0) return '${m}m';
+    return '${h}h ${m}m';
+  }
+
+  String _formatPickupsAvg(List<double>? days) {
+    if (days == null || days.isEmpty) return '—';
+    final avg = days.reduce((a, b) => a + b) / days.length;
+    return avg.round().toString();
+  }
 }
 
 class _Header extends StatelessWidget {
-  const _Header();
+  const _Header({required this.streak});
+  final int streak;
 
   @override
   Widget build(BuildContext context) {
@@ -101,10 +122,7 @@ class _Header extends StatelessWidget {
             ],
           ),
         ),
-        // Streak chip moved into the header row itself — reads as a
-        // status badge rather than a floating pill competing with the
-        // ring for attention below.
-        const _StreakBadge(days: 4),
+        if (streak > 0) _StreakBadge(days: streak),
       ],
     );
   }
@@ -163,24 +181,18 @@ class _ScreenTimeRing extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final remaining = budget - used;
-    final progress = 1 - (used.inSeconds / budget.inSeconds).clamp(0.0, 1.0);
+    final safeBudget = budget.inSeconds <= 0 ? 1 : budget.inSeconds;
+    final progress = 1 - (used.inSeconds / safeBudget).clamp(0.0, 1.0);
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: progress),
       duration: const Duration(milliseconds: 600),
       curve: Curves.easeOutCubic,
       builder: (context, value, _) => Container(
-        // A soft glow behind the ring is what actually reads as
-        // "premium" in a dark UI — cheap: one BoxShadow, not a blurred
-        // duplicate layer.
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           boxShadow: [
-            BoxShadow(
-              color: AppColors.accent.withOpacity(0.18),
-              blurRadius: 40,
-              spreadRadius: 4,
-            ),
+            BoxShadow(color: AppColors.accent.withOpacity(0.18), blurRadius: 40, spreadRadius: 4),
           ],
         ),
         child: LimitRing(
@@ -201,20 +213,22 @@ class _ScreenTimeRing extends StatelessWidget {
   }
 
   String _formatDuration(Duration d) {
-    final h = d.inHours;
-    final m = d.inMinutes % 60;
+    final clamped = d.isNegative ? Duration.zero : d;
+    final h = clamped.inHours;
+    final m = clamped.inMinutes % 60;
     if (h <= 0) return '${m}m';
     return '${h}h ${m}m';
   }
 }
 
 class _LimitScoreBanner extends StatelessWidget {
-  const _LimitScoreBanner({required this.score, required this.tier});
-  final int score;
-  final String tier;
+  const _LimitScoreBanner({required this.score});
+  final AsyncValue<LimitScore> score;
 
   @override
   Widget build(BuildContext context) {
+    final data = score.valueOrNull;
+
     return PressableScale(
       onTap: () {}, // wire to Routes.score detail push
       child: Container(
@@ -236,9 +250,7 @@ class _LimitScoreBanner extends StatelessWidget {
               height: 44,
               decoration: const BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: SweepGradient(
-                  colors: [AppColors.accent, AppColors.accentSoft, AppColors.accent],
-                ),
+                gradient: SweepGradient(colors: [AppColors.accent, AppColors.accentSoft, AppColors.accent]),
               ),
               child: Center(
                 child: Container(
@@ -258,7 +270,7 @@ class _LimitScoreBanner extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.baseline,
                     textBaseline: TextBaseline.alphabetic,
                     children: [
-                      Text('$score',
+                      Text(data == null ? '—' : '${data.score}',
                           style: Theme.of(context)
                               .textTheme
                               .titleMedium
@@ -271,7 +283,12 @@ class _LimitScoreBanner extends StatelessWidget {
                               ?.copyWith(fontWeight: FontWeight.w600, color: AppColors.inkDim)),
                     ],
                   ),
-                  Text('$tier tier · 25 to next badge', style: Theme.of(context).textTheme.bodySmall),
+                  Text(
+                    data == null
+                        ? 'Calculating…'
+                        : '${data.tier.name} tier · ${data.toNextTier} to next badge',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ],
               ),
             ),
@@ -284,12 +301,15 @@ class _LimitScoreBanner extends StatelessWidget {
 }
 
 class _WeeklyTrendCard extends StatelessWidget {
-  const _WeeklyTrendCard();
-
-  static const _values = [3.8, 3.2, 3.9, 2.6, 2.9, 2.1, 1.9]; // hours, Mon→Sun
+  const _WeeklyTrendCard({required this.weeklyHours});
+  final AsyncValue<List<double>> weeklyHours;
 
   @override
   Widget build(BuildContext context) {
+    final values = weeklyHours.valueOrNull;
+    final hasData = values != null && values.any((v) => v > 0);
+    final avg = hasData ? values.reduce((a, b) => a + b) / values.length : 0.0;
+
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
       decoration: BoxDecoration(
@@ -300,19 +320,29 @@ class _WeeklyTrendCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Avg. daily screen time',
-                  style: TextStyle(fontSize: 12, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
-              Text('▼ 18% vs last week',
-                  style: TextStyle(fontSize: 11, color: AppColors.accentSoft, fontWeight: FontWeight.w600)),
-            ],
-          ),
+          const Text('Avg. daily screen time',
+              style: TextStyle(fontSize: 12, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
           const SizedBox(height: 2),
-          Text('3h 12m', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 19, fontWeight: FontWeight.w700)),
+          Text(
+            hasData ? _formatHours(avg) : 'No data yet',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 19, fontWeight: FontWeight.w700),
+          ),
           const SizedBox(height: 6),
-          const TrendAreaChart(values: _values),
+          if (hasData)
+            TrendAreaChart(values: values)
+          else
+            // First-run / no-Accessibility-permission state — an empty
+            // chart card reads as broken, so say so explicitly instead.
+            SizedBox(
+              height: 84,
+              child: Center(
+                child: Text(
+                  'Enable Accessibility access to start tracking',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 11, color: AppColors.inkFaint),
+                ),
+              ),
+            ),
           const SizedBox(height: 4),
           const Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -324,6 +354,13 @@ class _WeeklyTrendCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _formatHours(double hours) {
+    final h = hours.floor();
+    final m = ((hours - h) * 60).round();
+    if (h <= 0) return '${m}m';
+    return '${h}h ${m}m';
   }
 }
 
@@ -338,16 +375,12 @@ class _DayLabel extends StatelessWidget {
 class _MiniTrendCard extends StatelessWidget {
   const _MiniTrendCard({
     required this.label,
-    required this.value,
-    required this.delta,
-    required this.deltaGood,
+    required this.valueText,
     required this.values,
   });
 
   final String label;
-  final String value;
-  final String delta;
-  final bool deltaGood;
+  final String valueText;
   final List<double> values;
 
   @override
@@ -366,8 +399,8 @@ class _MiniTrendCard extends StatelessWidget {
           const SizedBox(height: 6),
           Sparkline(values: values),
           const SizedBox(height: 6),
-          Text(value, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 16, fontWeight: FontWeight.w700)),
-          Text(delta, style: TextStyle(fontSize: 10, color: deltaGood ? AppColors.accentSoft : AppColors.inkFaint)),
+          Text(valueText,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 16, fontWeight: FontWeight.w700)),
         ],
       ),
     );
@@ -378,12 +411,12 @@ class _ControlsGrid extends StatelessWidget {
   const _ControlsGrid();
 
   static const _tiles = [
-    ('Focus', Icons.track_changes_rounded, '3 sessions · 1h 40m today'),
-    ('App Limits', Icons.grid_view_rounded, '3 groups · 1 near limit'),
-    ('App Blocking', Icons.block_rounded, '5 apps blocked'),
-    ('Internet & Sites', Icons.public_rounded, 'VPN active'),
-    ('Notifications', Icons.notifications_rounded, 'Batching every 30 min'),
-    ('Bedtime', Icons.dark_mode_rounded, '10:30 PM – 6:30 AM'),
+    ('Focus', Icons.track_changes_rounded, 'Start a session'),
+    ('App Limits', Icons.grid_view_rounded, 'Manage groups'),
+    ('App Blocking', Icons.block_rounded, 'Manage blocked apps'),
+    ('Internet & Sites', Icons.public_rounded, 'VPN & filters'),
+    ('Notifications', Icons.notifications_rounded, 'Manage delivery'),
+    ('Bedtime', Icons.dark_mode_rounded, 'Manage schedule'),
   ];
 
   @override
@@ -415,7 +448,7 @@ class _ControlTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return PressableScale(
-      onTap: () {}, // wire to each tile's detail route
+      onTap: () {},
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -437,12 +470,10 @@ class _ControlTile extends StatelessWidget {
               child: Icon(icon, size: 15, color: AppColors.accentSoft),
             ),
             Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 12.5)),
-            Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10),
-            ),
+            Text(subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10)),
           ],
         ),
       ),

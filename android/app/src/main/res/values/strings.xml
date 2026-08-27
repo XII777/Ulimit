@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ulimit</string>
+    <string name="accessibility_service_description">Lets Ulimit detect app usage, enforce limits, and show the block screen — this is the core engine behind the app and never leaves your device.</string>
+</resources>

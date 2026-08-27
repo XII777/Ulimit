@@ -1,0 +1,58 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+android {
+    namespace "com.ulimit.app"
+    compileSdk 34
+    ndkVersion flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main.java.srcDirs += "src/main/kotlin"
+    }
+
+    defaultConfig {
+        applicationId "com.ulimit.app"
+        // sqlite3_flutter_libs and drift both work fine from API 23+;
+        // going lower buys negligible reach in 2026 and complicates the
+        // AccessibilityService APIs used above.
+        minSdk 23
+        targetSdk 34
+        versionCode flutter.versionCode
+        versionName flutter.versionName
+    }
+
+    buildTypes {
+        release {
+            // No real signing config wired here — CI's `flutter build apk
+            // --release` produces an unsigned/debug-signed artifact for
+            // sideload testing. Wire a proper keystore + signingConfig
+            // before a Play Store submission.
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+}
+
+flutter {
+    source "../.."
+}
+
+dependencies {
+    // Biometric availability check (BiometricManager) used in
+    // MainActivity.kt's isBiometricAvailable().
+    implementation "androidx.biometric:biometric:1.1.0"
+    implementation "androidx.core:core-ktx:1.13.1"
+}

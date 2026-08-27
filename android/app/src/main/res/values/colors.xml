@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches AppColors.bg (#0F1116) exactly, so the native splash
+         and the Flutter-rendered first frame are indistinguishable. -->
+    <color name="launch_background_color">#0F1116</color>
+</resources>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <!-- limit-password is the minimal policy needed so this XML is
+             valid (Android requires at least one declared policy). It's
+             never actually enforced — Ulimit doesn't set password rules.
+             Device Admin status alone is what blocks a casual uninstall
+             or force-stop without first deactivating admin in Settings. -->
+        <limit-password />
+    </uses-policies>
+</device-admin>

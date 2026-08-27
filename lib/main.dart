@@ -2,24 +2,62 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'data/permissions_providers.dart';
+import 'data/providers.dart';
+import 'data/usage_tracker.dart';
+import 'features/onboarding/permissions_screen.dart';
 
 void main() {
-  // No Firebase.init, no analytics SDK init, no remote-config fetch —
-  // this app is local-first, so main() has nothing to await. Startup
-  // is bounded by Flutter's own engine warm-up, not our code.
   runApp(const ProviderScope(child: UlimitApp()));
 }
 
-class UlimitApp extends StatelessWidget {
+class UlimitApp extends ConsumerStatefulWidget {
   const UlimitApp({super.key});
 
   @override
+  ConsumerState<UlimitApp> createState() => _UlimitAppState();
+}
+
+class _UlimitAppState extends ConsumerState<UlimitApp> {
+  UsageTracker? _tracker;
+
+  @override
   Widget build(BuildContext context) {
+    _tracker ??= UsageTracker(ref.read(databaseProvider))..start();
+
+    final permissionsGranted = ref.watch(requiredPermissionsGrantedProvider);
+
+    // The gate: until every required permission is granted, the app
+    // shows nothing but the permissions screen — there's no route to
+    // Home, Focus, or any control screen with the enforcement engine
+    // half-wired, which would just be a UI that lies about what it's
+    // doing. Two distinct MaterialApp branches (rather than swapping
+    // `home` on one instance) keeps go_router's own Navigator fully
+    // out of the picture until it's actually needed.
+    if (!permissionsGranted) {
+      return MaterialApp(
+        title: 'Ulimit',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.dark,
+        home: PermissionsScreen(
+          onAllGranted: () {}, // no-op — the provider watch above
+          // handles the transition the instant permissionsGranted flips
+          // true; see requiredPermissionsGrantedProvider's doc comment.
+        ),
+      );
+    }
+
     return MaterialApp.router(
       title: 'Ulimit',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
       routerConfig: appRouter,
     );
+  }
+
+  @override
+  void dispose() {
+    _tracker?.dispose();
+    super.dispose();
   }
 }
