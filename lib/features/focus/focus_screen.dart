@@ -125,7 +125,7 @@ class _InvincibleChip extends StatelessWidget {
       ),
       child: const Row(
         mainAxisSize: MainAxisSize.min,
-        children: const [
+        children: [
           Icon(Icons.lock_rounded, size: 12, color: AppColors.accentSoft),
           SizedBox(width: 6),
           Text('Invincible mode on', style: TextStyle(fontSize: 11.5, color: AppColors.accentSoft)),

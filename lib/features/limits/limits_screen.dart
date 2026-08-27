@@ -78,7 +78,7 @@ class _GroupCard extends StatelessWidget {
             const SizedBox(height: 8),
             const Row(
               mainAxisSize: MainAxisSize.min,
-              children: const [
+              children: [
                 Icon(Icons.lock_rounded, size: 11, color: AppColors.accent),
                 SizedBox(width: 4),
                 Text('Locked until reset', style: TextStyle(fontSize: 10, color: AppColors.accent)),
