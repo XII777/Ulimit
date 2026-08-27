@@ -18,6 +18,9 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Ensure Android platform files
+        run: flutter create --platforms=android .
+
       - name: Install dependencies
         run: flutter pub get
 
