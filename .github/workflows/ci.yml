@@ -34,6 +34,12 @@ jobs:
             -e 's/compileSdk(Version)? *=? *flutter\.compileSdkVersion/compileSdk = 35/' \
             android/app/build.gradle
 
+      - name: Patch Gradle wrapper version
+        run: |
+          sed -E -i \
+            -e 's#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-all.zip#' \
+            android/gradle/wrapper/gradle-wrapper.properties
+
       - name: Install dependencies
         run: flutter pub get
 
