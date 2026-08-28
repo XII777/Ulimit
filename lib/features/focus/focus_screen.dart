@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/tokens.dart';
 import '../../shared/widgets/limit_ring.dart';
 
@@ -68,8 +69,7 @@ class _FocusScreenState extends State<FocusScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(_format(_remaining), style: const TextStyle(
-                    fontFamily: 'SpaceGrotesk',
+                  Text(_format(_remaining), style: GoogleFonts.spaceGrotesk(
                     fontSize: 38,
                     fontWeight: FontWeight.w600,
                     color: AppColors.ink,

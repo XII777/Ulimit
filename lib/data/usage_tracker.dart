@@ -71,7 +71,11 @@ class UsageTracker {
       ON CONFLICT(package_name, day)
       DO UPDATE SET foreground_seconds = foreground_seconds + excluded.foreground_seconds
       ''',
-      [package, day.millisecondsSinceEpoch, seconds],
+      // Drift stores DateTimeColumn as unix *seconds* by default —
+      // this raw customStatement bypasses Drift's automatic conversion,
+      // so it must match that convention by hand or every typed read
+      // elsewhere in the app silently never matches what gets written here.
+      [package, day.millisecondsSinceEpoch ~/ 1000, seconds],
     );
   }
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/db/app_database.dart';
@@ -48,8 +49,7 @@ class BedtimeScreen extends ConsumerWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(_formatTime(startTime), style: const TextStyle(
-              fontFamily: 'SpaceGrotesk',
+            Text(_formatTime(startTime), style: GoogleFonts.spaceGrotesk(
               fontSize: 22,
               fontWeight: FontWeight.w600,
               color: AppColors.ink,
@@ -57,8 +57,7 @@ class BedtimeScreen extends ConsumerWidget {
             const SizedBox(width: 10),
             const Icon(Icons.arrow_forward_rounded, size: 16, color: AppColors.inkFaint),
             const SizedBox(width: 10),
-            Text(_formatTime(endTime), style: const TextStyle(
-              fontFamily: 'SpaceGrotesk',
+            Text(_formatTime(endTime), style: GoogleFonts.spaceGrotesk(
               fontSize: 22,
               fontWeight: FontWeight.w600,
               color: AppColors.ink,

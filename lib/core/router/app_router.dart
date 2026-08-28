@@ -4,6 +4,7 @@ import '../../features/home/home_screen.dart';
 import '../../features/focus/focus_screen.dart';
 import '../../features/limits/limits_screen.dart';
 import '../../features/bedtime/bedtime_screen.dart';
+import '../../features/settings/settings_screen.dart';
 import 'morph_transition.dart';
 
 /// Route paths as constants — avoids magic strings scattered across
@@ -62,8 +63,15 @@ final appRouter = GoRouter(
                 tabMorph(child, animation),
           ),
         ),
-        // Settings plugs in the same way — omitted here to keep this
-        // scaffold focused; see features/ for the pattern.
+        GoRoute(
+          path: Routes.settings,
+          pageBuilder: (context, state) => CustomTransitionPage(
+            key: state.pageKey,
+            child: const SettingsScreen(),
+            transitionsBuilder: (_, animation, __, child) =>
+                tabMorph(child, animation),
+          ),
+        ),
       ],
     ),
     // Detail screens (App Limits detail, Internet & Sites, blocking
