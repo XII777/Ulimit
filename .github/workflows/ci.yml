@@ -21,7 +21,12 @@ jobs:
           cache: true
 
       - name: Ensure Android platform files
-        run: flutter create --platforms=android .
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android .
+          else
+            echo "android/ already exists in the repo -- skipping regeneration so committed native code isn't overwritten."
+          fi
 
       - name: Remove default widget test
         run: rm -f test/widget_test.dart
