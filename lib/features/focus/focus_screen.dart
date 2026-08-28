@@ -1,21 +1,25 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/tokens.dart';
-import '../../data/providers.dart';
 import '../../shared/widgets/limit_ring.dart';
 
-class FocusScreen extends ConsumerStatefulWidget {
+class FocusScreen extends StatefulWidget {
   const FocusScreen({super.key});
 
   @override
-  ConsumerState<FocusScreen> createState() => _FocusScreenState();
+  State<FocusScreen> createState() => _FocusScreenState();
 }
 
-class _FocusScreenState extends ConsumerState<FocusScreen> {
+class _FocusScreenState extends State<FocusScreen> {
   static const _total = Duration(minutes: 25);
   Duration _remaining = _total;
   Timer? _ticker;
+
+  // Placeholder — swap for a real todaysSessionsProvider (Drift query on
+  // FocusSessions where startedAt is today) once that lands. Matches the
+  // 3-dot pattern in the design: completed sessions filled, the current
+  // one shown as an accent-to-calm gradient chip, empty slots as tracks.
+  static const _completedSessions = 2;
 
   @override
   void initState() {
@@ -42,7 +46,6 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
   @override
   Widget build(BuildContext context) {
     final progress = 1 - (_remaining.inSeconds / _total.inSeconds);
-    final todaysSessions = ref.watch(todaysCompletedSessionsProvider);
 
     return Container(
       decoration: const BoxDecoration(
@@ -79,11 +82,7 @@ class _FocusScreenState extends ConsumerState<FocusScreen> {
             const SizedBox(height: 20),
             const _LockNote(),
             const Spacer(),
-            todaysSessions.when(
-              data: (completed) => _TodaysSessions(completed: completed),
-              loading: () => const _TodaysSessions(completed: 0),
-              error: (_, __) => const _TodaysSessions(completed: 0),
-            ),
+            const _TodaysSessions(completed: _completedSessions, total: 3),
             const SizedBox(height: 20),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
@@ -149,10 +148,6 @@ class _InvincibleChip extends StatelessWidget {
 /// "12 apps paused · DND on" — reinforces what invincible mode is
 /// actually doing while the ring runs, so the state isn't only
 /// communicated once at the top of the screen.
-///
-/// Still a static string: it describes invincible mode's *fixed*
-/// behavior (which apps get paused is a global setting, not per-session
-/// data), not a per-session metric that needs its own provider.
 class _LockNote extends StatelessWidget {
   const _LockNote();
 
@@ -170,9 +165,9 @@ class _LockNote extends StatelessWidget {
 }
 
 class _TodaysSessions extends StatelessWidget {
-  const _TodaysSessions({required this.completed});
+  const _TodaysSessions({required this.completed, this.total = 3});
   final int completed;
-  static const _total = 3;
+  final int total;
 
   @override
   Widget build(BuildContext context) {
@@ -187,7 +182,7 @@ class _TodaysSessions extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            for (var i = 0; i < _total; i++) ...[
+            for (var i = 0; i < total; i++) ...[
               if (i > 0) const SizedBox(width: 6),
               _SessionDot(state: i < completed
                   ? _SessionState.done
