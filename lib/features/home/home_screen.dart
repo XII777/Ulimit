@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/providers.dart';
-import '../../data/home_data_providers.dart';
 import '../../shared/widgets/limit_ring.dart';
-import '../../shared/widgets/trend_chart.dart';
-import '../../shared/widgets/pressable_scale.dart';
+import '../../shared/widgets/mini_charts.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -13,117 +11,87 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final screenTime = ref.watch(todayScreenTimeProvider);
-    final budgetMinutes = ref.watch(dailyBudgetProvider);
-    final score = ref.watch(limitScoreProvider);
-    final streak = ref.watch(currentStreakProvider);
-    final weeklyUsage = ref.watch(weeklyScreenTimeHoursProvider);
-    final weeklyFocusSeconds = ref.watch(weeklyFocusSecondsProvider);
-    final weeklyFocusHours = ref.watch(weeklyFocusHoursByDayProvider);
-    final weeklyPickups = ref.watch(weeklyPickupsProvider);
+    final scoreState = ref.watch(limitScoreProvider);
+    final todaysSessions = ref.watch(todaysCompletedSessionsProvider);
 
     return DecoratedBox(
       decoration: const BoxDecoration(
         gradient: RadialGradient(
           center: Alignment.topCenter,
-          radius: 1.15,
+          radius: 1.1,
           colors: [Color(0x3A8B7FE8), Colors.transparent],
           stops: [0.0, 0.6],
         ),
       ),
       child: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
           children: [
-            _Header(streak: streak.valueOrNull ?? 0),
-            const SizedBox(height: 18),
+            Text('Today', style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 2),
+            Text(_formattedDate(), style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 16),
 
-            _LimitScoreBanner(score: score),
-            const SizedBox(height: 22),
+            scoreState.when(
+              data: (s) => _LimitScoreBanner(score: s.score, tier: s.tier, toNextBadge: s.pointsToNextTier),
+              loading: () => const _LimitScoreBanner(score: 0, tier: '—', toNextBadge: 0),
+              error: (_, __) => const _LimitScoreBanner(score: 0, tier: '—', toNextBadge: 0),
+            ),
+            const SizedBox(height: 16),
 
             Center(
-              child: _buildRing(screenTime, budgetMinutes),
-            ),
-            const SizedBox(height: 28),
-
-            const _SectionLabel('THIS WEEK'),
-            const SizedBox(height: 10),
-            _WeeklyTrendCard(weeklyHours: weeklyUsage),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _MiniTrendCard(
-                    label: 'Focus time',
-                    valueText: _formatFocusTotal(weeklyFocusSeconds.valueOrNull),
-                    values: weeklyFocusHours.valueOrNull ?? const [0, 0, 0, 0, 0, 0, 0],
-                  ),
+              child: screenTime.when(
+                data: (used) => _ScreenTimeRing(used: used, budget: const Duration(hours: 4)),
+                // Skeleton state instead of a spinner — a spinner would
+                // be the only moving thing on a static-looking screen
+                // and reads as slower than it is.
+                loading: () => const LimitRing(
+                  progress: 0,
+                  size: 118,
+                  trackColor: AppColors.stroke,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _MiniTrendCard(
-                    label: 'Pickups / day',
-                    valueText: _formatPickupsAvg(weeklyPickups.valueOrNull),
-                    values: weeklyPickups.valueOrNull ?? const [0, 0, 0, 0, 0, 0, 0],
+                error: (_, __) => const Icon(Icons.error_outline, color: AppColors.danger),
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                scoreState.when(
+                  data: (s) => _StatPill(
+                    icon: Icons.local_fire_department_rounded,
+                    label: '${s.streakDays} day streak',
                   ),
+                  loading: () => const _StatPill(icon: Icons.local_fire_department_rounded, label: '—'),
+                  error: (_, __) => const _StatPill(icon: Icons.local_fire_department_rounded, label: '—'),
+                ),
+                const SizedBox(width: 8),
+                todaysSessions.when(
+                  data: (n) => _StatPill(
+                    icon: Icons.timer_outlined,
+                    label: '$n session${n == 1 ? '' : 's'}',
+                  ),
+                  loading: () => const _StatPill(icon: Icons.timer_outlined, label: '—'),
+                  error: (_, __) => const _StatPill(icon: Icons.timer_outlined, label: '—'),
                 ),
               ],
             ),
-            const SizedBox(height: 28),
+            const SizedBox(height: 24),
 
-            const _SectionLabel('CONTROLS'),
+            Text('THIS WEEK', style: Theme.of(context).textTheme.labelSmall),
+            const SizedBox(height: 8),
+            const _WeeklyScreenTimeCard(),
             const SizedBox(height: 10),
+            const _WeeklyFocusTimeCard(),
+            const SizedBox(height: 24),
+
+            Text('CONTROLS', style: Theme.of(context).textTheme.labelSmall),
+            const SizedBox(height: 8),
             const _ControlsGrid(),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildRing(AsyncValue<Duration> screenTime, AsyncValue<int> budgetMinutes) {
-    if (screenTime.isLoading || budgetMinutes.isLoading) {
-      return const LimitRing(progress: 0, size: 130, trackColor: AppColors.stroke);
-    }
-    final used = screenTime.valueOrNull ?? Duration.zero;
-    final budget = Duration(minutes: budgetMinutes.valueOrNull ?? 240);
-    return _ScreenTimeRing(used: used, budget: budget);
-  }
-
-  String _formatFocusTotal(int? seconds) {
-    if (seconds == null || seconds == 0) return '0m';
-    final h = seconds ~/ 3600;
-    final m = (seconds % 3600) ~/ 60;
-    if (h <= 0) return '${m}m';
-    return '${h}h ${m}m';
-  }
-
-  String _formatPickupsAvg(List<double>? days) {
-    if (days == null || days.isEmpty) return '—';
-    final avg = days.reduce((a, b) => a + b) / days.length;
-    return avg.round().toString();
-  }
-}
-
-class _Header extends StatelessWidget {
-  const _Header({required this.streak});
-  final int streak;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Today', style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 2),
-              Text(_formattedDate(), style: Theme.of(context).textTheme.bodySmall),
-            ],
-          ),
-        ),
-        if (streak > 0) _StreakBadge(days: streak),
-      ],
     );
   }
 
@@ -138,41 +106,6 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _StreakBadge extends StatelessWidget {
-  const _StreakBadge({required this.days});
-  final int days;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(top: 2),
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border.all(color: AppColors.stroke),
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.local_fire_department_rounded, size: 13, color: AppColors.accentSoft),
-          const SizedBox(width: 5),
-          Text('$days day streak',
-              style: const TextStyle(fontSize: 11, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Text(text, style: Theme.of(context).textTheme.labelSmall);
-}
-
 class _ScreenTimeRing extends StatelessWidget {
   const _ScreenTimeRing({required this.used, required this.budget});
   final Duration used;
@@ -181,68 +114,85 @@ class _ScreenTimeRing extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final remaining = budget - used;
-    final safeBudget = budget.inSeconds <= 0 ? 1 : budget.inSeconds;
-    final progress = 1 - (used.inSeconds / safeBudget).clamp(0.0, 1.0);
+    final progress = 1 - (used.inSeconds / budget.inSeconds).clamp(0.0, 1.0);
+
+    // Ring color IS the state signal (design system: calm = on track,
+    // alert = near limit) — not decoration, so it's derived from
+    // progress rather than a fixed color.
+    final ringColor = progress <= 0.15 ? AppColors.alert : AppColors.calm;
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: progress),
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 500),
       curve: Curves.easeOutCubic,
-      builder: (context, value, _) => Container(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(color: AppColors.accent.withOpacity(0.18), blurRadius: 40, spreadRadius: 4),
+      builder: (context, value, _) => LimitRing(
+        progress: value,
+        size: 118,
+        strokeWidth: 8,
+        color: ringColor,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_formatDuration(remaining), style: Theme.of(context).textTheme.headlineSmall),
+            Text('LEFT TODAY', style: Theme.of(context).textTheme.labelSmall),
           ],
-        ),
-        child: LimitRing(
-          progress: value,
-          size: 130,
-          strokeWidth: 9,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(_formatDuration(remaining), style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 2),
-              Text('LEFT TODAY', style: Theme.of(context).textTheme.labelSmall),
-            ],
-          ),
         ),
       ),
     );
   }
 
   String _formatDuration(Duration d) {
-    final clamped = d.isNegative ? Duration.zero : d;
-    final h = clamped.inHours;
-    final m = clamped.inMinutes % 60;
+    final h = d.inHours;
+    final m = d.inMinutes % 60;
     if (h <= 0) return '${m}m';
     return '${h}h ${m}m';
   }
 }
 
-class _LimitScoreBanner extends StatelessWidget {
-  const _LimitScoreBanner({required this.score});
-  final AsyncValue<LimitScore> score;
+class _StatPill extends StatelessWidget {
+  const _StatPill({required this.icon, required this.label});
+  final IconData icon;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
-    final data = score.valueOrNull;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.stroke),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: AppColors.inkDim),
+          const SizedBox(width: 6),
+          Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11.5)),
+        ],
+      ),
+    );
+  }
+}
 
-    return PressableScale(
-      onTap: () {}, // wire to Routes.score detail push
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          border: Border.all(color: AppColors.stroke),
-          gradient: LinearGradient(
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
-            colors: [AppColors.accent.withOpacity(0.14), AppColors.surface],
-            stops: const [0.0, 0.65],
-          ),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+class _LimitScoreBanner extends StatelessWidget {
+  const _LimitScoreBanner({required this.score, required this.tier, required this.toNextBadge});
+  final int score;
+  final String tier;
+  final int toNextBadge;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle = toNextBadge > 0 ? '$tier tier · $toNextBadge to next tier' : '$tier tier · top tier';
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.stroke),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Row(
           children: [
             Container(
@@ -250,7 +200,9 @@ class _LimitScoreBanner extends StatelessWidget {
               height: 44,
               decoration: const BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: SweepGradient(colors: [AppColors.accent, AppColors.accentSoft, AppColors.accent]),
+                gradient: SweepGradient(
+                  colors: [AppColors.accent, AppColors.accentSoft, AppColors.accent],
+                ),
               ),
               child: Center(
                 child: Container(
@@ -270,25 +222,12 @@ class _LimitScoreBanner extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.baseline,
                     textBaseline: TextBaseline.alphabetic,
                     children: [
-                      Text(data == null ? '—' : '${data.score}',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(fontSize: 19, fontWeight: FontWeight.w700)),
+                      Text('$score', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 19, fontWeight: FontWeight.w700)),
                       const SizedBox(width: 6),
-                      Text('Limit',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(fontWeight: FontWeight.w600, color: AppColors.inkDim)),
+                      Text('Limit', style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
                     ],
                   ),
-                  Text(
-                    data == null
-                        ? 'Calculating…'
-                        : '${data.tier.name} tier · ${data.toNextTier} to next badge',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
+                  Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
             ),
@@ -300,91 +239,46 @@ class _LimitScoreBanner extends StatelessWidget {
   }
 }
 
-class _WeeklyTrendCard extends StatelessWidget {
-  const _WeeklyTrendCard({required this.weeklyHours});
-  final AsyncValue<List<double>> weeklyHours;
+/// Percent change helper shared by the two weekly cards below — kept in
+/// one place so "how we compute a delta" has one definition, not two
+/// slightly-different ones.
+String _deltaLabel(int thisWeekAvgSeconds, int lastWeekAvgSeconds) {
+  if (lastWeekAvgSeconds <= 0) return 'No data last week';
+  final change = ((thisWeekAvgSeconds - lastWeekAvgSeconds) / lastWeekAvgSeconds) * 100;
+  final arrow = change <= 0 ? '▼' : '▲';
+  return '$arrow ${change.abs().round()}% vs last week';
+}
+
+class _WeeklyScreenTimeCard extends ConsumerWidget {
+  const _WeeklyScreenTimeCard();
 
   @override
-  Widget build(BuildContext context) {
-    final values = weeklyHours.valueOrNull;
-    final hasData = values != null && values.any((v) => v > 0);
-    final avg = hasData ? values.reduce((a, b) => a + b) / values.length : 0.0;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final weekly = ref.watch(weeklyScreenTimeProvider);
+    final previous = ref.watch(previousWeekScreenTimeAvgProvider);
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border.all(color: AppColors.stroke),
-        borderRadius: BorderRadius.circular(AppRadius.lg),
+    return weekly.when(
+      data: (days) => previous.when(
+        data: (prevAvg) => _buildCard(context, days, prevAvg.inSeconds),
+        loading: () => _buildCard(context, days, null),
+        error: (_, __) => _buildCard(context, days, null),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Avg. daily screen time',
-              style: TextStyle(fontSize: 12, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 2),
-          Text(
-            hasData ? _formatHours(avg) : 'No data yet',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 19, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 6),
-          if (hasData)
-            TrendAreaChart(values: values)
-          else
-            // First-run / no-Accessibility-permission state — an empty
-            // chart card reads as broken, so say so explicitly instead.
-            SizedBox(
-              height: 84,
-              child: Center(
-                child: Text(
-                  'Enable Accessibility access to start tracking',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 11, color: AppColors.inkFaint),
-                ),
-              ),
-            ),
-          const SizedBox(height: 4),
-          const Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _DayLabel('M'), _DayLabel('T'), _DayLabel('W'), _DayLabel('T'),
-              _DayLabel('F'), _DayLabel('S'), _DayLabel('S'),
-            ],
-          ),
-        ],
-      ),
+      loading: () => const SizedBox(height: 140),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 
-  String _formatHours(double hours) {
-    final h = hours.floor();
-    final m = ((hours - h) * 60).round();
-    if (h <= 0) return '${m}m';
-    return '${h}h ${m}m';
-  }
-}
+  Widget _buildCard(BuildContext context, List<Duration> days, int? prevAvgSeconds) {
+    final seconds = days.map((d) => d.inSeconds).toList();
+    final avgSeconds = seconds.isEmpty ? 0 : seconds.reduce((a, b) => a + b) ~/ seconds.length;
+    final values = seconds.map((s) => s / 3600).toList(); // hours, for the chart
+    final avgHours = avgSeconds / 3600;
 
-class _DayLabel extends StatelessWidget {
-  const _DayLabel(this.text);
-  final String text;
-  @override
-  Widget build(BuildContext context) =>
-      Text(text, style: const TextStyle(fontSize: 9, color: AppColors.inkFaint));
-}
+    // Decreasing screen time is the "good" direction for this metric —
+    // colors the delta accordingly, unlike focus time below where more
+    // is good.
+    final isGood = prevAvgSeconds == null || avgSeconds <= prevAvgSeconds;
 
-class _MiniTrendCard extends StatelessWidget {
-  const _MiniTrendCard({
-    required this.label,
-    required this.valueText,
-    required this.values,
-  });
-
-  final String label;
-  final String valueText;
-  final List<double> values;
-
-  @override
-  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -395,36 +289,188 @@ class _MiniTrendCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 11.5, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Screen time', style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                prevAvgSeconds == null ? '' : _deltaLabel(avgSeconds, prevAvgSeconds),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: isGood ? AppColors.calm : AppColors.alert,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(_formatHours(avgSeconds), style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 22, fontWeight: FontWeight.w700)),
+          Text('daily average', style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10.5)),
+          const SizedBox(height: 10),
+          WeeklyAreaChart(values: values, average: avgHours),
           const SizedBox(height: 6),
-          Sparkline(values: values),
-          const SizedBox(height: 6),
-          Text(valueText,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 16, fontWeight: FontWeight.w700)),
+          _DayLabelsRow(days: _lastNDays(7)),
         ],
       ),
     );
   }
+
+  String _formatHours(int totalSeconds) {
+    final h = totalSeconds ~/ 3600;
+    final m = (totalSeconds % 3600) ~/ 60;
+    if (h <= 0) return '${m}m';
+    return '${h}h ${m}m';
+  }
 }
 
-class _ControlsGrid extends StatelessWidget {
-  const _ControlsGrid();
+class _WeeklyFocusTimeCard extends ConsumerWidget {
+  const _WeeklyFocusTimeCard();
 
-  static const _tiles = [
-    ('Focus', Icons.track_changes_rounded, 'Start a session'),
-    ('App Limits', Icons.grid_view_rounded, 'Manage groups'),
-    ('App Blocking', Icons.block_rounded, 'Manage blocked apps'),
-    ('Internet & Sites', Icons.public_rounded, 'VPN & filters'),
-    ('Notifications', Icons.notifications_rounded, 'Manage delivery'),
-    ('Bedtime', Icons.dark_mode_rounded, 'Manage schedule'),
-  ];
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final weekly = ref.watch(weeklyFocusTimeProvider);
+    final previous = ref.watch(previousWeekFocusTimeAvgProvider);
+
+    return weekly.when(
+      data: (days) => previous.when(
+        data: (prevAvg) => _buildCard(context, days, prevAvg.inSeconds),
+        loading: () => _buildCard(context, days, null),
+        error: (_, __) => _buildCard(context, days, null),
+      ),
+      loading: () => const SizedBox(height: 100),
+      error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+
+  Widget _buildCard(BuildContext context, List<Duration> days, int? prevAvgSeconds) {
+    final seconds = days.map((d) => d.inSeconds).toList();
+    final totalSeconds = seconds.fold(0, (a, b) => a + b);
+    final avgSeconds = seconds.isEmpty ? 0 : totalSeconds ~/ seconds.length;
+    final values = seconds.map((s) => s / 3600).toList();
+
+    // More focus time is the "good" direction here — opposite of the
+    // screen-time card above.
+    final isGood = prevAvgSeconds == null || avgSeconds >= prevAvgSeconds;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.stroke),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Focus time', style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                prevAvgSeconds == null ? '' : _deltaLabel(avgSeconds, prevAvgSeconds),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: isGood ? AppColors.calm : AppColors.alert,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(_formatHours(totalSeconds), style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 17, fontWeight: FontWeight.w700)),
+          Text('this week', style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10.5)),
+          const SizedBox(height: 8),
+          MiniTrendLine(values: values, color: AppColors.calm, height: 32),
+        ],
+      ),
+    );
+  }
+
+  String _formatHours(int totalSeconds) {
+    final h = totalSeconds ~/ 3600;
+    final m = (totalSeconds % 3600) ~/ 60;
+    if (h <= 0) return '${m}m';
+    return '${h}h ${m}m';
+  }
+}
+
+List<DateTime> _lastNDays(int n) {
+  final today = DateTime.now();
+  final start = DateTime(today.year, today.month, today.day).subtract(Duration(days: n - 1));
+  return [for (var i = 0; i < n; i++) start.add(Duration(days: i))];
+}
+
+class _DayLabelsRow extends StatelessWidget {
+  const _DayLabelsRow({required this.days});
+  final List<DateTime> days;
+
+  static const _letters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
   @override
   Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        for (final d in days)
+          Text(_letters[d.weekday - 1], style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10)),
+      ],
+    );
+  }
+}
+
+class _ControlsGrid extends ConsumerWidget {
+  const _ControlsGrid();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final groups = ref.watch(restrictionGroupsProvider);
+    final blockedCount = ref.watch(blockedAppsCountProvider);
+
+    final limitsSubtitle = groups.when(
+      data: (gs) {
+        final nearLimit = gs.where((g) => g.limitSeconds > 0 && g.usedSeconds / g.limitSeconds >= 0.66).length;
+        return '${gs.length} groups · $nearLimit near limit';
+      },
+      loading: () => '—',
+      error: (_, __) => '—',
+    );
+
+    final blockingSubtitle = blockedCount.when(
+      data: (n) => '$n apps blocked',
+      loading: () => '—',
+      error: (_, __) => '—',
+    );
+
+    // Internet & Sites and Notifications have no backing table yet (no
+    // VPN/DNS state, no notification-batching settings) — left as
+    // clearly-labeled placeholders rather than fabricating numbers.
+    final tiles = [
+      (
+        'Focus', Icons.track_changes_rounded, 'Tap to start a session',
+        AppColors.accent, AppColors.accent,
+      ),
+      (
+        'App Limits', Icons.grid_view_rounded, limitsSubtitle,
+        AppColors.alert, AppColors.alert,
+      ),
+      (
+        'App Blocking', Icons.block_rounded, blockingSubtitle,
+        AppColors.danger, AppColors.inkFaint,
+      ),
+      (
+        'Internet & Sites', Icons.public_rounded, 'Not configured yet',
+        AppColors.calm, AppColors.calm,
+      ),
+      (
+        'Notifications', Icons.notifications_rounded, 'Not configured yet',
+        AppColors.accentSoft, null,
+      ),
+    ];
+
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: _tiles.length,
+      itemCount: tiles.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
         mainAxisSpacing: 9,
@@ -432,49 +478,84 @@ class _ControlsGrid extends StatelessWidget {
         childAspectRatio: 1.5,
       ),
       itemBuilder: (context, i) {
-        final (title, icon, subtitle) = _tiles[i];
-        return _ControlTile(title: title, icon: icon, subtitle: subtitle);
+        final (title, icon, subtitle, iconColor, statusColor) = tiles[i];
+        return _ControlTile(
+          title: title,
+          icon: icon,
+          subtitle: subtitle,
+          iconColor: iconColor,
+          statusColor: statusColor,
+        );
       },
     );
   }
 }
 
 class _ControlTile extends StatelessWidget {
-  const _ControlTile({required this.title, required this.icon, required this.subtitle});
+  const _ControlTile({
+    required this.title,
+    required this.icon,
+    required this.subtitle,
+    required this.iconColor,
+    required this.statusColor,
+  });
+
   final String title;
   final IconData icon;
   final String subtitle;
+  final Color iconColor;
+
+  /// Null hides the status dot entirely — not every control has a live
+  /// "state" to show (Notifications doesn't, in the design).
+  final Color? statusColor;
 
   @override
   Widget build(BuildContext context) {
-    return PressableScale(
-      onTap: () {},
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(AppRadius.md),
-          border: Border.all(color: AppColors.stroke),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: AppColors.accent.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(9),
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        onTap: () {}, // wire to detail routes
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: AppColors.stroke),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: iconColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Icon(icon, size: 15, color: iconColor),
+                  ),
+                  if (statusColor != null)
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
+                    ),
+                ],
               ),
-              child: Icon(icon, size: 15, color: AppColors.accentSoft),
-            ),
-            Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 12.5)),
-            Text(subtitle,
+              Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 12.5)),
+              Text(
+                subtitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10)),
-          ],
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10),
+              ),
+            ],
+          ),
         ),
       ),
     );
