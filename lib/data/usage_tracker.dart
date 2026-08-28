@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:drift/drift.dart';
-import '../../core/native/usage_events_channel.dart';
+import '../core/native/usage_events_channel.dart';
 import 'db/app_database.dart';
 
 /// Bridges native foreground-app events into real Drift rows. Started
