@@ -1,6 +1,5 @@
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'db/app_database.dart';
 import 'providers.dart';
 
 DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);

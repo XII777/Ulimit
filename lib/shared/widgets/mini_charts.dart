@@ -120,3 +120,62 @@ class _AreaChartPainter extends CustomPainter {
   bool shouldRepaint(_AreaChartPainter old) =>
       old.values != values || old.average != average || old.color != color;
 }
+
+/// A compact sparkline (no fill, no average line) for small stat cards
+/// like the weekly focus-time card.
+class MiniTrendLine extends StatelessWidget {
+  const MiniTrendLine({
+    super.key,
+    required this.values,
+    required this.color,
+    this.height = 40,
+  });
+
+  final List<double> values;
+  final Color color;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: height,
+      child: CustomPaint(painter: _SparklinePainter(values: values, color: color)),
+    );
+  }
+}
+
+class _SparklinePainter extends CustomPainter {
+  _SparklinePainter({required this.values, required this.color});
+  final List<double> values;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.length < 2) return;
+    final maxV = values.reduce((a, b) => a > b ? a : b);
+    final minV = values.reduce((a, b) => a < b ? a : b);
+    final range = (maxV - minV) <= 0 ? 1.0 : (maxV - minV);
+
+    double xAt(int i) => size.width * i / (values.length - 1);
+    double yAt(double v) => size.height - ((v - minV) / range) * size.height;
+
+    final path = Path()..moveTo(xAt(0), yAt(values[0]));
+    for (var i = 1; i < values.length; i++) {
+      path.lineTo(xAt(i), yAt(values[i]));
+    }
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = color
+        ..strokeWidth = 2.2
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SparklinePainter old) => old.values != values || old.color != color;
+}
