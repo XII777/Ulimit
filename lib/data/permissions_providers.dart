@@ -37,6 +37,15 @@ final biometricAvailableProvider = FutureProvider<bool>((ref) {
   return NativePermissions.isBiometricAvailable();
 });
 
+/// Device Admin is requested during onboarding but never *required* —
+/// tapping "Allow" opens the system dialog once; whatever the user
+/// decides there, onboarding treats the card as handled so it never
+/// blocks app access. This flag is what lets the card show "Done"
+/// even when the native isDeviceAdminActive() check is still false.
+/// The real, persistent toggle for actually enabling it lives in the
+/// Parental & Lock screen instead.
+final deviceAdminAcknowledgedProvider = StateProvider<bool>((ref) => false);
+
 /// One combined item type the onboarding screen renders from — keeps
 /// the widget dumb (map over a list) instead of five near-identical
 /// card widgets hand-wired to five different providers.
@@ -56,6 +65,8 @@ final allPermissionsProvider = Provider<List<PermissionStatus>>((ref) {
   final notifications = ref.watch(notificationListenerEnabledProvider);
   final biometric = ref.watch(biometricAvailableProvider);
 
+  final deviceAdminAcknowledged = ref.watch(deviceAdminAcknowledgedProvider);
+
   PermissionStatus build(PermissionKind kind, AsyncValue<bool> value) => PermissionStatus(
         kind: kind,
         granted: value.valueOrNull ?? false,
@@ -65,19 +76,27 @@ final allPermissionsProvider = Provider<List<PermissionStatus>>((ref) {
   return [
     build(PermissionKind.accessibility, accessibility),
     build(PermissionKind.vpn, vpn),
-    build(PermissionKind.deviceAdmin, deviceAdmin),
+    // Shows "Done" once either the OS reports it active, or the user
+    // has been through the request flow once this session — see
+    // deviceAdminAcknowledgedProvider's doc comment.
+    PermissionStatus(
+      kind: PermissionKind.deviceAdmin,
+      granted: (deviceAdmin.valueOrNull ?? false) || deviceAdminAcknowledged,
+      loading: deviceAdmin.isLoading,
+    ),
     build(PermissionKind.notificationListener, notifications),
     build(PermissionKind.biometric, biometric),
   ];
 });
 
-/// True once every *required* permission (all but the optional
-/// biometric) is granted. Drives the app-level gate in main.dart — once
-/// this flips true, Home renders automatically, no manual navigation
-/// needed.
+/// True once every *required* permission is granted. Device Admin and
+/// Biometrics are both excluded deliberately: Biometrics is genuinely
+/// optional, and Device Admin — while useful for Invincible Mode's
+/// tamper resistance — shouldn't block someone from using the app at
+/// all just because they declined a device-admin prompt on first run.
+/// It's offered again, properly, from Parental & Lock.
 final requiredPermissionsGrantedProvider = Provider<bool>((ref) {
   final all = ref.watch(allPermissionsProvider);
-  return all
-      .where((p) => p.kind != PermissionKind.biometric)
-      .every((p) => p.granted);
+  const notRequired = {PermissionKind.biometric, PermissionKind.deviceAdmin};
+  return all.where((p) => !notRequired.contains(p.kind)).every((p) => p.granted);
 });

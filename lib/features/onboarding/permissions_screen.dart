@@ -46,7 +46,8 @@ class _PermissionsScreenState extends ConsumerState<PermissionsScreen>
     final permissions = ref.watch(allPermissionsProvider);
 
     // Biometric is optional (see design) — required count excludes it.
-    final required = permissions.where((p) => p.kind != PermissionKind.biometric);
+    const notRequired = {PermissionKind.biometric, PermissionKind.deviceAdmin};
+    final required = permissions.where((p) => !notRequired.contains(p.kind));
     final grantedCount = required.where((p) => p.granted).length;
     final requiredTotal = required.length;
     final allRequiredGranted = grantedCount == requiredTotal;
@@ -156,7 +157,8 @@ const _meta = {
   ),
   PermissionKind.deviceAdmin: _PermissionMeta(
     'Device Admin',
-    "Stops Ulimit from being uninstalled or force-stopped to bypass a limit.",
+    "Stops Ulimit from being uninstalled or force-stopped to bypass a limit. "
+    "Optional here — you can turn this on later in Parental & Lock.",
     Icons.shield_rounded,
     AppColors.accentSoft,
     false,
@@ -271,7 +273,11 @@ class _ActionButton extends ConsumerWidget {
       case PermissionKind.vpn:
         await NativePermissions.requestVpnPermission();
       case PermissionKind.deviceAdmin:
+        // Fire the system dialog, but don't wait on or gate anything
+        // to its result — whatever the user picks there, onboarding
+        // moves on. See deviceAdminAcknowledgedProvider's doc comment.
         await NativePermissions.requestDeviceAdmin();
+        ref.read(deviceAdminAcknowledgedProvider.notifier).state = true;
       case PermissionKind.biometric:
         // "Skip" for the optional card — nothing to request, just move
         // on; availability is a device capability, not a togglable

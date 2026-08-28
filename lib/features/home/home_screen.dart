@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import '../../core/router/app_router.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/providers.dart';
 import '../../data/home_data_providers.dart';
@@ -411,12 +413,13 @@ class _ControlsGrid extends StatelessWidget {
   const _ControlsGrid();
 
   static const _tiles = [
-    ('Focus', Icons.track_changes_rounded, 'Start a session'),
-    ('App Limits', Icons.grid_view_rounded, 'Manage groups'),
-    ('App Blocking', Icons.block_rounded, 'Manage blocked apps'),
-    ('Internet & Sites', Icons.public_rounded, 'VPN & filters'),
-    ('Notifications', Icons.notifications_rounded, 'Manage delivery'),
-    ('Bedtime', Icons.dark_mode_rounded, 'Manage schedule'),
+    ('Focus', Icons.track_changes_rounded, 'Start a session', null),
+    ('App Limits', Icons.grid_view_rounded, 'Manage groups', null),
+    ('App Blocking', Icons.block_rounded, 'Manage blocked apps', null),
+    ('Internet & Sites', Icons.public_rounded, 'VPN & filters', null),
+    ('Notifications', Icons.notifications_rounded, 'Manage delivery', null),
+    ('Bedtime', Icons.dark_mode_rounded, 'Manage schedule', null),
+    ('Parental & Lock', Icons.shield_rounded, 'Device admin & tamper protection', Routes.parental),
   ];
 
   @override
@@ -432,23 +435,26 @@ class _ControlsGrid extends StatelessWidget {
         childAspectRatio: 1.5,
       ),
       itemBuilder: (context, i) {
-        final (title, icon, subtitle) = _tiles[i];
-        return _ControlTile(title: title, icon: icon, subtitle: subtitle);
+        final (title, icon, subtitle, route) = _tiles[i];
+        return _ControlTile(title: title, icon: icon, subtitle: subtitle, route: route);
       },
     );
   }
 }
 
 class _ControlTile extends StatelessWidget {
-  const _ControlTile({required this.title, required this.icon, required this.subtitle});
+  const _ControlTile({required this.title, required this.icon, required this.subtitle, this.route});
   final String title;
   final IconData icon;
   final String subtitle;
+  // Null for tiles whose detail screens aren't built yet -- tapping
+  // those is a harmless no-op rather than a route-not-found crash.
+  final String? route;
 
   @override
   Widget build(BuildContext context) {
     return PressableScale(
-      onTap: () {},
+      onTap: route == null ? () {} : () => context.push(route!),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
