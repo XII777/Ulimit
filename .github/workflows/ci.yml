@@ -43,9 +43,14 @@ jobs:
 
       - name: Patch Gradle wrapper version
         run: |
-          sed -E -i \
-            -e 's#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-all.zip#' \
-            android/gradle/wrapper/gradle-wrapper.properties
+          GRADLE_WRAPPER_FILE="android/gradle/wrapper/gradle-wrapper.properties"
+          if [ -f "$GRADLE_WRAPPER_FILE" ]; then
+            sed -E -i \
+              -e 's#distributionUrl=.*#distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-all.zip#' \
+              "$GRADLE_WRAPPER_FILE"
+          else
+            echo "Warning: $GRADLE_WRAPPER_FILE not found, skipping patch"
+          fi
 
       - name: Install dependencies
         run: flutter pub get
