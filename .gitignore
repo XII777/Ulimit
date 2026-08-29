@@ -22,8 +22,18 @@ android/gradlew.bat
 android/local.properties
 android/**/GeneratedPluginRegistrant.java
 android/key.properties
-*.jks
-*.keystore
+android/app/key.properties
+
+# Real Play Store release keys only -- NOT the checked-in
+# android/app/ulimit-testing.jks used for consistent testing/sideload/CI
+# signing (that one is intentionally committed, and has no real secret
+# value). Your real keystore, whatever you name it, is excluded by this
+# key.properties exclusion above pointing at it -- these two extra
+# patterns are just a backstop in case a real key ever gets named
+# something generic like release.jks and dropped in without a
+# key.properties entry yet.
+*-release.jks
+release.keystore
 
 # iOS
 ios/Flutter/.last_build_id

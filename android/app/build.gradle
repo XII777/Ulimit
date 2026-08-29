@@ -4,6 +4,19 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+// Real release signing, loaded from android/app/key.properties -- a
+// file that is NOT committed to git (see .gitignore) and must be
+// created locally with the real keystore credentials. If it's absent
+// (CI, or a fresh clone), releaseSigningReady stays false and the
+// release build type falls back to the checked-in testing keystore
+// below instead of failing the build.
+def keyPropertiesFile = file("key.properties")
+def keyProperties = new Properties()
+def releaseSigningReady = keyPropertiesFile.exists()
+if (releaseSigningReady) {
+    keyProperties.load(new FileInputStream(keyPropertiesFile))
+}
+
 android {
     namespace "com.ulimit.app"
     compileSdk 34
@@ -33,15 +46,45 @@ android {
         versionName flutter.versionName
     }
 
+    // A fixed, checked-in keystore for testing/sideload/CI builds --
+    // NOT a real release key. Its whole point is that every build, on
+    // any machine or CI run without android/app/key.properties set up,
+    // signs with the exact same certificate, so installing a new build
+    // over an old one is always a valid "update" rather than Android
+    // refusing with "Package conflicts with an existing package."
+    // (Previously this pointed at signingConfigs.debug -- Android's
+    // AMBIENT ~/.android/debug.keystore, which doesn't exist on GitHub
+    // Actions runners and gets freshly auto-generated with a different
+    // random key on every single CI run.)
+    signingConfigs {
+        testing {
+            storeFile file("ulimit-testing.jks")
+            storePassword "ulimit123"
+            keyAlias "ulimit"
+            keyPassword "ulimit123"
+        }
+        if (releaseSigningReady) {
+            release {
+                storeFile file(keyProperties["storeFile"])
+                storePassword keyProperties["storePassword"]
+                keyAlias keyProperties["keyAlias"]
+                keyPassword keyProperties["keyPassword"]
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // No real signing config wired here — CI's `flutter build apk
-            // --release` produces an unsigned/debug-signed artifact for
-            // sideload testing. Wire a proper keystore + signingConfig
-            // before a Play Store submission.
-            signingConfig signingConfigs.debug
+            // The real key when android/app/key.properties exists
+            // locally; the shared testing key otherwise, so CI and
+            // fresh clones still produce a consistently-signed,
+            // installable APK without ever touching the real secret.
+            signingConfig releaseSigningReady ? signingConfigs.release : signingConfigs.testing
             minifyEnabled false
             shrinkResources false
+        }
+        debug {
+            signingConfig signingConfigs.testing
         }
     }
 }
