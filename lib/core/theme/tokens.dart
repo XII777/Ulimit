@@ -29,6 +29,14 @@ abstract final class AppColors {
   /// Near-limit warning AND blocking-overlay / invincible-lock state.
   static const alert = Color(0xFFF2A94D);
   static const danger = Color(0xFFE8697A);
+
+  /// Home screen's gamified progress/trend colors — deliberately scoped
+  /// to Home only (per that screen's specific design brief), not a
+  /// replacement for [accent] elsewhere in the app. Comparable
+  /// saturation/intensity by design: green and red should read as
+  /// equally vivid opposites, not "vivid positive, muted negative."
+  static const homeLime = Color(0xFFAEFF00);
+  static const homeNegative = Color(0xFFFF3B3B);
 }
 
 abstract final class AppRadius {

@@ -8,6 +8,15 @@ import '../../data/home_data_providers.dart';
 import '../../shared/widgets/limit_ring.dart';
 import '../../shared/widgets/trend_chart.dart';
 import '../../shared/widgets/pressable_scale.dart';
+import '../../shared/widgets/rolling_number.dart';
+import '../../shared/widgets/increase_pulse.dart';
+import '../../shared/widgets/achievement_toast.dart';
+
+// Colocated UI-ephemeral state (not real app data, just "what should the
+// achievement toast say right now") — kept here rather than in
+// home_data_providers.dart since nothing outside this screen needs it.
+final _achievementMessageProvider = StateProvider<String?>((ref) => null);
+final _lastSeenStreakProvider = StateProvider<int?>((ref) => null);
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -22,59 +31,105 @@ class HomeScreen extends ConsumerWidget {
     final weeklyFocusSeconds = ref.watch(weeklyFocusSecondsProvider);
     final weeklyFocusHours = ref.watch(weeklyFocusHoursByDayProvider);
     final weeklyPickups = ref.watch(weeklyPickupsProvider);
+    final screenTimeDelta = ref.watch(screenTimeDeltaProvider);
+    final focusDelta = ref.watch(focusTimeDeltaProvider);
+    final pickupsDelta = ref.watch(pickupsDeltaProvider);
+
+    // Real streak increases trigger the micro-achievement toast — no
+    // fabricated events, this only fires off currentStreakProvider's
+    // actual value going up versus what we last saw it at.
+    ref.listen(currentStreakProvider, (previous, next) {
+      final value = next.valueOrNull;
+      if (value == null) return;
+      final lastSeen = ref.read(_lastSeenStreakProvider);
+      if (lastSeen != null && value > lastSeen) {
+        ref.read(_achievementMessageProvider.notifier).state = 'Streak continued';
+      }
+      ref.read(_lastSeenStreakProvider.notifier).state = value;
+    });
+    final achievementMessage = ref.watch(_achievementMessageProvider);
 
     return DecoratedBox(
+      // Atmospheric top gradient: strong through the first quarter of
+      // the screen, tapering smoothly by ~60% down, gone well before
+      // the bottom half. A single static LinearGradient — no per-frame
+      // cost, no blur, just alpha-stepped stops so there's no visible
+      // seam.
       decoration: const BoxDecoration(
-        gradient: RadialGradient(
-          center: Alignment.topCenter,
-          radius: 1.15,
-          colors: [Color(0x3A8B7FE8), Colors.transparent],
-          stops: [0.0, 0.6],
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          stops: [0.0, 0.25, 0.35, 0.6],
+          colors: [
+            Color(0x59AEFF00), // ~35% opacity homeLime
+            Color(0x4DAEFF00), // ~30%
+            Color(0x14AEFF00), // ~8%, fading
+            Colors.transparent,
+          ],
         ),
       ),
       child: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
+        child: Stack(
           children: [
-            _Header(streak: streak.valueOrNull ?? 0),
-            const SizedBox(height: 18),
-
-            _LimitScoreBanner(score: score),
-            const SizedBox(height: 22),
-
-            Center(
-              child: _buildRing(screenTime, budgetMinutes),
-            ),
-            const SizedBox(height: 28),
-
-            const _SectionLabel('THIS WEEK'),
-            const SizedBox(height: 10),
-            _WeeklyTrendCard(weeklyHours: weeklyUsage),
-            const SizedBox(height: 10),
-            Row(
+            ListView(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
               children: [
-                Expanded(
-                  child: _MiniTrendCard(
-                    label: 'Focus time',
-                    valueText: _formatFocusTotal(weeklyFocusSeconds.valueOrNull),
-                    values: weeklyFocusHours.valueOrNull ?? const [0, 0, 0, 0, 0, 0, 0],
-                  ),
+                _Header(streak: streak.valueOrNull ?? 0),
+                const SizedBox(height: 18),
+
+                _LimitScoreBanner(score: score),
+                const SizedBox(height: 22),
+
+                Center(
+                  child: _buildRing(screenTime, budgetMinutes),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _MiniTrendCard(
-                    label: 'Pickups / day',
-                    valueText: _formatPickupsAvg(weeklyPickups.valueOrNull),
-                    values: weeklyPickups.valueOrNull ?? const [0, 0, 0, 0, 0, 0, 0],
-                  ),
+                const SizedBox(height: 28),
+
+                const _SectionLabel('THIS WEEK'),
+                const SizedBox(height: 10),
+                _WeeklyTrendCard(weeklyHours: weeklyUsage, delta: screenTimeDelta),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MiniTrendCard(
+                        label: 'Focus time',
+                        valueText: _formatFocusTotal(weeklyFocusSeconds.valueOrNull),
+                        values: weeklyFocusHours.valueOrNull ?? const [0, 0, 0, 0, 0, 0, 0],
+                        delta: focusDelta,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _MiniTrendCard(
+                        label: 'Pickups / day',
+                        valueText: _formatPickupsAvg(weeklyPickups.valueOrNull),
+                        values: weeklyPickups.valueOrNull ?? const [0, 0, 0, 0, 0, 0, 0],
+                        delta: pickupsDelta,
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 28),
+
+                const _SectionLabel('CONTROLS'),
+                const SizedBox(height: 10),
+                const _ControlsGrid(),
               ],
             ),
-            const SizedBox(height: 28),
 
-            const _SectionLabel('CONTROLS'),
-            const SizedBox(height: 10),
-            const _ControlsGrid(),
+            // Achievement toast floats above the scroll content, top-
+            // anchored under the header. IgnorePointer inside it means
+            // it never steals a scroll/tap even while visible.
+            Positioned(
+              top: 4,
+              left: 20,
+              right: 20,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: AchievementToast(message: achievementMessage, accentColor: AppColors.homeLime),
+              ),
+            ),
           ],
         ),
       ),
@@ -83,7 +138,8 @@ class HomeScreen extends ConsumerWidget {
 
   Widget _buildRing(AsyncValue<Duration> screenTime, AsyncValue<int> budgetMinutes) {
     if (screenTime.isLoading || budgetMinutes.isLoading) {
-      return const LimitRing(progress: 0, size: 130, trackColor: AppColors.stroke);
+      return const LimitRing(
+          progress: 0, size: 130, trackColor: AppColors.stroke, color: AppColors.homeLime);
     }
     final used = screenTime.valueOrNull ?? Duration.zero;
     final budget = Duration(minutes: budgetMinutes.valueOrNull ?? 240);
@@ -150,17 +206,25 @@ class _StreakBadge extends StatelessWidget {
       margin: const EdgeInsets.only(top: 2),
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: AppColors.surface.withOpacity(0.85),
         border: Border.all(color: AppColors.stroke),
         borderRadius: BorderRadius.circular(AppRadius.pill),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.local_fire_department_rounded, size: 13, color: AppColors.accentSoft),
+          IncreasePulse(
+            value: days,
+            glowColor: AppColors.homeLime,
+            child: const Icon(Icons.local_fire_department_rounded, size: 13, color: AppColors.homeLime),
+          ),
           const SizedBox(width: 5),
-          Text('$days day streak',
-              style: const TextStyle(fontSize: 11, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
+          RollingNumber(
+            text: '$days',
+            style: const TextStyle(fontSize: 11, color: AppColors.ink, fontWeight: FontWeight.w700),
+          ),
+          const Text(' day streak',
+              style: TextStyle(fontSize: 11, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
         ],
       ),
     );
@@ -194,19 +258,27 @@ class _ScreenTimeRing extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           boxShadow: [
-            BoxShadow(color: AppColors.accent.withOpacity(0.18), blurRadius: 40, spreadRadius: 4),
+            BoxShadow(color: AppColors.homeLime.withOpacity(0.22), blurRadius: 36, spreadRadius: 2),
           ],
         ),
         child: LimitRing(
           progress: value,
           size: 130,
           strokeWidth: 9,
+          color: AppColors.homeLime,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(_formatDuration(remaining), style: Theme.of(context).textTheme.headlineSmall),
+              RollingNumber(
+                text: _formatDuration(remaining),
+                style: Theme.of(context).textTheme.headlineSmall ?? const TextStyle(),
+              ),
               const SizedBox(height: 2),
-              Text('LEFT TODAY', style: Theme.of(context).textTheme.labelSmall),
+              Text('LEFT TODAY',
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelSmall
+                      ?.copyWith(color: AppColors.homeLime.withOpacity(0.75))),
             ],
           ),
         ),
@@ -230,6 +302,12 @@ class _LimitScoreBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final data = score.valueOrNull;
+    // Progress toward the next tier, for the subtle ring behind the
+    // shield icon — reuses the same score data already on screen
+    // rather than inventing a second progress source.
+    final tierSpan = data == null ? 1 : (data.tier.max - data.tier.min + 1);
+    final intoTier = data == null ? 0 : (data.score - data.tier.min);
+    final tierProgress = data == null ? 0.0 : (intoTier / tierSpan).clamp(0.0, 1.0);
 
     return PressableScale(
       onTap: () {}, // wire to Routes.score detail push
@@ -240,27 +318,38 @@ class _LimitScoreBanner extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.centerLeft,
             end: Alignment.centerRight,
-            colors: [AppColors.accent.withOpacity(0.14), AppColors.surface],
+            colors: [AppColors.homeLime.withOpacity(0.10), AppColors.surface],
             stops: const [0.0, 0.65],
           ),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         child: Row(
           children: [
-            Container(
+            SizedBox(
               width: 44,
               height: 44,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: SweepGradient(colors: [AppColors.accent, AppColors.accentSoft, AppColors.accent]),
-              ),
-              child: Center(
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: const BoxDecoration(color: AppColors.surface, shape: BoxShape.circle),
-                  child: const Icon(Icons.shield_rounded, size: 18, color: AppColors.ink),
-                ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: tierProgress),
+                    duration: const Duration(milliseconds: 500),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, value, _) => LimitRing(
+                      progress: value,
+                      size: 44,
+                      strokeWidth: 3,
+                      color: AppColors.homeLime,
+                      trackColor: AppColors.stroke,
+                    ),
+                  ),
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: const BoxDecoration(color: AppColors.surface, shape: BoxShape.circle),
+                    child: const Icon(Icons.shield_rounded, size: 16, color: AppColors.ink),
+                  ),
+                ],
               ),
             ),
             const SizedBox(width: 12),
@@ -272,11 +361,16 @@ class _LimitScoreBanner extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.baseline,
                     textBaseline: TextBaseline.alphabetic,
                     children: [
-                      Text(data == null ? '—' : '${data.score}',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(fontSize: 19, fontWeight: FontWeight.w700)),
+                      data == null
+                          ? const Text('—', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700))
+                          : RollingNumber(
+                              text: '${data.score}',
+                              style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(fontSize: 19, fontWeight: FontWeight.w700) ??
+                                  const TextStyle(fontSize: 19, fontWeight: FontWeight.w700),
+                            ),
                       const SizedBox(width: 6),
                       Text('Limit',
                           style: Theme.of(context)
@@ -294,7 +388,7 @@ class _LimitScoreBanner extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: AppColors.accent, size: 18),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.homeLime, size: 18),
           ],
         ),
       ),
@@ -303,8 +397,9 @@ class _LimitScoreBanner extends StatelessWidget {
 }
 
 class _WeeklyTrendCard extends StatelessWidget {
-  const _WeeklyTrendCard({required this.weeklyHours});
+  const _WeeklyTrendCard({required this.weeklyHours, required this.delta});
   final AsyncValue<List<double>> weeklyHours;
+  final TrendDelta delta;
 
   @override
   Widget build(BuildContext context) {
@@ -322,8 +417,14 @@ class _WeeklyTrendCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Avg. daily screen time',
-              style: TextStyle(fontSize: 12, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Avg. daily screen time',
+                  style: TextStyle(fontSize: 12, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
+              if (delta.hasData) _DeltaBadge(delta: delta),
+            ],
+          ),
           const SizedBox(height: 2),
           Text(
             hasData ? _formatHours(avg) : 'No data yet',
@@ -331,10 +432,8 @@ class _WeeklyTrendCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           if (hasData)
-            TrendAreaChart(values: values)
+            TrendAreaChart(values: values, color: AppColors.homeLime)
           else
-            // First-run / no-Accessibility-permission state — an empty
-            // chart card reads as broken, so say so explicitly instead.
             const SizedBox(
               height: 84,
               child: Center(
@@ -366,6 +465,26 @@ class _WeeklyTrendCard extends StatelessWidget {
   }
 }
 
+/// The one place positive/negative semantic color is decided —
+/// [TrendDelta.isPositive] already encodes "is this actually good"
+/// (e.g. less screen time is good, more focus time is good), so this
+/// widget just renders that, it never re-derives direction from a
+/// raw sign.
+class _DeltaBadge extends StatelessWidget {
+  const _DeltaBadge({required this.delta});
+  final TrendDelta delta;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = delta.isPositive ? AppColors.homeLime : AppColors.homeNegative;
+    final arrow = delta.isPositive ? '▲' : '▼';
+    return Text(
+      '$arrow ${delta.percent.round()}%',
+      style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w700),
+    );
+  }
+}
+
 class _DayLabel extends StatelessWidget {
   const _DayLabel(this.text);
   final String text;
@@ -379,11 +498,13 @@ class _MiniTrendCard extends StatelessWidget {
     required this.label,
     required this.valueText,
     required this.values,
+    required this.delta,
   });
 
   final String label;
   final String valueText;
   final List<double> values;
+  final TrendDelta delta;
 
   @override
   Widget build(BuildContext context) {
@@ -399,10 +520,17 @@ class _MiniTrendCard extends StatelessWidget {
         children: [
           Text(label, style: const TextStyle(fontSize: 11.5, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
-          Sparkline(values: values),
+          Sparkline(values: values, color: AppColors.homeLime),
           const SizedBox(height: 6),
-          Text(valueText,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 16, fontWeight: FontWeight.w700)),
+          RollingNumber(
+            text: valueText,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 16, fontWeight: FontWeight.w700) ??
+                const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          if (delta.hasData) ...[
+            const SizedBox(height: 2),
+            _DeltaBadge(delta: delta),
+          ],
         ],
       ),
     );
@@ -447,8 +575,6 @@ class _ControlTile extends StatelessWidget {
   final String title;
   final IconData icon;
   final String subtitle;
-  // Null for tiles whose detail screens aren't built yet -- tapping
-  // those is a harmless no-op rather than a route-not-found crash.
   final String? route;
 
   @override
@@ -470,10 +596,10 @@ class _ControlTile extends StatelessWidget {
               width: 32,
               height: 32,
               decoration: BoxDecoration(
-                color: AppColors.accent.withOpacity(0.15),
+                color: AppColors.homeLime.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(9),
               ),
-              child: Icon(icon, size: 15, color: AppColors.accentSoft),
+              child: Icon(icon, size: 15, color: AppColors.homeLime),
             ),
             Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 12.5)),
             Text(subtitle,

@@ -19,20 +19,44 @@ class NavShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.path;
 
+    final activeIndex = _tabs.indexWhere((t) => t.$1 == location).clamp(0, 4);
+
+    void goToTab(int index) {
+      if (index < 0 || index >= _tabs.length || index == activeIndex) return;
+      context.go(_tabs[index].$1);
+    }
+
     return Scaffold(
       // `child` is the current tab's screen; Stack lets the nav float
       // over it without stealing layout space, matching the mockup.
       body: Stack(
         children: [
-          child,
+          GestureDetector(
+            // A horizontal-only gesture recognizer would still fire on
+            // primarily-vertical drags; gating on velocity magnitude in
+            // onHorizontalDragEnd (rather than onHorizontalDragUpdate)
+            // means this only acts on a deliberate, fast horizontal
+            // flick, so normal vertical scrolling on any tab's content
+            // is never intercepted or fights with this gesture.
+            onHorizontalDragEnd: (details) {
+              final velocity = details.primaryVelocity ?? 0;
+              const threshold = 300.0;
+              if (velocity < -threshold) {
+                goToTab(activeIndex + 1);
+              } else if (velocity > threshold) {
+                goToTab(activeIndex - 1);
+              }
+            },
+            child: child,
+          ),
           Positioned(
             left: 16,
             right: 16,
             bottom: 16,
             child: _FloatingNavBar(
               tabs: _tabs,
-              activeIndex: _tabs.indexWhere((t) => t.$1 == location).clamp(0, 4),
-              onTap: (i) => context.go(_tabs[i].$1),
+              activeIndex: activeIndex,
+              onTap: goToTab,
             ),
           ),
         ],
@@ -115,7 +139,7 @@ class _NavItem extends StatelessWidget {
         height: 38,
         padding: EdgeInsets.symmetric(horizontal: isActive ? 14 : 0),
         decoration: BoxDecoration(
-          color: isActive ? AppColors.ink : Colors.transparent,
+          color: isActive ? AppColors.homeLime : Colors.transparent,
           borderRadius: BorderRadius.circular(AppRadius.pill),
         ),
         alignment: Alignment.center,
