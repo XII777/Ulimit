@@ -1,3 +1,17 @@
+#!/usr/bin/env bash
+# Fixes: undefined_function/undefined_identifier errors in app_router.dart
+# (CurvedAnimation, Curves, FadeTransition, ScaleTransition, Tween) --
+# flutter/material.dart import was removed as 'unused' by an earlier
+# fix, before the parental-screen route transition code needed it.
+set -e
+
+if [ ! -f pubspec.yaml ]; then
+  echo "Run this from inside your repo root (where pubspec.yaml lives)."
+  exit 1
+fi
+
+mkdir -p "lib/core/router"
+cat > "lib/core/router/app_router.dart" << 'PATCH_EOF'
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../shared/widgets/nav_shell.dart';
@@ -109,3 +123,11 @@ final appRouter = GoRouter(
     ),
   ],
 );
+PATCH_EOF
+
+git add -A
+git -c user.email="dev@ulimit.app" -c user.name="Ulimit Dev" commit -m "Fix app_router.dart: restore flutter/material.dart import needed by the parental route transition"
+git push
+
+echo "Pushed. Removing this script."
+rm -- "$0"
