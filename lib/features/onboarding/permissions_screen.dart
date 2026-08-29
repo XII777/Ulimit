@@ -64,10 +64,10 @@ class _PermissionsScreenState extends ConsumerState<PermissionsScreen>
                 width: 52,
                 height: 52,
                 decoration: BoxDecoration(
-                  color: AppColors.accent.withOpacity(0.15),
+                  color: AppColors.surface2,
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
-                child: const Icon(Icons.lock_rounded, color: AppColors.accentSoft, size: 22),
+                child: const Icon(Icons.lock_rounded, color: AppColors.inkDim, size: 22),
               ),
               const SizedBox(height: 12),
               Text(
@@ -97,7 +97,7 @@ class _PermissionsScreenState extends ConsumerState<PermissionsScreen>
                   value: requiredTotal == 0 ? 0 : grantedCount / requiredTotal,
                   minHeight: 5,
                   backgroundColor: AppColors.stroke,
-                  valueColor: const AlwaysStoppedAnimation(AppColors.accent),
+                  valueColor: const AlwaysStoppedAnimation(AppColors.ink),
                 ),
               ),
               const SizedBox(height: 8),
@@ -145,14 +145,14 @@ const _meta = {
     'Accessibility',
     'The core engine — detects app usage, enforces limits, and shows the block screen instantly.',
     Icons.visibility_rounded,
-    AppColors.danger,
+    AppColors.inkDim,
     false,
   ),
   PermissionKind.vpn: _PermissionMeta(
     'VPN & Network',
     'Creates a local, on-device filter for internet and website blocking.',
     Icons.public_rounded,
-    AppColors.accentSoft,
+    AppColors.inkDim,
     false,
   ),
   PermissionKind.deviceAdmin: _PermissionMeta(
@@ -160,21 +160,21 @@ const _meta = {
     "Stops Ulimit from being uninstalled or force-stopped to bypass a limit. "
     "Optional here — you can turn this on later in Parental & Lock.",
     Icons.shield_rounded,
-    AppColors.accentSoft,
+    AppColors.inkDim,
     false,
   ),
   PermissionKind.notificationListener: _PermissionMeta(
     'Notification Access',
     'Lets Ulimit batch or mute notifications during focus sessions.',
     Icons.notifications_rounded,
-    AppColors.accentSoft,
+    AppColors.inkDim,
     false,
   ),
   PermissionKind.biometric: _PermissionMeta(
     'Biometrics',
     'Optional — protects your limits from being changed by others.',
     Icons.fingerprint_rounded,
-    AppColors.accentSoft,
+    AppColors.inkDim,
     true,
   ),
 };
@@ -236,7 +236,7 @@ class _ActionButton extends ConsumerWidget {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(AppRadius.pill)),
-        child: const Text('✓ Done', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white)),
+        child: const Text('✓ Done', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.bg)),
       );
     }
 
@@ -254,7 +254,7 @@ class _ActionButton extends ConsumerWidget {
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w600,
-            color: optional ? AppColors.inkDim : Colors.white,
+            color: optional ? AppColors.inkDim : AppColors.bg,
           ),
         ),
       ),

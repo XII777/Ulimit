@@ -81,7 +81,10 @@ class _GroupCard extends StatelessWidget {
     final ratio = hasLimit ? (group.usedSeconds / group.limitSeconds).clamp(0.0, 1.0) : 0.0;
     // Bar color IS the state signal, same rule as Home's ring: near the
     // limit reads amber, comfortably under it reads teal.
-    final barColor = ratio >= 0.66 ? AppColors.alert : AppColors.calm;
+    // Monochrome warning state: near-limit reads as full-brightness
+    // white (draws the eye, higher contrast), on-track as the quieter
+    // mid-gray -- brightness/weight carries the signal, not a hue.
+    final barColor = ratio >= 0.66 ? AppColors.ink : AppColors.inkDim;
     final dimmed = !hasLimit;
 
     return Opacity(

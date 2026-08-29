@@ -83,7 +83,7 @@ class _FloatingNavBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF0B0C10),
         borderRadius: BorderRadius.circular(AppRadius.pill),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: AppColors.stroke),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.55),
@@ -139,7 +139,7 @@ class _NavItem extends StatelessWidget {
         height: 38,
         padding: EdgeInsets.symmetric(horizontal: isActive ? 14 : 0),
         decoration: BoxDecoration(
-          color: isActive ? AppColors.homeLime : Colors.transparent,
+          color: isActive ? AppColors.ink : Colors.transparent,
           borderRadius: BorderRadius.circular(AppRadius.pill),
         ),
         alignment: Alignment.center,

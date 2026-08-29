@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'tokens.dart';
 
@@ -6,9 +7,6 @@ final class AppTheme {
   AppTheme._();
 
   static ThemeData get dark {
-    // google_fonts caches the font file after first load, so this isn't
-    // a per-frame network/asset hit — it resolves once and every
-    // TextStyle below is a cheap copyWith.
     final display = GoogleFonts.spaceGrotesk();
     final body = GoogleFonts.inter();
 
@@ -17,10 +15,24 @@ final class AppTheme {
       brightness: Brightness.dark,
       scaffoldBackgroundColor: AppColors.bg,
       colorScheme: const ColorScheme.dark(
-        primary: AppColors.accent,
-        secondary: AppColors.accent,
+        primary: AppColors.ink,
+        secondary: AppColors.inkDim,
         surface: AppColors.surface,
         error: AppColors.danger,
+      ),
+      // Switch: white thumb on off-white track when active, dark when off.
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((s) =>
+            s.contains(WidgetState.selected) ? AppColors.bg : AppColors.inkFaint),
+        trackColor: WidgetStateProperty.resolveWith((s) =>
+            s.contains(WidgetState.selected) ? AppColors.ink : AppColors.surface2),
+        trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+      ),
+      sliderTheme: SliderThemeData(
+        activeTrackColor: AppColors.ink,
+        inactiveTrackColor: AppColors.stroke,
+        thumbColor: AppColors.ink,
+        overlayColor: AppColors.ink.withOpacity(0.12),
       ),
       textTheme: TextTheme(
         headlineSmall: display.copyWith(
@@ -40,7 +52,7 @@ final class AppTheme {
         ),
         bodySmall: body.copyWith(
           fontSize: AppText.caption,
-          color: AppColors.inkFaint,
+          color: AppColors.inkDim,
         ),
         labelSmall: body.copyWith(
           fontSize: AppText.overline,
@@ -48,10 +60,22 @@ final class AppTheme {
           letterSpacing: 0.6,
         ),
       ),
-      // Disable the default Material ripple splash flare on our custom
-      // pill buttons/cards; we handle press feedback ourselves with
-      // AnimatedScale so it stays consistent with the morph transitions
-      // elsewhere instead of two different motion languages fighting.
+      appBarTheme: AppBarTheme(
+        backgroundColor: AppColors.bg,
+        foregroundColor: AppColors.ink,
+        elevation: 0,
+        systemOverlayStyle: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+        ),
+        titleTextStyle: display.copyWith(
+          fontSize: AppText.headline,
+          fontWeight: FontWeight.w600,
+          color: AppColors.ink,
+        ),
+      ),
+      dividerColor: AppColors.stroke,
+      cardColor: AppColors.surface,
       splashFactory: NoSplash.splashFactory,
       highlightColor: Colors.transparent,
     );

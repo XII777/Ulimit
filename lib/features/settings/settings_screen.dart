@@ -125,7 +125,7 @@ class _PermissionRow extends StatelessWidget {
           else
             Text(
               granted ? 'Granted' : 'Pending',
-              style: TextStyle(fontSize: 10.5, color: granted ? AppColors.accent : AppColors.alert),
+              style: TextStyle(fontSize: 10.5, color: granted ? AppColors.ink : AppColors.inkDim),
             ),
         ],
       ),

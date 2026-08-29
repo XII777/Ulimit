@@ -200,7 +200,7 @@ class _MoonArcPainter extends CustomPainter {
       _sweepTotal * progress.clamp(0.0, 1.0),
       false,
       Paint()
-        ..color = AppColors.accent
+        ..color = AppColors.ink
         ..strokeWidth = 10
         ..strokeCap = StrokeCap.round
         ..style = PaintingStyle.stroke,
@@ -250,7 +250,7 @@ class _ToggleRow extends StatelessWidget {
               value: value,
               onChanged: onChanged,
               activeColor: AppColors.bg,
-              activeTrackColor: AppColors.accent,
+              activeTrackColor: AppColors.ink,
               inactiveThumbColor: AppColors.inkFaint,
               inactiveTrackColor: AppColors.surface2,
               trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),

@@ -126,7 +126,7 @@ class _StatusCard extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [AppColors.accent.withOpacity(active ? 0.12 : 0.04), AppColors.surface],
+          colors: [AppColors.surface2, AppColors.surface],
         ),
       ),
       child: Column(
@@ -135,12 +135,12 @@ class _StatusCard extends StatelessWidget {
             width: 52,
             height: 52,
             decoration: BoxDecoration(
-              color: AppColors.accent.withOpacity(active ? 0.18 : 0.1),
+              color: AppColors.surface2,
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
             child: Icon(
               active ? Icons.shield_rounded : Icons.shield_outlined,
-              color: active ? AppColors.accentSoft : AppColors.inkFaint,
+              color: active ? AppColors.ink : AppColors.inkFaint,
               size: 22,
             ),
           ),
@@ -188,16 +188,16 @@ class _DeviceAdminRow extends StatelessWidget {
           else if (active)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(AppRadius.pill)),
-              child: const Text('✓ On', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white)),
+              decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(AppRadius.pill)),
+              child: const Text('✓ On', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.bg)),
             )
           else
             GestureDetector(
               onTap: () => NativePermissions.requestDeviceAdmin(),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(AppRadius.pill)),
-                child: const Text('Enable', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white)),
+                decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(AppRadius.pill)),
+                child: const Text('Enable', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.bg)),
               ),
             ),
         ],
@@ -236,7 +236,7 @@ class _ToggleRow extends StatelessWidget {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: AppColors.accent,
+            activeColor: AppColors.ink,
           ),
         ],
       ),

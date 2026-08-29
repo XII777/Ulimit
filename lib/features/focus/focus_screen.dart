@@ -53,7 +53,7 @@ class _FocusScreenState extends State<FocusScreen> {
         gradient: RadialGradient(
           center: Alignment(0, -0.6),
           radius: 1.0,
-          colors: [Color(0xFF191533), AppColors.bg],
+          colors: [AppColors.surface2, AppColors.bg],
         ),
       ),
       child: SafeArea(
@@ -129,16 +129,16 @@ class _InvincibleChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
-        color: AppColors.accent.withOpacity(0.14),
-        border: Border.all(color: AppColors.accent.withOpacity(0.4)),
+        color: AppColors.surface2,
+        border: Border.all(color: AppColors.stroke),
         borderRadius: BorderRadius.circular(AppRadius.pill),
       ),
       child: const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.lock_rounded, size: 12, color: AppColors.accentSoft),
+          Icon(Icons.lock_rounded, size: 12, color: AppColors.inkDim),
           SizedBox(width: 6),
-          Text('Invincible mode on', style: TextStyle(fontSize: 11.5, color: AppColors.accentSoft)),
+          Text('Invincible mode on', style: TextStyle(fontSize: 11.5, color: AppColors.inkDim)),
         ],
       ),
     );
@@ -215,9 +215,9 @@ class _SessionDot extends StatelessWidget {
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [AppColors.accent, AppColors.calm],
+              colors: [AppColors.surface2, AppColors.surface],
             ),
-            border: Border.all(color: AppColors.accent, width: 3),
+            border: Border.all(color: AppColors.surface, width: 3),
           ),
         );
       case _SessionState.done:
@@ -225,11 +225,11 @@ class _SessionDot extends StatelessWidget {
           width: 38,
           height: 38,
           decoration: BoxDecoration(
-            color: AppColors.accent.withOpacity(0.25),
+            color: AppColors.surface2,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.accent),
+            border: Border.all(color: AppColors.stroke),
           ),
-          child: const Icon(Icons.check_rounded, size: 16, color: AppColors.accentSoft),
+          child: const Icon(Icons.check_rounded, size: 16, color: AppColors.ink),
         );
       case _SessionState.empty:
         return Container(
