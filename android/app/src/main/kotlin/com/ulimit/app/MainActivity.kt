@@ -116,14 +116,18 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     "getFilterFilePath" -> result.success(File(filesDir, "blocked_domains.txt").absolutePath)
                     "reloadDomainFilter" -> {
-                        // Wake the VPN so it re-reads the filter file
-                        // without a reconnect (no-op when not running).
-                        val intent = Intent(this, UlimitVpnService::class.java)
-                        intent.action = UlimitVpnService.ACTION_RELOAD
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            startForegroundService(intent)
-                        } else {
-                            startService(intent)
+                        // Only meaningful (and only safe) when the VPN is
+                        // already up: starting the service from a stopped
+                        // state just to reload a filter file would demand
+                        // a startForeground() cycle for nothing.
+                        if (UlimitVpnService.isRunning) {
+                            val intent = Intent(this, UlimitVpnService::class.java)
+                            intent.action = UlimitVpnService.ACTION_RELOAD
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(intent)
+                            } else {
+                                startService(intent)
+                            }
                         }
                         result.success(null)
                     }

@@ -43,7 +43,14 @@ class BedtimeAlarmReceiver : BroadcastReceiver() {
             val vpnIntent = Intent(context, UlimitVpnService::class.java).apply {
                 action = UlimitVpnService.ACTION_RELOAD
             }
-            context.startService(vpnIntent)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // startService() from a background receiver throws
+                // IllegalStateException; foreground-service start is the
+                // sanctioned path, and the service promotes itself first.
+                context.startForegroundService(vpnIntent)
+            } else {
+                context.startService(vpnIntent)
+            }
         }
     }
 }

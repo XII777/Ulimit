@@ -67,6 +67,12 @@ class UlimitVpnService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Android requires startForeground() within ~5s of ANY
+        // startForegroundService() call — including stop/reload intents.
+        // Skipping it here (e.g. an ACTION_RELOAD while the service was
+        // down) crashes with ForegroundServiceDidNotStartInTimeException.
+        startAsForeground()
+
         when (intent?.action) {
             ACTION_STOP -> {
                 stopEverything()
@@ -77,7 +83,6 @@ class UlimitVpnService : VpnService() {
                 return START_STICKY
             }
         }
-        startAsForeground()
         blockedDomains = loadBlockedDomains()
         establish()
         // START_STICKY: if the process is killed, the system restarts the
@@ -87,6 +92,7 @@ class UlimitVpnService : VpnService() {
 
     private fun startAsForeground() {
         val intent = packageManager.getLaunchIntentForPackage(packageName)
+            ?: Intent() // launch intent is never expected to be null for us; guard anyway
         val pending = PendingIntent.getActivity(
             this, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
