@@ -202,7 +202,7 @@ class FocusIndicatorService : Service() {
         return Notification.Action.Builder(icon, title, pending).build()
     }
 
-    private fun notify() {
+    private fun pushNotification() {
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIFICATION_ID, buildNotification())
     }
