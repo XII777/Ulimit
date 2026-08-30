@@ -308,6 +308,7 @@ class _RunningFocusView extends ConsumerWidget {
     final remaining = ref.watch(focusRemainingProvider).valueOrNull ?? Duration.zero;
     final planned = Duration(seconds: session.plannedSeconds);
     final progress = planned.inSeconds <= 0 ? 0.0 : 1 - (remaining.inSeconds / planned.inSeconds).clamp(0.0, 1.0);
+    final paused = session.pausedAt != null;
 
     return Column(
       children: [
@@ -333,7 +334,10 @@ class _RunningFocusView extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 6),
-                Text('${session.label} · remaining', style: Theme.of(context).textTheme.bodySmall),
+                Text(
+                  paused ? '${session.label} · PAUSED' : '${session.label} · remaining',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ],
             ),
           ),
@@ -345,18 +349,41 @@ class _RunningFocusView extends ConsumerWidget {
         const SizedBox(height: 20),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
-          child: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: () => _confirmEndEarly(context, ref),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.all(14),
-                backgroundColor: AppColors.surface2,
-                side: BorderSide(color: AppColors.stroke),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+          child: Column(
+            children: [
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => paused
+                      ? ref.read(focusControllerProvider).resume()
+                      : ref.read(focusControllerProvider).pause(),
+                  icon: AppIcon(paused ? AppIconName.play : AppIconName.pause,
+                      size: 18, color: AppColors.ink),
+                  label: Text(paused ? 'Resume session' : 'Pause session',
+                      style: TextStyle(color: AppColors.ink)),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.all(14),
+                    backgroundColor: AppColors.surface,
+                    side: BorderSide(color: AppColors.stroke),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                  ),
+                ),
               ),
-              child: Text('End session early', style: TextStyle(color: AppColors.inkDim)),
-            ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => _confirmEndEarly(context, ref),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.all(14),
+                    backgroundColor: AppColors.surface2,
+                    side: BorderSide(color: AppColors.stroke),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                  ),
+                  child: Text('End session early', style: TextStyle(color: AppColors.inkDim)),
+                ),
+              ),
+            ],
           ),
         ),
       ],

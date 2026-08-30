@@ -279,6 +279,18 @@ String formatClock(Duration remaining) {
   return '$mm:$ss';
 }
 
+/// Human duration with seconds when available — "2h 18m 43s", "48m 21s",
+/// "42s". Used for Home metric counters where precision matters.
+String formatDurationHMS(Duration d) {
+  final clamped = d.isNegative ? Duration.zero : d;
+  final h = clamped.inHours;
+  final m = clamped.inMinutes % 60;
+  final sec = clamped.inSeconds % 60;
+  if (h > 0) return '${h}h ${m}m ${sec}s';
+  if (m > 0) return '${m}m ${sec}s';
+  return '${sec}s';
+}
+
 /// Human duration "4h 18m" / "36m" — used across dashboards.
 String formatDurationShort(Duration d) {
   final clamped = d.isNegative ? Duration.zero : d;

@@ -3,9 +3,11 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/crash/crash_collector.dart';
+import 'core/native/enforcement_channel.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/tokens.dart';
+import 'data/focus_indicator.dart';
 import 'data/permissions_providers.dart';
 import 'data/providers.dart';
 import 'data/restriction_providers.dart';
@@ -18,6 +20,25 @@ void main() {
   // to reproduce without a trace.
   unawaited(CrashCollector.initialize());
   runApp(const ProviderScope(child: UlimitApp()));
+}
+
+/// Entry point for the headless Flutter engine the Focus-indicator
+/// foreground service creates when the app process is dead and the user
+/// taps Pause/Resume/End in the system UI. Registers the platform
+/// channels against a private ProviderContainer — no UI, no router.
+@pragma('vm:entry-point')
+Future<void> backgroundMain() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final container = ProviderContainer();
+  unawaited(CrashCollector.initialize());
+
+  EnforcementChannel.setFocusActionHandler((action) async {
+    await container.read(focusIndicatorSyncProvider).handleAction(action);
+  });
+  // Seed the enforcement snapshot from the database so restrictions and
+  // the indicator reflect persisted state without the UI engine.
+  await container.read(enforcementSyncProvider).push();
+  await container.read(focusIndicatorSyncProvider).sync();
 }
 
 class UlimitApp extends ConsumerStatefulWidget {
@@ -35,6 +56,12 @@ class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserv
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // System-UI Pause/Resume/End actions (from the Focus indicator
+    // notification) route through the same FocusController used by the
+    // in-app buttons.
+    EnforcementChannel.setFocusActionHandler((action) async {
+      await ref.read(focusIndicatorSyncProvider).handleAction(action);
+    });
   }
 
   @override
@@ -52,6 +79,7 @@ class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserv
     if (state == AppLifecycleState.resumed) {
       if (_nativeSynced) {
         ref.read(enforcementSyncProvider).push();
+        ref.read(focusIndicatorSyncProvider).sync();
       }
     }
   }
@@ -105,6 +133,7 @@ class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserv
       // Trigger lazily on first frame so DB streams are ready.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         ref.read(enforcementSyncProvider).push();
+        ref.read(focusIndicatorSyncProvider).sync();
       });
     }
 

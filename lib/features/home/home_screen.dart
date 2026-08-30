@@ -8,24 +8,22 @@ import '../../core/router/app_router.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/premium_components.dart';
 import '../../data/apps_repository.dart';
-import '../../shared/widgets/spring_scroll.dart';
-import '../../data/db/app_database.dart';
 import '../../data/focus_providers.dart';
 import '../../data/home_data_providers.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_selector.dart';
-import '../../shared/widgets/limit_ring.dart';
-import '../../shared/widgets/trend_chart.dart';
+import '../../shared/widgets/app_sheet.dart';
+import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/rolling_number.dart';
+import '../../shared/widgets/spring_scroll.dart';
+import '../../shared/widgets/trend_chart.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final screenTime = ref.watch(todayScreenTimeProvider);
-    final budgetMinutes = ref.watch(dailyBudgetProvider);
     final weeklyUsage = ref.watch(weeklyScreenTimeHoursProvider);
     final weeklyFocusSeconds = ref.watch(weeklyFocusSecondsProvider);
     final weeklyFocusHours = ref.watch(weeklyFocusHoursByDayProvider);
@@ -33,91 +31,75 @@ class HomeScreen extends ConsumerWidget {
     final screenTimeDelta = ref.watch(screenTimeDeltaProvider);
     final focusDelta = ref.watch(focusTimeDeltaProvider);
     final pickupsDelta = ref.watch(pickupsDeltaProvider);
-    final focusSession = ref.watch(activeFocusSessionProvider).valueOrNull;
     final decisions = ref.watch(restrictionDecisionsProvider);
-    final activeBlocks =
-        decisions.values.where((d) => d.appBlocked).length;
-    final bedtime = ref.watch(bedtimeScheduleProvider).valueOrNull;
+    final activeBlocks = decisions.values.where((d) => d.appBlocked).length;
 
     return ListView(
-        physics: springScrollPhysics,
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
-        children: [
-          const _Header(),
-          const SizedBox(height: 22),
+      physics: springScrollPhysics,
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
+      children: [
+        const _Header(),
+        const SizedBox(height: 22),
 
-          Center(child: _buildRing(screenTime, budgetMinutes)),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Expanded(child: _ScreenTimeCard()),
+            const SizedBox(width: 10),
+            const Expanded(child: _FocusTimeCard()),
+          ],
+        ),
+        const SizedBox(height: 28),
+
+        if (activeBlocks > 0) ...[
+          PremiumSectionLabel('RESTRICTIONS · $activeBlocks ACTIVE'),
+          const SizedBox(height: 10),
+          _ActiveRestrictions(decisions: decisions),
           const SizedBox(height: 28),
-
-          if (focusSession != null) ...[
-            const PremiumSectionLabel('CURRENT FOCUS'),
-            const SizedBox(height: 10),
-            _CurrentFocusCard(session: focusSession),
-            const SizedBox(height: 28),
-          ],
-
-          if (activeBlocks > 0) ...[
-            PremiumSectionLabel('RESTRICTIONS · $activeBlocks ACTIVE'),
-            const SizedBox(height: 10),
-            _ActiveRestrictions(decisions: decisions),
-            const SizedBox(height: 28),
-          ],
-
-          if (bedtime != null && bedtime.enabled) ...[
-            const PremiumSectionLabel('TONIGHT'),
-            const SizedBox(height: 10),
-            _BedtimeCard(bedtime: bedtime),
-            const SizedBox(height: 28),
-          ],
-
-          const PremiumSectionLabel('THIS WEEK'),
-          const SizedBox(height: 10),
-          _WeeklyTrendCard(weeklyHours: weeklyUsage, delta: screenTimeDelta),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _MiniTrendCard(
-                  label: 'Focus time',
-                  valueText: _formatFocusTotal(weeklyFocusSeconds.valueOrNull),
-                  values: weeklyFocusHours.valueOrNull ?? const [0, 0, 0, 0, 0, 0, 0],
-                  delta: focusDelta,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _MiniTrendCard(
-                  label: 'Pickups / day',
-                  valueText: _formatPickupsAvg(weeklyPickups.valueOrNull),
-                  values: [
-                    for (final v in weeklyPickups.valueOrNull ?? const <int>[]) v.toDouble()
-                  ],
-                  delta: pickupsDelta,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 28),
-
-          const PremiumSectionLabel('CONTROLS'),
-          const SizedBox(height: 10),
-          const _ControlsList(),
         ],
-    );
-  }
 
-  Widget _buildRing(AsyncValue<Duration> screenTime, AsyncValue<int> budgetMinutes) {
-    if (screenTime.isLoading || budgetMinutes.isLoading) {
-      return LimitRing(progress: 0, size: 130, trackColor: AppColors.stroke);
-    }
-    final used = screenTime.valueOrNull ?? Duration.zero;
-    final budget = Duration(minutes: budgetMinutes.valueOrNull ?? 240);
-    return _ScreenTimeRing(used: used, budget: budget);
+        const PremiumSectionLabel("TODAY'S OVERVIEW"),
+        const SizedBox(height: 10),
+        _AverageDailyCard(),
+        const SizedBox(height: 10),
+        _WeeklyTrendCard(weeklyHours: weeklyUsage, delta: screenTimeDelta),
+        const SizedBox(height: 10),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: _MiniTrendCard(
+                label: 'Focus Time',
+                valueText: _formatFocusTotal(weeklyFocusSeconds.valueOrNull),
+                values: weeklyFocusHours.valueOrNull ?? const [0, 0, 0, 0, 0, 0, 0],
+                delta: focusDelta,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _MiniTrendCard(
+                label: 'Pickups / Day',
+                valueText: _formatPickupsAvg(weeklyPickups.valueOrNull),
+                values: [
+                  for (final v in weeklyPickups.valueOrNull ?? const <int>[]) v.toDouble()
+                ],
+                delta: pickupsDelta,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 28),
+
+        const PremiumSectionLabel('CONTROLS'),
+        const SizedBox(height: 10),
+        const _ControlsList(),
+      ],
+    );
   }
 
   String _formatFocusTotal(int? seconds) {
     if (seconds == null || seconds == 0) return '0m';
-    return formatDurationShort(Duration(seconds: seconds));
+    return formatDurationHMS(Duration(seconds: seconds));
   }
 
   String _formatPickupsAvg(List<int>? days) {
@@ -158,38 +140,103 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _ScreenTimeRing extends StatelessWidget {
-  const _ScreenTimeRing({required this.used, required this.budget});
-  final Duration used;
-  final Duration budget;
+/// Live today screen time: persisted total + the running app's
+/// un-attributed elapsed time, ticking once per second. Only this card
+/// rebuilds on the tick — the rest of Home is untouched.
+class _ScreenTimeCard extends ConsumerWidget {
+  const _ScreenTimeCard();
 
   @override
-  Widget build(BuildContext context) {
-    final remaining = budget - used;
-    final safeBudget = budget.inSeconds <= 0 ? 1 : budget.inSeconds;
-    final progress = 1 - (used.inSeconds / safeBudget).clamp(0.0, 1.0);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final seconds = ref.watch(liveScreenTimeSecondsProvider).valueOrNull ?? 0;
+    final budget = ref.watch(dailyBudgetProvider).valueOrNull ?? 240;
+    final ratio = budget > 0 ? (seconds / (budget * 60)).clamp(0.0, 1.0) : 0.0;
 
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: progress),
-      duration: const Duration(milliseconds: 600),
-      curve: Curves.easeOutCubic,
-      builder: (context, value, _) => LimitRing(
-        progress: value,
-        size: 148,
-        strokeWidth: 8,
-        color: AppColors.ink,
-        trackColor: AppColors.stroke,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            RollingNumber(
-              text: formatDurationShort(remaining),
-              style: TextStyle(fontSize: 30, fontWeight: FontWeight.w600, color: AppColors.ink),
+    return PremiumCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              AppIcon(AppIconName.phone, size: 13, color: AppColors.inkDim),
+              const SizedBox(width: 6),
+              Text('Screen Time',
+                  style: TextStyle(fontSize: 11.5, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          RollingNumber(
+            text: formatDurationHMS(Duration(seconds: seconds)),
+            style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink,
+                fontFeatures: const [FontFeature.tabularFigures()]),
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: ratio,
+              minHeight: 4,
+              backgroundColor: AppColors.stroke,
+              valueColor: AlwaysStoppedAnimation(AppColors.ink),
             ),
-            const SizedBox(height: 4),
-            Text('LEFT TODAY',
-                style: TextStyle(
-                    fontSize: AppText.overline, color: AppColors.inkFaint, letterSpacing: 0.6)),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'of $budget min today',
+            style: TextStyle(fontSize: 10, color: AppColors.inkFaint),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Live accumulated Focus time for today; tapping opens the date-wise
+/// Focus history page.
+class _FocusTimeCard extends ConsumerWidget {
+  const _FocusTimeCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final seconds = ref.watch(liveFocusSecondsTodayProvider).valueOrNull ?? 0;
+
+    return PressableScale(
+      onTap: () => context.push('/focus-history'),
+      child: PremiumCard(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                AppIcon(AppIconName.stopwatch, size: 13, color: AppColors.inkDim),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text('Focus Time',
+                      style: TextStyle(
+                          fontSize: 11.5, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
+                ),
+                AppIcon(AppIconName.chevronRight, size: 12, color: AppColors.inkFaint),
+              ],
+            ),
+            const SizedBox(height: 8),
+            RollingNumber(
+              text: formatDurationHMS(Duration(seconds: seconds)),
+              style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.ink,
+                  fontFeatures: const [FontFeature.tabularFigures()]),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'today · tap for history',
+              style: TextStyle(fontSize: 10, color: AppColors.inkFaint),
+            ),
           ],
         ),
       ),
@@ -197,53 +244,53 @@ class _ScreenTimeRing extends StatelessWidget {
   }
 }
 
-/// Live "current focus" summary — remaining time reads from the same
-/// timestamp the enforcement layer uses, so what the user sees and
-/// what the phone does can't diverge.
-class _CurrentFocusCard extends ConsumerWidget {
-  const _CurrentFocusCard({required this.session});
-  final FocusSession session;
+/// Average daily screen time = total across the 7-day window ÷ days.
+class _AverageDailyCard extends ConsumerWidget {
+  const _AverageDailyCard();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final remaining = ref.watch(focusRemainingProvider).valueOrNull ?? Duration.zero;
-    final plannedEnd = session.startedAt.add(Duration(seconds: session.plannedSeconds));
-    final endsAt = TimeOfDay.fromDateTime(plannedEnd).format(context);
+    final week = ref.watch(weeklyScreenTimeProvider).valueOrNull ?? const [];
+    final totalSeconds = week.fold<int>(0, (sum, d) => sum + d.inSeconds);
+    final days = week.isEmpty ? 1 : week.length;
+    final avg = Duration(seconds: (totalSeconds / days).round());
 
     return PremiumCard(
       padding: const EdgeInsets.all(16),
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 38,
+            height: 38,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: AppColors.surface2,
               borderRadius: BorderRadius.circular(AppRadius.sm),
             ),
-            child: AppIcon(AppIconName.stopwatch, size: 18, color: AppColors.ink),
+            child: AppIcon(AppIconName.chart, size: 17, color: AppColors.ink),
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(session.label,
+                Text('Average daily screen time',
                     style: TextStyle(
-                        fontSize: AppText.title, fontWeight: FontWeight.w600, color: AppColors.ink)),
+                        fontSize: AppText.caption,
+                        color: AppColors.inkDim,
+                        fontWeight: FontWeight.w600)),
                 const SizedBox(height: 2),
-                Text('Ends at $endsAt',
-                    style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),
+                RollingNumber(
+                  text: formatDurationHMS(avg),
+                  style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.ink,
+                      fontFeatures: const [FontFeature.tabularFigures()]),
+                ),
               ],
             ),
           ),
-          Text(
-            formatClock(remaining),
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: AppColors.ink),
-          ),
-          const SizedBox(width: 8),
-          AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
         ],
       ),
     );
@@ -323,8 +370,7 @@ class _RestrictionLine extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: AppText.body, color: AppColors.ink)),
-                Text(untilText,
-                    style: TextStyle(fontSize: 11, color: AppColors.inkDim)),
+                Text(untilText, style: TextStyle(fontSize: 11, color: AppColors.inkDim)),
               ],
             ),
           ),
@@ -336,54 +382,6 @@ class _RestrictionLine extends StatelessWidget {
       ),
     );
   }
-}
-
-class _BedtimeCard extends StatelessWidget {
-  const _BedtimeCard({required this.bedtime});
-  final BedtimeScheduleData bedtime;
-
-  @override
-  Widget build(BuildContext context) {
-    return PremiumCard(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AppColors.surface2,
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-            ),
-            child: AppIcon(AppIconName.moon, size: 18, color: AppColors.ink),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Bedtime',
-                    style: TextStyle(
-                        fontSize: AppText.title, fontWeight: FontWeight.w600, color: AppColors.ink)),
-                const SizedBox(height: 2),
-                Text(
-                  '${_fmt(context, bedtime.startTime)} — ${_fmt(context, bedtime.endTime)}'
-                  '${bedtime.dndEnabled ? ' · DND' : ''}',
-                  style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim),
-                ),
-              ],
-            ),
-          ),
-          AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
-        ],
-      ),
-    );
-  }
-
-  String _fmt(BuildContext context, String hhmm) => TimeOfDay.fromDateTime(
-        DateTime(2026, 1, 1, int.parse(hhmm.split(':')[0]), int.parse(hhmm.split(':')[1])),
-      ).format(context);
 }
 
 class _WeeklyTrendCard extends StatelessWidget {
@@ -413,7 +411,7 @@ class _WeeklyTrendCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            hasData ? _formatHours(avg) : 'No data yet',
+            hasData ? formatDurationShort(Duration(minutes: (avg * 60).round())) : 'No data yet',
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
           ),
           const SizedBox(height: 8),
@@ -441,10 +439,6 @@ class _WeeklyTrendCard extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  String _formatHours(double hours) {
-    return formatDurationShort(Duration(minutes: (hours * 60).round()));
   }
 }
 

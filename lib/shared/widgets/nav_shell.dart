@@ -10,6 +10,7 @@ import '../../features/home/home_screen.dart';
 import '../../features/limits/limits_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import 'app_sheet.dart';
+import 'pressable_scale.dart';
 
 /// The app's navigation shell. Owns the global navigation behaviors:
 ///

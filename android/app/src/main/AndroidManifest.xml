@@ -106,6 +106,23 @@
             </intent-filter>
         </service>
 
+        <!-- Focus Session system indicator: foreground service with an
+             ongoing chronometer notification and Pause/End actions. -->
+        <service
+            android:name=".FocusIndicatorService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Focus session timer indicator" />
+        </service>
+
+        <!-- System-notification actions (Pause/Resume/End) for the focus
+             indicator, routed into the Dart FocusController. -->
+        <receiver
+            android:name=".FocusSessionActionReceiver"
+            android:exported="false" />
+
         <!-- Restores enforcement work after a reboot. -->
         <receiver
             android:name=".BootReceiver"

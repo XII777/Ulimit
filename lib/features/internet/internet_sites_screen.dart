@@ -13,6 +13,7 @@ import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../data/website_providers.dart';
 import '../../shared/widgets/app_selector.dart';
+import 'add_suggestions.dart';
 import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/spring_scroll.dart';
@@ -67,6 +68,18 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
             _VpnCard(),
             const SizedBox(height: 20),
 
+            // ACTIVE BLOCKS always comes first: every downloaded block
+            // list whose filter is currently enabled.
+            Text('ACTIVE BLOCKS',
+                style: TextStyle(
+                    fontSize: AppText.overline,
+                    color: AppColors.inkFaint,
+                    letterSpacing: 0.6,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 10),
+            const _ActiveBlocksSection(),
+            const SizedBox(height: 20),
+
             Text('APP INTERNET ACCESS',
                 style: TextStyle(
                     fontSize: AppText.overline,
@@ -77,7 +90,9 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
             _InternetBlocksSection(),
             const SizedBox(height: 20),
 
-            Text('BLOCKED WEBSITES',
+            // CUSTOM SITES: individually added domains, always below
+            // ACTIVE BLOCKS, with the add controls after the list.
+            Text('CUSTOM SITES',
                 style: TextStyle(
                     fontSize: AppText.overline,
                     color: AppColors.inkFaint,
@@ -87,23 +102,8 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
             const _CustomSitesSection(),
             const SizedBox(height: 20),
 
-            Text('BLOCK LISTS',
-                style: TextStyle(
-                    fontSize: AppText.overline,
-                    color: AppColors.inkFaint,
-                    letterSpacing: 0.6,
-                    fontWeight: FontWeight.w600)),
-            const SizedBox(height: 4),
-            Padding(
-              padding: EdgeInsets.only(bottom: 10),
-              child: Text(
-                'Curated domain lists by category. Download a list, toggle '
-                'individual sites on or off. Blocked domains resolve to '
-                'nothing while the local VPN is active.',
-                style: TextStyle(fontSize: 11.5, color: AppColors.inkFaint, height: 1.5),
-              ),
-            ),
-            const _BlockListSection(),
+            // Browse/download the remaining categories.
+            _BrowseBlockListsTile(),
           ],
         ),
       ),
@@ -350,6 +350,7 @@ class _CustomSitesSectionState extends ConsumerState<_CustomSitesSection> {
               Expanded(
                 child: TextField(
                   controller: _controller,
+                  onChanged: (_) => setState(() {}),
                   style: TextStyle(color: AppColors.ink, fontSize: 13.5),
                   decoration: InputDecoration(
                     hintText: 'Add a website, e.g. example.com',
@@ -451,17 +452,114 @@ class _BlockListSection extends ConsumerWidget {
     final categories = ref.watch(blockListCategoriesProvider);
 
     return categories.when(
+      // Only categories that are not yet active appear in the browse
+      // list — enabled ones live under ACTIVE BLOCKS at the top.
       data: (list) => Column(
         children: [
-          for (final view in list) ...[
-            _BlockListTile(view: view),
-            const SizedBox(height: 6),
-          ],
+          for (final view in list)
+            if (!(view.downloaded && view.enabled)) ...[
+              _BlockListTile(view: view),
+              const SizedBox(height: 6),
+            ],
         ],
       ),
       loading: () => const SizedBox.shrink(),
       error: (e, _) => Text('Could not load lists: $e',
           style: TextStyle(fontSize: 12, color: AppColors.inkFaint)),
+    );
+  }
+}
+
+/// ACTIVE BLOCKS: every downloaded block list whose filter is
+/// currently enabled. Toggling one off removes it from this section
+/// immediately and disables its filter; tapping opens its site list.
+class _ActiveBlocksSection extends ConsumerWidget {
+  const _ActiveBlocksSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final categories = ref.watch(blockListCategoriesProvider);
+
+    return categories.when(
+      data: (list) {
+        final active = list.where((v) => v.downloaded && v.enabled).toList();
+        if (active.isEmpty) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+              border: Border.all(color: AppColors.stroke),
+            ),
+            child: Text(
+              'No active block lists yet.\nBrowse the lists below to enable one.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: AppColors.inkFaint, height: 1.5),
+            ),
+          );
+        }
+        return Column(
+          children: [
+            for (final view in active) ...[
+              _BlockListTile(view: view),
+              const SizedBox(height: 6),
+            ],
+          ],
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (e, _) => Text('Could not load lists: $e',
+          style: TextStyle(fontSize: 12, color: AppColors.inkFaint)),
+    );
+  }
+}
+
+/// Opens the browse sheet with the categories that are not currently
+/// active (download, enable, remove from there).
+class _BrowseBlockListsTile extends StatelessWidget {
+  const _BrowseBlockListsTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return PressableScale(
+      onTap: () {
+        showAppSheet<void>(
+          context: context,
+          title: 'Block Lists',
+          subtitle:
+              'Curated domain lists by category. Download a list, toggle '
+              'individual sites on or off. Enabled lists move to ACTIVE BLOCKS.',
+          initialSize: 0.92,
+          minSize: 0.4,
+          builder: (_, scrollController) => SingleChildScrollView(
+            controller: scrollController,
+            physics: springScrollPhysics,
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: const _BlockListSection(),
+          ),
+        );
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 15),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(color: AppColors.stroke),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppIcon(AppIconName.filter, size: 15, color: AppColors.inkDim),
+            const SizedBox(width: 8),
+            Text('Browse all block lists',
+                style: TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.inkDim)),
+          ],
+        ),
+      ),
     );
   }
 }

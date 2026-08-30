@@ -12,6 +12,7 @@ import '../../core/native/permissions_channel.dart';
 import '../../core/theme/premium_components.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/db/app_database.dart';
+import '../../data/focus_indicator.dart';
 import '../../data/permissions_providers.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
@@ -26,6 +27,8 @@ class SettingsScreen extends ConsumerWidget {
     final permissions = ref.watch(allPermissionsProvider);
     final settings = ref.watch(ulimitSettingsProvider).valueOrNull;
     final themeMode = ref.watch(themeModeProvider).valueOrNull ?? 'system';
+    final focusIndicatorEnabled =
+        ref.watch(focusIndicatorEnabledProvider).valueOrNull ?? true;
 
     // Top spacing is owned by NavShell's collapsing inset.
     return ListView(
@@ -64,6 +67,28 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 20),
 
+          const PremiumSectionLabel('FOCUS'),
+          const SizedBox(height: 8),
+          PremiumCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                PremiumListTile(
+                  label: 'Focus Session Indicator',
+                  sublabel: 'Show your active Focus Session in the Android system area',
+                  trailing: Switch(
+                    value: focusIndicatorEnabled,
+                    onChanged: (v) async {
+                      await ref.read(settingsControllerProvider).setFocusIndicatorEnabled(v);
+                      await ref.read(focusIndicatorSyncProvider).sync();
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
           const PremiumSectionLabel('PERMISSIONS'),
           const SizedBox(height: 8),
           PremiumCard(
@@ -95,21 +120,18 @@ class SettingsScreen extends ConsumerWidget {
                   trailing: AppIcon(AppIconName.export, size: 15, color: AppColors.inkFaint),
                   onTap: () => _exportData(context, ref),
                 ),
-                const PremiumDivider(),
                 PremiumListTile(
                   label: 'Import data',
                   sublabel: 'Restore an Ulimit export file',
                   trailing: AppIcon(AppIconName.import, size: 15, color: AppColors.inkFaint),
                   onTap: () => _importData(context, ref),
                 ),
-                const PremiumDivider(),
                 PremiumListTile(
                   label: 'Crash logs',
                   sublabel: 'Review, copy or export captured crash reports',
                   trailing: AppIcon(AppIconName.info, size: 15, color: AppColors.inkFaint),
                   onTap: () => _showCrashLogs(context),
                 ),
-                const PremiumDivider(),
                 PremiumListTile(
                   label: 'Delete all data',
                   sublabel: 'Usage, focus history, rules and lists — permanent',
@@ -131,12 +153,10 @@ class SettingsScreen extends ConsumerWidget {
                   sublabel: 'All data stays on this device. No account, no cloud, no ads.',
                   trailing: AppIcon(AppIconName.info, size: 15, color: AppColors.inkFaint),
                 ),
-                const PremiumDivider(),
                 const PremiumListTile(
                   label: 'Block-list source',
                   sublabel: 'HaGeZi dns-blocklists (GPL-3.0), downloaded on demand',
                 ),
-                const PremiumDivider(),
                 const PremiumListTile(label: 'Version', sublabel: '0.2.0'),
               ],
             ),

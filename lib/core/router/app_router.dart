@@ -4,6 +4,7 @@ import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/nav_shell.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/focus/focus_screen.dart';
+import '../../features/focus/focus_history_screen.dart';
 import '../../features/limits/limits_screen.dart';
 import '../../features/restrictions/restrictions_screen.dart';
 import '../../features/internet/internet_sites_screen.dart';
@@ -25,6 +26,7 @@ abstract final class Routes {
   static const bedtime = '/bedtime';
   static const settings = '/settings';
   static const parental = '/parental';
+  static const focusHistory = '/focus-history';
 
   // Tab-navigation direction state for the swipe transition. NavShell
   // writes these on every tab change; _tabRoute's transition reads them.
@@ -55,6 +57,7 @@ final appRouter = GoRouter(
     // Detail screens push OUTSIDE the shell so the nav bar correctly
     // disappears rather than fighting a full-screen modal.
     _detailRoute(Routes.restrictions, const RestrictionsScreen()),
+    _detailRoute(Routes.focusHistory, const FocusHistoryScreen()),
     _detailRoute(Routes.internet, const InternetSitesScreen()),
     _detailRoute(Routes.notifications, const NotificationsScreen()),
     _detailRoute(Routes.parental, const ParentalScreen()),

@@ -34,6 +34,13 @@ class FocusSessions extends Table {
   BoolColumn get blockInternet => boolean().withDefault(const Constant(false))();
   BoolColumn get blockWebsites => boolean().withDefault(const Constant(false))();
   BoolColumn get completed => boolean().withDefault(const Constant(false))();
+
+  // Pause support: pausedAt is the timestamp the session was paused
+  // (null = running); accumulatedPausedSeconds is the total time the
+  // session has spent paused. Elapsed focus time is
+  // now - startedAt - accumulatedPausedSeconds (frozen while paused).
+  DateTimeColumn get pausedAt => dateTime().nullable()();
+  IntColumn get accumulatedPausedSeconds => integer().withDefault(const Constant(0))();
 }
 
 /// One row per tracked package per day. Aggregated in-memory for
@@ -170,6 +177,9 @@ class UlimitSettings extends Table {
   // Tile Appearance: 'system' | 'dark' | 'white' — AMOLED dark theme,
   // monochrome white theme, or follow the Android system setting.
   TextColumn get themeMode => text().withDefault(const Constant('system'))();
+  // Android system-level Focus Session indicator (foreground service +
+  // ongoing notification with live timer and Pause/End controls).
+  BoolColumn get focusIndicatorEnabled => boolean().withDefault(const Constant(true))();
 }
 
 /// One row per day. Incremented every time the AccessibilityService

@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'db/app_database.dart';
 import 'db/tables.dart';
+import 'usage_tracker.dart';
 
 /// Single DB instance for the app's lifetime. `keepAlive` so switching
 /// tabs doesn't tear down and reopen the SQLite connection — that
@@ -50,6 +53,10 @@ class SettingsController {
   Future<void> setThemeMode(String v) =>
       _update(UlimitSettingsCompanion(themeMode: Value(v)));
 
+  /// Android system-level Focus Session indicator.
+  Future<void> setFocusIndicatorEnabled(bool v) =>
+      _update(UlimitSettingsCompanion(focusIndicatorEnabled: Value(v)));
+
   Future<void> _update(UlimitSettingsCompanion c) async {
     await _ensureRow();
     await (_db.update(_db.ulimitSettings)..where((t) => t.id.equals(1))).write(c);
@@ -77,6 +84,44 @@ final dailyBudgetProvider = StreamProvider<int>((ref) {
 final themeModeProvider = StreamProvider<String>((ref) {
   final db = ref.watch(databaseProvider);
   return db.select(db.ulimitSettings).watchSingle().map((s) => s.themeMode);
+});
+
+/// Live today screen time in seconds: the persisted per-day total plus
+/// the un-attributed elapsed time of whatever app is currently in front
+/// (updated by usage events, ticked once per second). Only consumers
+/// that listen to this stream rebuild — the rest of Home does not.
+final liveScreenTimeSecondsProvider = StreamProvider<int>((ref) {
+  late final StreamController<int> controller;
+  Timer? timer;
+
+  int compute() {
+    final base = ref.read(todayScreenTimeProvider).valueOrNull?.inSeconds ?? 0;
+    final foreground = UsageTracker.liveForeground.value;
+    if (foreground == null) return base;
+    final pending = ((DateTime.now().millisecondsSinceEpoch - foreground.sinceMillis) / 1000)
+        .floor()
+        .clamp(0, 6 * 3600);
+    return base + pending;
+  }
+
+  void tick(Timer _) {
+    if (!controller.isClosed) controller.add(compute());
+  }
+
+  controller = StreamController<int>(
+    onListen: () {
+      controller.add(compute());
+      timer = Timer.periodic(const Duration(seconds: 1), tick);
+    },
+    onCancel: () {
+      timer?.cancel();
+    },
+  );
+  ref.onDispose(() {
+    timer?.cancel();
+    controller.close();
+  });
+  return controller.stream;
 });
 
 Future<void> setDailyBudget(AppDatabase db, int minutes) async {

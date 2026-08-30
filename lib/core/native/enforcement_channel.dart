@@ -135,6 +135,73 @@ class EnforcementChannel {
     }
   }
 
+  // -----------------------------------------------------------------
+  // Focus Session indicator (Android foreground service + notification)
+  // -----------------------------------------------------------------
+
+  static Future<void> Function(String action)? _focusActionHandler;
+
+  /// Registers the Dart handler the Android indicator service invokes
+  /// for Pause/Resume/End. Works in both the app engine and the
+  /// background engine — the service picks whichever is alive.
+  static void setFocusActionHandler(Future<void> Function(String action)? handler) {
+    _focusActionHandler = handler;
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'focusAction') {
+        final handler = _focusActionHandler;
+        if (handler != null) {
+          await handler(call.arguments['action'] as String? ?? '');
+        }
+        return null;
+      }
+      return null; // unknown Kotlin→Dart calls are ignored
+    });
+  }
+
+  static Future<void> startFocusIndicator({
+    required String label,
+    required DateTime startedAt,
+    required DateTime endsAt,
+    required bool paused,
+  }) async {
+    try {
+      await _channel.invokeMethod('startFocusIndicator', {
+        'label': label,
+        'startedAtMillis': startedAt.millisecondsSinceEpoch,
+        'endMillis': endsAt.millisecondsSinceEpoch,
+        'paused': paused,
+      });
+    } on PlatformException {
+      /* indicator is best-effort presentation */
+    } on MissingPluginException {
+      /* non-Android */
+    }
+  }
+
+  static Future<void> updateFocusNotification({
+    required String label,
+    required DateTime endsAt,
+    required bool paused,
+  }) async {
+    try {
+      await _channel.invokeMethod('updateFocusNotification', {
+        'label': label,
+        'endMillis': endsAt.millisecondsSinceEpoch,
+        'paused': paused,
+      });
+    } on PlatformException {
+    } on MissingPluginException {
+    }
+  }
+
+  static Future<void> stopFocusIndicator() async {
+    try {
+      await _channel.invokeMethod('stopFocusIndicator');
+    } on PlatformException {
+    } on MissingPluginException {
+    }
+  }
+
   /// Installed launchable apps: [{package, name, icon (PNG bytes)}].
   static Future<List<InstalledApp>> getInstalledApps() async {
     try {

@@ -30,7 +30,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.connect(super.e);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   // Migrations are explicit (rather than "just delete and recreate")
   // because this is local user data — wiping someone's focus history on

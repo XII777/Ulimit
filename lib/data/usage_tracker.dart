@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:drift/drift.dart';
 import '../core/native/usage_events_channel.dart';
 import 'db/app_database.dart';
@@ -19,6 +20,12 @@ import 'db/app_database.dart';
 /// bounded by one app's single foreground duration, not compounding.
 class UsageTracker {
   UsageTracker(this._db);
+
+  /// The most recent foreground transition, exposed for the live
+  /// screen-time counter: while an app is in front, its un-attributed
+  /// elapsed time grows by the second on top of the persisted total.
+  static final ValueNotifier<({String package, int sinceMillis})?> liveForeground =
+      ValueNotifier(null);
 
   final AppDatabase _db;
   StreamSubscription<ForegroundEvent>? _sub;
@@ -57,6 +64,7 @@ class UsageTracker {
 
     _pendingPackage = event.packageName;
     _pendingTimestampMillis = now;
+    liveForeground.value = (package: event.packageName, sinceMillis: now);
   }
 
   Future<void> _addUsage(String package, int atMillis, int seconds) async {
