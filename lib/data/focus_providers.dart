@@ -18,11 +18,10 @@ final activeFocusSessionProvider = StreamProvider<FocusSession?>((ref) {
   return query.watchSingleOrNull();
 });
 
-/// Most recent finished sessions, newest first — Focus history list.
+/// All sessions, newest first — Focus history list.
 final focusHistoryProvider = StreamProvider<List<FocusSession>>((ref) {
   final db = ref.watch(databaseProvider);
   final query = db.select(db.focusSessions)
-    ..where((t) => t.endedAt.isNotNull())
     ..orderBy([(t) => OrderingTerm.desc(t.startedAt)])
     ..limit(100);
   return query.watch();
@@ -33,21 +32,21 @@ final focusHistoryProvider = StreamProvider<List<FocusSession>>((ref) {
 /// notification, the enforcement snapshot — derives from these
 /// functions against the row's timestamps; nothing increments counters.
 class FocusClock {
-  static int pausedAccum(FocusSession s) => s.accumulatedPausedSeconds;
-
   static bool isPaused(FocusSession s) => s.pausedAt != null;
 
   /// Elapsed RUNNING time in seconds (paused time excluded, frozen
   /// while paused).
   static int elapsedSeconds(FocusSession s, DateTime now) {
     final effectiveEnd = s.pausedAt ?? now;
-    final elapsed = effectiveEnd.difference(s.startedAt).inSeconds - s.accumulatedPausedSeconds;
-    return elapsed.clamp(0, 1 << 31);
+    final elapsed =
+        effectiveEnd.difference(s.startedAt).inSeconds - s.accumulatedPausedSeconds;
+    return elapsed < 0 ? 0 : elapsed;
   }
 
   /// Remaining seconds of the planned duration (frozen while paused).
   static int remainingSeconds(FocusSession s, DateTime now) {
-    return (s.plannedSeconds - elapsedSeconds(s, now)).clamp(0, 1 << 31);
+    final remaining = s.plannedSeconds - elapsedSeconds(s, now);
+    return remaining < 0 ? 0 : remaining;
   }
 
   /// When the session would naturally complete, accounting for pauses.
@@ -80,12 +79,13 @@ class FocusController {
           blockedPackages: Value(blockedPackages),
           pauseNotifications: Value(pauseNotifications),
           blockInternet: Value(blockInternet),
-          blockWebsites: Value(blockInternet),
+          blockWebsites: Value(blockWebsites),
           invincible: Value(invincible),
         ));
   }
 
-  /// Pauses the running session: timer freezes, restrictions continue.
+  /// Pauses the running session: the timer freezes but the session and
+  /// its restrictions continue.
   Future<void> pause() async {
     final session = await _runningRow();
     if (session == null || session.pausedAt != null) return;
@@ -118,17 +118,15 @@ class FocusController {
     );
   }
 
-  /// Marks any running session whose planned end has passed as
-  /// completed. Called from the evaluation tick so completion happens
-  /// even if the timer UI was never open (process death, app swiped
-  /// away, phone rebooted) — the timestamp in the row is the authority.
-  /// Paused sessions never auto-complete (the timer is frozen).
+  /// Marks any running (and not paused) session whose planned end has
+  /// passed as completed. Called from the evaluation tick so completion
+  /// happens even if the timer UI was never open — the timestamp in the
+  /// row is the authority. Paused sessions never auto-complete.
   Future<void> finalizeIfDue() async {
     final session = await _runningRow();
     if (session == null) return;
     if (session.pausedAt != null) return;
-    final plannedEnd = session.startedAt
-        .add(Duration(seconds: session.plannedSeconds + session.accumulatedPausedSeconds));
+    final plannedEnd = FocusClock.plannedEnd(session);
     if (DateTime.now().isBefore(plannedEnd)) return;
     await (_db.update(_db.focusSessions)..where((t) => t.id.equals(session.id))).write(
       FocusSessionsCompanion(endedAt: Value(plannedEnd), completed: const Value(true)),
@@ -148,8 +146,7 @@ class FocusController {
     if (running.isEmpty) return;
     final now = DateTime.now();
     for (final session in running) {
-      final plannedEnd = session.startedAt
-          .add(Duration(seconds: session.plannedSeconds + session.accumulatedPausedSeconds));
+      final plannedEnd = FocusClock.plannedEnd(session);
       final ended = now.isBefore(plannedEnd) ? now : plannedEnd;
       await (_db.update(_db.focusSessions)..where((t) => t.id.equals(session.id))).write(
         FocusSessionsCompanion(endedAt: Value(ended), completed: Value(now.isAfter(plannedEnd))),
@@ -172,33 +169,28 @@ final focusControllerProvider = Provider<FocusController>((ref) {
 });
 
 /// Remaining time of the running session, ticking every second ONLY
-/// while a session exists — the ValueListenable-style stream drives
-/// Home's rolling counter and the Focus ring without rebuilding the
-/// rest of either screen.
+/// while a session exists. async* generators restart cleanly on every
+/// subscription — no hand-managed StreamController lifecycles.
 final focusRemainingProvider = StreamProvider<Duration>((ref) {
   final session = ref.watch(activeFocusSessionProvider).valueOrNull;
   if (session == null) return Stream.value(Duration.zero);
-  Duration remaining() => Duration(seconds: FocusClock.remainingSeconds(session, DateTime.now()));
-
-  Future<void> pump(EventSink<Duration> sink) async {
-    sink.add(remaining());
-    await for (final _ in Stream<void>.periodic(const Duration(seconds: 1))) {
-      sink.add(remaining());
-    }
-  }
-
-  late final StreamController<Duration> controller;
-  controller = StreamController<Duration>(
-    onListen: () => pump(controller),
-    onCancel: () {},
-  );
-  return controller.stream;
+  return _remainingStream(session);
 });
+
+Stream<Duration> _remainingStream(FocusSession session) async* {
+  Duration remaining() =>
+      Duration(seconds: FocusClock.remainingSeconds(session, DateTime.now()));
+  yield remaining();
+  await for (final _ in Stream<void>.periodic(const Duration(seconds: 1))) {
+    yield remaining();
+  }
+}
 
 /// Live elapsed focus seconds for TODAY (completed sessions today +
 /// the running session's live elapsed). Ticks every second only while
 /// a session runs; otherwise it's a plain static value.
 final liveFocusSecondsTodayProvider = StreamProvider<int>((ref) {
+  final session = ref.watch(activeFocusSessionProvider).valueOrNull;
   final db = ref.watch(databaseProvider);
   final start = startOfDay(DateTime.now());
 
@@ -206,40 +198,26 @@ final liveFocusSecondsTodayProvider = StreamProvider<int>((ref) {
     final sessions = await (db.select(db.focusSessions)
           ..where((t) => t.startedAt.isBiggerOrEqualValue(start)))
         .get();
-    var total = 0;
     final now = DateTime.now();
+    var total = 0;
     for (final s in sessions) {
-      if (s.endedAt != null) {
-        // Finished today (or finished earlier today after starting
-        // today): count actual duration.
-        total += FocusClock.elapsedSeconds(
-          s,
-          s.endedAt ?? now,
-        );
-      } else {
-        total += FocusClock.elapsedSeconds(s, now);
-      }
+      total += FocusClock.elapsedSeconds(s, s.endedAt ?? now);
     }
     return total;
   }
 
-  Future<void> pump(EventSink<int> sink) async {
-    sink.add(await compute());
-    await for (final _ in Stream<void>.periodic(const Duration(seconds: 1))) {
-      sink.add(await compute());
-    }
+  // While a session runs: tick every second. Without one: a static
+  // value that still refreshes on session changes (the watch above
+  // rebuilds this provider on start/end).
+  if (session == null) {
+    return Stream.fromFuture(compute());
   }
-
-  late final StreamController<int> controller;
-  controller = StreamController<int>(
-    onListen: () => pump(controller),
-    onCancel: () {},
-  );
-  // Re-run when the session row changes (start/end/complete).
-  ref.listen(activeFocusSessionProvider, (_, __) {
-    Future.microtask(() async {
-      if (!controller.isClosed) controller.add(await compute());
-    });
-  });
-  return controller.stream;
+  return _liveFocusStream(compute);
 });
+
+Stream<int> _liveFocusStream(Future<int> Function() compute) async* {
+  yield await compute();
+  await for (final _ in Stream<void>.periodic(const Duration(seconds: 1))) {
+    yield await compute();
+  }
+}

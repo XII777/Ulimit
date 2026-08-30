@@ -80,6 +80,12 @@ class AppDatabase extends _$AppDatabase {
             // v2 → v3: Tile Appearance setting.
             await m.addColumn(ulimitSettings, ulimitSettings.themeMode);
           }
+          if (from < 4) {
+            // v3 → v4: focus pause support + system indicator setting.
+            await m.addColumn(focusSessions, focusSessions.pausedAt);
+            await m.addColumn(focusSessions, focusSessions.accumulatedPausedSeconds);
+            await m.addColumn(ulimitSettings, ulimitSettings.focusIndicatorEnabled);
+          }
         },
         beforeOpen: (details) async {
           // Ensure the singleton settings row exists so every reader
