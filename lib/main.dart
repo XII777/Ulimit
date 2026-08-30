@@ -19,6 +19,26 @@ void main() {
   // during startup itself is exactly the kind of crash that is hardest
   // to reproduce without a trace.
   unawaited(CrashCollector.initialize());
+
+  // Release builds render build exceptions as BLANK widgets — which
+  // looks like "the screen is empty". Surface the actual error text
+  // (monochrome card) so any breakage is visible and reportable, and
+  // keep it flowing into the crash collector.
+  ErrorWidget.builder = (details) {
+    final summary = details.exceptionAsString();
+    return Container(
+      color: Colors.black,
+      padding: const EdgeInsets.all(16),
+      alignment: Alignment.center,
+      child: SingleChildScrollView(
+        child: SelectableText(
+          'UI error — please report:\n$summary',
+          style: const TextStyle(color: Colors.white, fontSize: 12),
+        ),
+      ),
+    );
+  };
+
   runApp(const ProviderScope(child: UlimitApp()));
 }
 

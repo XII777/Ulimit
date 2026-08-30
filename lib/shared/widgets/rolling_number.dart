@@ -53,33 +53,45 @@ class _RollingNumberState extends State<RollingNumber> {
         final char = current[i];
         final changed = !sameLength || previous[i] != char;
 
-        return ClipRect(
-          child: AnimatedSwitcher(
-            duration: widget.duration,
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            transitionBuilder: (child, animation) {
-              final slideIn = Tween<Offset>(
-                begin: const Offset(0, 0.6),
-                end: Offset.zero,
-              ).animate(animation);
-              final slideOut = Tween<Offset>(
-                begin: Offset.zero,
-                end: const Offset(0, -0.6),
-              ).animate(animation);
-              // Outgoing digit slides up+fades, incoming slides in from
-              // below+fades — the classic odometer look, per-character.
-              return ClipRect(
-                child: SlideTransition(
-                  position: child.key == ValueKey('$char-$i-new') ? slideIn : slideOut,
-                  child: FadeTransition(opacity: animation, child: child),
-                ),
-              );
-            },
-            child: Text(
-              char,
-              key: changed ? ValueKey('$char-$i-new') : ValueKey('static-$i-$char'),
-              style: widget.style,
+        return SizedBox(
+          height: (widget.style.fontSize ?? 14) * 1.45,
+          child: ClipRect(
+            child: AnimatedSwitcher(
+              duration: widget.duration,
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              // Left-aligned stack so old and new values of different
+              // widths overlap cleanly instead of stacking as ghosts.
+              layoutBuilder: (currentChild, previousChildren) => Stack(
+                alignment: Alignment.centerLeft,
+                children: [
+                  ...previousChildren,
+                  if (currentChild != null) currentChild,
+                ],
+              ),
+              transitionBuilder: (child, animation) {
+                final slideIn = Tween<Offset>(
+                  begin: const Offset(0, 0.6),
+                  end: Offset.zero,
+                ).animate(animation);
+                final slideOut = Tween<Offset>(
+                  begin: Offset.zero,
+                  end: const Offset(0, -0.6),
+                ).animate(animation);
+                // Outgoing digit slides up+fades, incoming slides in from
+                // below+fades — the classic odometer look, per-character.
+                return ClipRect(
+                  child: SlideTransition(
+                    position: child.key == ValueKey('$char-$i-new') ? slideIn : slideOut,
+                    child: FadeTransition(opacity: animation, child: child),
+                  ),
+                );
+              },
+              child: Text(
+                char,
+                key: changed ? ValueKey('$char-$i-new') : ValueKey('static-$i-$char'),
+                style: widget.style,
+              ),
             ),
           ),
         );

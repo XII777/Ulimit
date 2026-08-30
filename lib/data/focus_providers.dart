@@ -195,15 +195,19 @@ final liveFocusSecondsTodayProvider = StreamProvider<int>((ref) {
   final start = startOfDay(DateTime.now());
 
   Future<int> compute() async {
-    final sessions = await (db.select(db.focusSessions)
-          ..where((t) => t.startedAt.isBiggerOrEqualValue(start)))
-        .get();
-    final now = DateTime.now();
-    var total = 0;
-    for (final s in sessions) {
-      total += FocusClock.elapsedSeconds(s, s.endedAt ?? now);
+    try {
+      final sessions = await (db.select(db.focusSessions)
+            ..where((t) => t.startedAt.isBiggerOrEqualValue(start)))
+          .get();
+      final now = DateTime.now();
+      var total = 0;
+      for (final s in sessions) {
+        total += FocusClock.elapsedSeconds(s, s.endedAt ?? now);
+      }
+      return total;
+    } catch (_) {
+      return 0; // a broken DB must never blank the dashboard
     }
-    return total;
   }
 
   // While a session runs: tick every second. Without one: a static
