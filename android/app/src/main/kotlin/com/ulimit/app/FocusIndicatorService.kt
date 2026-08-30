@@ -113,7 +113,7 @@ class FocusIndicatorService : Service() {
                 startedAtMillis = intent.getLongExtra(EXTRA_STARTED_AT, startedAtMillis)
                 endMillis = intent.getLongExtra(EXTRA_END, endMillis)
                 paused = intent.getBooleanExtra(EXTRA_PAUSED, paused)
-                notify()
+                pushNotification()
             }
         }
         return START_NOT_STICKY
