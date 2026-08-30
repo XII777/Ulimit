@@ -88,6 +88,20 @@ class AppDatabase extends _$AppDatabase {
           }
         },
         beforeOpen: (details) async {
+          final m = createMigrator();
+
+          // Self-healing for installs that skipped a migration step:
+          // one release shipped schemaVersion=4 without the v4 ALTERs,
+          // so devices on it report "up to date" while the columns are
+          // missing. Verify the expected columns directly — idempotent,
+          // runs on every open, costs a few PRAGMA reads.
+          await _addColumnIfMissing(m, focusSessions, focusSessions.pausedAt, 'paused_at');
+          await _addColumnIfMissing(
+              m, focusSessions, focusSessions.accumulatedPausedSeconds, 'accumulated_paused_seconds');
+          await _addColumnIfMissing(m, ulimitSettings, ulimitSettings.themeMode, 'theme_mode');
+          await _addColumnIfMissing(
+              m, ulimitSettings, ulimitSettings.focusIndicatorEnabled, 'focus_indicator_enabled');
+
           // Ensure the singleton settings row exists so every reader
           // gets real values instead of "null until first write".
           final settings = await select(ulimitSettings).get();
@@ -96,6 +110,22 @@ class AppDatabase extends _$AppDatabase {
           }
         },
       );
+
+  /// Adds [column] to [table] only when a column named [name] does not
+  /// exist yet. PRAGMA table_info is the ground truth — never trust the
+  /// schema_version pragma alone.
+  Future<void> _addColumnIfMissing(
+    Migrator m,
+    TableInfo table,
+    GeneratedColumn column,
+    String name,
+  ) async {
+    final rows = await customSelect('PRAGMA table_info(${table.actualTableName})').get();
+    final exists = rows.any((r) => r.data['name'] == name);
+    if (!exists) {
+      await m.addColumn(table, column);
+    }
+  }
 
   Future<void> wipeAllData() async {
     await transaction(() async {
