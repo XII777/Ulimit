@@ -41,7 +41,7 @@ class SettingsScreen extends ConsumerWidget {
               style: TextStyle(fontSize: AppText.body, color: AppColors.inkDim)),
           const SizedBox(height: 20),
 
-          const PremiumSectionLabel('GENERAL'),
+           PremiumSectionLabel('GENERAL'),
           const SizedBox(height: 8),
           PremiumCard(
             padding: EdgeInsets.zero,
@@ -66,7 +66,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 20),
 
-          const PremiumSectionLabel('FOCUS'),
+           PremiumSectionLabel('FOCUS'),
           const SizedBox(height: 8),
           PremiumCard(
             padding: EdgeInsets.zero,
@@ -88,7 +88,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 20),
 
-          const PremiumSectionLabel('PERMISSIONS'),
+           PremiumSectionLabel('PERMISSIONS'),
           const SizedBox(height: 8),
           PremiumCard(
             padding: EdgeInsets.zero,
@@ -106,7 +106,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 20),
 
-          const PremiumSectionLabel('DATA'),
+           PremiumSectionLabel('DATA'),
           const SizedBox(height: 8),
           PremiumCard(
             padding: EdgeInsets.zero,
@@ -140,7 +140,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 20),
 
-          const PremiumSectionLabel('ABOUT'),
+           PremiumSectionLabel('ABOUT'),
           const SizedBox(height: 8),
           PremiumCard(
             padding: EdgeInsets.zero,
@@ -151,11 +151,11 @@ class SettingsScreen extends ConsumerWidget {
                   sublabel: 'All data stays on this device. No account, no cloud, no ads.',
                   trailing: AppIcon(AppIconName.info, size: 15, color: AppColors.inkFaint),
                 ),
-                const PremiumListTile(
+                 PremiumListTile(
                   label: 'Block-list source',
                   sublabel: 'HaGeZi dns-blocklists (GPL-3.0), downloaded on demand',
                 ),
-                const PremiumListTile(label: 'Version', sublabel: '0.2.0'),
+                 PremiumListTile(label: 'Version', sublabel: '0.2.0'),
               ],
             ),
           ),

@@ -47,20 +47,20 @@ final appRouter = GoRouter(
     ShellRoute(
       builder: (context, state, child) => NavShell(child: child),
       routes: [
-        _tabRoute(Routes.home, const HomeScreen()),
-        _tabRoute(Routes.focus, const FocusScreen()),
-        _tabRoute(Routes.limits, const LimitsScreen()),
-        _tabRoute(Routes.bedtime, const BedtimeScreen()),
-        _tabRoute(Routes.settings, const SettingsScreen()),
+        _tabRoute(Routes.home,  HomeScreen()),
+        _tabRoute(Routes.focus,  FocusScreen()),
+        _tabRoute(Routes.limits,  LimitsScreen()),
+        _tabRoute(Routes.bedtime,  BedtimeScreen()),
+        _tabRoute(Routes.settings,  SettingsScreen()),
       ],
     ),
     // Detail screens push OUTSIDE the shell so the nav bar correctly
     // disappears rather than fighting a full-screen modal.
-    _detailRoute(Routes.restrictions, const RestrictionsScreen()),
-    _detailRoute(Routes.focusHistory, const FocusHistoryScreen()),
-    _detailRoute(Routes.internet, const InternetSitesScreen()),
-    _detailRoute(Routes.notifications, const NotificationsScreen()),
-    _detailRoute(Routes.parental, const ParentalScreen()),
+    _detailRoute(Routes.restrictions,  RestrictionsScreen()),
+    _detailRoute(Routes.focusHistory,  FocusHistoryScreen()),
+    _detailRoute(Routes.internet,  InternetSitesScreen()),
+    _detailRoute(Routes.notifications,  NotificationsScreen()),
+    _detailRoute(Routes.parental,  ParentalScreen()),
   ],
 );
 

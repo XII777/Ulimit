@@ -41,7 +41,7 @@ class LimitsScreen extends ConsumerWidget {
         const SizedBox(height: 10),
         appLimits.when(
           data: (limits) => limits.isEmpty
-              ? const _EmptyHint(text: 'No app limits yet.\nPick an app and set a daily allowance.')
+              ?  _EmptyHint(text: 'No app limits yet.\nPick an app and set a daily allowance.')
               : Column(
                   children: [
                     for (final limit in limits) ...[
@@ -73,7 +73,7 @@ class LimitsScreen extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (data.isEmpty)
-                  const _EmptyHint(
+                   _EmptyHint(
                       text: 'No groups yet.\nGroup apps that share one combined allowance —\n'
                           'a per-app limit is easy to circumvent, a pool is not.')
                 else ...[

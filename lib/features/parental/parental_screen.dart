@@ -85,8 +85,8 @@ class _ParentalScreenState extends ConsumerState<ParentalScreen> with WidgetsBin
 
           deviceAdminActive.when(
             data: (active) => _StatusCard(active: active),
-            loading: () => const _StatusCard(active: false, loading: true),
-            error: (_, __) => const _StatusCard(active: false),
+            loading: () =>  _StatusCard(active: false, loading: true),
+            error: (_, __) =>  _StatusCard(active: false),
           ),
           const SizedBox(height: 16),
 
@@ -102,8 +102,8 @@ class _ParentalScreenState extends ConsumerState<ParentalScreen> with WidgetsBin
               children: [
                 deviceAdminActive.when(
                   data: (active) => _DeviceAdminRow(active: active),
-                  loading: () => const _DeviceAdminRow(active: false, loading: true),
-                  error: (_, __) => const _DeviceAdminRow(active: false),
+                  loading: () =>  _DeviceAdminRow(active: false, loading: true),
+                  error: (_, __) =>  _DeviceAdminRow(active: false),
                 ),
                 Divider(height: 1, color: AppColors.stroke),
                 _ToggleRow(

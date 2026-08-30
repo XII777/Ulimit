@@ -77,7 +77,7 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
                     letterSpacing: 0.6,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 10),
-            const _ActiveBlocksSection(),
+             _ActiveBlocksSection(),
             const SizedBox(height: 20),
 
             Text('APP INTERNET ACCESS',
@@ -99,7 +99,7 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
                     letterSpacing: 0.6,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 10),
-            const _CustomSitesSection(),
+             _CustomSitesSection(),
             const SizedBox(height: 20),
 
             // Browse/download the remaining categories.
@@ -116,7 +116,7 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
 // ---------------------------------------------------------------------------
 
 class _VpnCard extends ConsumerWidget {
-  const _VpnCard();
+   _VpnCard();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -205,7 +205,7 @@ class _VpnCard extends ConsumerWidget {
 // ---------------------------------------------------------------------------
 
 class _InternetBlocksSection extends ConsumerWidget {
-  const _InternetBlocksSection();
+   _InternetBlocksSection();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -304,7 +304,7 @@ class _InternetBlockRow extends ConsumerWidget {
 // ---------------------------------------------------------------------------
 
 class _CustomSitesSection extends ConsumerStatefulWidget {
-  const _CustomSitesSection();
+   _CustomSitesSection();
 
   @override
   ConsumerState<_CustomSitesSection> createState() => _CustomSitesSectionState();
@@ -445,7 +445,7 @@ class _SiteTile extends ConsumerWidget {
 // ---------------------------------------------------------------------------
 
 class _BlockListSection extends ConsumerWidget {
-  const _BlockListSection();
+   _BlockListSection();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -474,7 +474,7 @@ class _BlockListSection extends ConsumerWidget {
 /// currently enabled. Toggling one off removes it from this section
 /// immediately and disables its filter; tapping opens its site list.
 class _ActiveBlocksSection extends ConsumerWidget {
-  const _ActiveBlocksSection();
+   _ActiveBlocksSection();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -518,7 +518,7 @@ class _ActiveBlocksSection extends ConsumerWidget {
 /// Opens the browse sheet with the categories that are not currently
 /// active (download, enable, remove from there).
 class _BrowseBlockListsTile extends StatelessWidget {
-  const _BrowseBlockListsTile();
+   _BrowseBlockListsTile();
 
   @override
   Widget build(BuildContext context) {
@@ -536,7 +536,7 @@ class _BrowseBlockListsTile extends StatelessWidget {
             controller: scrollController,
             physics: springScrollPhysics,
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-            child: const _BlockListSection(),
+            child:  _BlockListSection(),
           ),
         );
       },

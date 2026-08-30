@@ -78,7 +78,7 @@ class RestrictionsScreen extends ConsumerWidget {
                     .where((r) => r.enabled && (r.permanent || (r.expiresAt?.isAfter(now) ?? false)))
                     .toList();
                 if (active.isEmpty) {
-                  return const _EmptyState();
+                  return  _EmptyState();
                 }
                 return Column(
                   children: [
@@ -205,7 +205,7 @@ class RestrictionsScreen extends ConsumerWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+   _EmptyState();
 
   @override
   Widget build(BuildContext context) {

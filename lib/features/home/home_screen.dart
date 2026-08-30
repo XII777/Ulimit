@@ -38,15 +38,15 @@ class HomeScreen extends ConsumerWidget {
       physics: springScrollPhysics,
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
       children: [
-        const _Header(),
+         _Header(),
         const SizedBox(height: 22),
 
         Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Expanded(child: _ScreenTimeCard()),
+            Expanded(child: _ScreenTimeCard()),
             const SizedBox(width: 10),
-            const Expanded(child: _FocusTimeCard()),
+            Expanded(child: _FocusTimeCard()),
           ],
         ),
         const SizedBox(height: 28),
@@ -58,7 +58,7 @@ class HomeScreen extends ConsumerWidget {
           const SizedBox(height: 28),
         ],
 
-        const PremiumSectionLabel("TODAY'S OVERVIEW"),
+         PremiumSectionLabel("TODAY'S OVERVIEW"),
         const SizedBox(height: 10),
         _AverageDailyCard(),
         const SizedBox(height: 10),
@@ -90,9 +90,9 @@ class HomeScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 28),
 
-        const PremiumSectionLabel('CONTROLS'),
+         PremiumSectionLabel('CONTROLS'),
         const SizedBox(height: 10),
-        const _ControlsList(),
+         _ControlsList(),
       ],
     );
   }
@@ -110,7 +110,7 @@ class HomeScreen extends ConsumerWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header();
+   _Header();
 
   @override
   Widget build(BuildContext context) {
@@ -144,7 +144,7 @@ class _Header extends StatelessWidget {
 /// un-attributed elapsed time, ticking once per second. Only this card
 /// rebuilds on the tick — the rest of Home is untouched.
 class _ScreenTimeCard extends ConsumerWidget {
-  const _ScreenTimeCard();
+   _ScreenTimeCard();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -198,7 +198,7 @@ class _ScreenTimeCard extends ConsumerWidget {
 /// Live accumulated Focus time for today; tapping opens the date-wise
 /// Focus history page.
 class _FocusTimeCard extends ConsumerWidget {
-  const _FocusTimeCard();
+   _FocusTimeCard();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -246,7 +246,7 @@ class _FocusTimeCard extends ConsumerWidget {
 
 /// Average daily screen time = total across the 7-day window ÷ days.
 class _AverageDailyCard extends ConsumerWidget {
-  const _AverageDailyCard();
+   _AverageDailyCard();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -505,7 +505,7 @@ class _MiniTrendCard extends StatelessWidget {
 }
 
 class _ControlsList extends StatelessWidget {
-  const _ControlsList();
+   _ControlsList();
 
   static const _tiles = <(String, AppIconName, String, String?)>[
     ('Focus', AppIconName.stopwatch, 'Start a session', Routes.focus),

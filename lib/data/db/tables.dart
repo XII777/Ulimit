@@ -28,7 +28,7 @@ class FocusSessions extends Table {
   // Apps chosen in the start flow, stored per session so enforcement
   // survives process death (the engine re-derives everything from DB).
   TextColumn get blockedPackages => text()
-      .map(const StringListConverter())
+      .map( StringListConverter())
       .withDefault(const Constant('[]'))();
   BoolColumn get pauseNotifications => boolean().withDefault(const Constant(true))();
   BoolColumn get blockInternet => boolean().withDefault(const Constant(false))();
@@ -123,7 +123,7 @@ class BedtimeSchedule extends Table {
   BoolColumn get blockInternet => boolean().withDefault(const Constant(false))();
   BoolColumn get grayscale => boolean().withDefault(const Constant(false))();
   TextColumn get selectedApps => text()
-      .map(const StringListConverter())
+      .map( StringListConverter())
       .withDefault(const Constant('[]'))();
 }
 

@@ -30,7 +30,7 @@ class FocusScreen extends ConsumerWidget {
       color: AppColors.bg,
       // Top spacing is owned by NavShell's collapsing inset — no
       // SafeArea here, so scrolling expands content to full height.
-      child: session == null ? const _IdleFocusView() : _RunningFocusView(session: session),
+      child: session == null ?  _IdleFocusView() : _RunningFocusView(session: session),
     );
   }
 }
@@ -40,7 +40,7 @@ class FocusScreen extends ConsumerWidget {
 // ---------------------------------------------------------------------------
 
 class _IdleFocusView extends ConsumerStatefulWidget {
-  const _IdleFocusView();
+   _IdleFocusView();
 
   @override
   ConsumerState<_IdleFocusView> createState() => _IdleFocusViewState();
@@ -526,7 +526,7 @@ class _PolicySummary extends ConsumerWidget {
 }
 
 class _TodaysSessionsDots extends ConsumerWidget {
-  const _TodaysSessionsDots();
+   _TodaysSessionsDots();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
