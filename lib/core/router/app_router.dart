@@ -24,6 +24,11 @@ abstract final class Routes {
   static const bedtime = '/bedtime';
   static const settings = '/settings';
   static const parental = '/parental';
+
+  // Tab-navigation direction state for the swipe transition. NavShell
+  // writes these on every tab change; _tabRoute's transition reads them.
+  static int lastTabIndex = 0;
+  static double tabDirection = 1.0;
 }
 
 final appRouter = GoRouter(
@@ -58,7 +63,10 @@ GoRoute _tabRoute(String path, Widget child) {
     pageBuilder: (context, state) => CustomTransitionPage(
       key: state.pageKey,
       child: child,
-      transitionsBuilder: (_, animation, __, child) => tabMorph(child, animation),
+      transitionDuration: const Duration(milliseconds: 280),
+      reverseTransitionDuration: const Duration(milliseconds: 220),
+      transitionsBuilder: (context, animation, secondaryAnimation, page) =>
+          tabSlide(page, animation, Routes.tabDirection),
     ),
   );
 }

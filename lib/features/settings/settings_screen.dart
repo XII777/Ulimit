@@ -26,11 +26,11 @@ class SettingsScreen extends ConsumerWidget {
     final settings = ref.watch(ulimitSettingsProvider).valueOrNull;
     final budget = ref.watch(dailyBudgetProvider).valueOrNull ?? 240;
 
-    return SafeArea(
-      child: ListView(
-        physics: springScrollPhysics,
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 110),
-        children: [
+    // Top spacing is owned by NavShell's collapsing inset.
+    return ListView(
+      physics: springScrollPhysics,
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 110),
+      children: [
           Text('Settings', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 4),
           const Text('Local profile · not synced',
@@ -148,8 +148,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
         ],
-      ),
-    );
+      );
   }
 
   String _labelFor(PermissionKind kind) => switch (kind) {

@@ -33,9 +33,9 @@ class FocusScreen extends ConsumerWidget {
           colors: [AppColors.surface2, AppColors.bg],
         ),
       ),
-      child: SafeArea(
-        child: session == null ? const _IdleFocusView() : _RunningFocusView(session: session),
-      ),
+      // Top spacing is owned by NavShell's collapsing inset — no
+      // SafeArea here, so scrolling expands content to full height.
+      child: session == null ? const _IdleFocusView() : _RunningFocusView(session: session),
     );
   }
 }

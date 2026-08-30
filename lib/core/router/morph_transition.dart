@@ -35,12 +35,28 @@ class MorphPage<T> extends PageRouteBuilder<T> {
   final Widget child;
 }
 
-/// For bottom-nav tab switches specifically: no fade-through-black,
-/// just a fast cross-dissolve so tapping Home→Focus→Limits feels
-/// instant, not like navigating "into" a new page.
-Widget tabMorph(Widget child, Animation<double> animation) {
-  return FadeTransition(
-    opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-    child: child,
+/// Directional tab transition: the incoming screen slides in from the
+/// side matching the navigation direction — right when moving to a
+/// higher tab, left when moving back — with a soft fade on top, so a
+/// tab switch reads as a physical swipe between adjacent pages rather
+/// than a dissolve.
+///
+/// `direction` is +1 (forward) or -1 (back); NavShell tracks the tab
+/// order delta and Routes carries it to the router.
+Widget tabSlide(Widget child, Animation<double> animation, double direction) {
+  final curved = CurvedAnimation(
+    parent: animation,
+    curve: Curves.easeOutCubic,
+    reverseCurve: Curves.easeInCubic,
+  );
+  return SlideTransition(
+    position: Tween<Offset>(
+      begin: Offset(0.30 * direction, 0),
+      end: Offset.zero,
+    ).animate(curved),
+    child: FadeTransition(
+      opacity: Tween<double>(begin: 0.55, end: 1.0).animate(curved),
+      child: child,
+    ),
   );
 }
