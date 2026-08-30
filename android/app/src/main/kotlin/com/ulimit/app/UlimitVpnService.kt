@@ -342,7 +342,7 @@ class UlimitVpnService : VpnService() {
         val header = byteArrayOf(
             query[0], query[1],           // id
             (query[2].toInt() or 0x80).toByte(), // QR=1, keep RD
-            0x81,                          // RA=1
+            0x81.toByte(),                 // RA=1 (0x81 overflows signed Byte)
             0, 1,                          // QDCOUNT=1
             ((if (withARecord) 0 else 0)).toByte(), ((if (withARecord) 1 else 0)).toByte(), // ANCOUNT
             0, 0, 0, 0                     // NSCOUNT / ARCOUNT

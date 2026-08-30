@@ -368,7 +368,7 @@ class MainActivity : FlutterFragmentActivity() {
         val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val activities = pm.queryIntentActivities(launcherIntent, 0)
 
-        val out = mutableListOf<Map<String, Any>>()
+        val out = mutableListOf<Map<String, Any?>>()
         for (info in activities) {
             val pkg = info.activityInfo.packageName
             if (pkg == packageName) continue
