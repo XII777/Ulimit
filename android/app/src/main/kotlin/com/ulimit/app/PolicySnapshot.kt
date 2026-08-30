@@ -19,6 +19,10 @@ import org.json.JSONObject
  */
 object PolicySnapshot {
 
+    /** AGP 8+ no longer generates BuildConfig; use the runtime flag. */
+    fun isDebugBuild(context: Context): Boolean =
+        (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
     const val PREFS = "ulimit_native"
     const val KEY_SNAPSHOT = "policy_snapshot"
     const val KEY_VPN_ENABLED = "vpn_enabled"

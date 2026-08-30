@@ -110,7 +110,7 @@ class MainActivity : FlutterFragmentActivity() {
                         @Suppress("UNCHECKED_CAST")
                         putAll(obj, args as? Map<String, Any?>)
                         PolicySnapshot.write(this, obj.toString())
-                        if (BuildConfig.DEBUG) {
+                        if (PolicySnapshot.isDebugBuild(this)) {
                             Log.d(
                                 "UlimitBlock",
                                 "snapshot pushed (${obj.toString().length} chars)"

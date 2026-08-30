@@ -65,7 +65,7 @@ class UlimitAccessibilityService : AccessibilityService() {
         // blocked app → Recents (system UI) → blocked app again, or
         // blocked app → Ulimit → blocked app again).
         val reason = PolicySnapshot.shouldBlock(this, packageName, now)
-        if (BuildConfig.DEBUG) {
+        if (PolicySnapshot.isDebugBuild(this)) {
             Log.d(
                 "UlimitBlock",
                 "foreground=$packageName blocked=${reason != null} reason=$reason"
