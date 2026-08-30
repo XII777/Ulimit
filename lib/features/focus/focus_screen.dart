@@ -14,6 +14,7 @@ import '../../data/permissions_providers.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_selector.dart';
+import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/limit_ring.dart';
 import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/spring_scroll.dart';
@@ -369,59 +370,49 @@ class _RunningFocusView extends ConsumerWidget {
   }
 
   Future<void> _confirmEndEarly(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showModalBottomSheet<bool>(
+    final confirmed = await showAppSheet<bool>(
       context: context,
-      backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('End session early?',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: AppColors.ink)),
-              const SizedBox(height: 6),
-              Text(
-                session.invincible
-                    ? 'This session is invincible. Ending it early counts as an incomplete session.'
-                    : 'The session will be recorded as incomplete. Blocked apps are restored immediately.',
-                style: const TextStyle(fontSize: 12.5, color: AppColors.inkDim),
-              ),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(sheetContext).pop(false),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: AppColors.stroke),
-                        padding: const EdgeInsets.all(13),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-                      ),
-                      child: const Text('Keep going', style: TextStyle(color: AppColors.ink)),
+      title: 'End session early?',
+      subtitle: session.invincible
+          ? 'This session is invincible. Ending it early counts as an incomplete session.'
+          : 'The session will be recorded as incomplete. Blocked apps are restored immediately.',
+      initialSize: 0.45,
+      minSize: 0.35,
+      builder: (sheetContext, scrollController) => SingleChildScrollView(
+        controller: scrollController,
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(sheetContext).pop(false),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.stroke),
+                      padding: const EdgeInsets.all(13),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                     ),
+                    child: const Text('Keep going', style: TextStyle(color: AppColors.ink)),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.of(sheetContext).pop(true),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.ink,
-                        foregroundColor: AppColors.bg,
-                        padding: const EdgeInsets.all(13),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-                      ),
-                      child: const Text('End session', style: TextStyle(fontWeight: FontWeight.w600)),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(sheetContext).pop(true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.ink,
+                      foregroundColor: AppColors.bg,
+                      padding: const EdgeInsets.all(13),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                     ),
+                    child: const Text('End session', style: TextStyle(fontWeight: FontWeight.w600)),
                   ),
-                ],
-              ),
-            ],
-          ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

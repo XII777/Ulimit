@@ -13,6 +13,7 @@ import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../data/website_providers.dart';
 import '../../shared/widgets/app_selector.dart';
+import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
@@ -173,12 +174,7 @@ class _VpnCard extends ConsumerWidget {
                     // grant consent next launch; the permission card
                     // handles the consent flow.
                     if (!ok && context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        backgroundColor: AppColors.surface2,
-                        behavior: SnackBarBehavior.floating,
-                        content: Text('VPN permission required — approve it in Permissions.',
-                            style: TextStyle(color: AppColors.ink, fontSize: 12)),
-                      ));
+                      showAppSnack(context, 'VPN permission required — approve it in Permissions.');
                     }
                   } else {
                     await EnforcementChannel.stopVpn();
@@ -395,12 +391,7 @@ class _CustomSitesSectionState extends ConsumerState<_CustomSitesSection> {
     final ok = await db.addCustomDomain(_controller.text);
     _controller.clear();
     if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        backgroundColor: AppColors.surface2,
-        behavior: SnackBarBehavior.floating,
-        content: Text('Enter a valid domain, e.g. example.com',
-            style: TextStyle(color: AppColors.ink, fontSize: 12)),
-      ));
+      showAppSnack(context, 'Enter a valid domain, e.g. example.com');
     }
     ref.read(enforcementSyncProvider).push();
   }
@@ -636,12 +627,7 @@ class _BlockListTile extends ConsumerWidget {
     } catch (e) {
       notifier.state = BlockListDownloadState.failed;
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          backgroundColor: AppColors.surface2,
-          behavior: SnackBarBehavior.floating,
-          content: Text('Download failed — check your connection.',
-              style: const TextStyle(color: AppColors.ink, fontSize: 12)),
-        ));
+        showAppSnack(context, 'Download failed — check your connection.');
       }
     }
     ref.read(enforcementSyncProvider).push();

@@ -5,6 +5,7 @@ import '../../core/engine/restriction_engine.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/native/permissions_channel.dart';
 import '../../core/theme/premium_components.dart';
+import '../../shared/widgets/app_sheet.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/apps_repository.dart';
 import '../../data/db/app_database.dart';
@@ -170,16 +171,7 @@ class RestrictionsScreen extends ConsumerWidget {
         );
 
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: AppColors.surface2,
-          behavior: SnackBarBehavior.floating,
-          content: Text(
-            permanent ? '$appName blocked until manually removed' : '$appName blocked',
-            style: const TextStyle(color: AppColors.ink, fontSize: 12.5),
-          ),
-        ),
-      );
+      showAppSnack(context, permanent ? '$appName blocked until manually removed' : '$appName blocked');
     }
   }
 

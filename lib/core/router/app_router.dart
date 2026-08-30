@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/nav_shell.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/focus/focus_screen.dart';
@@ -33,6 +34,9 @@ abstract final class Routes {
 
 final appRouter = GoRouter(
   initialLocation: Routes.home,
+  // Lets the shell hide the floating pill whenever any route (sheet,
+  // dialog, detail screen) is pushed above it.
+  observers: [AppUiObserver()],
   routes: [
     // ShellRoute keeps the floating nav bar mounted across tab switches
     // instead of rebuilding it (and its icons/animations) on every nav —

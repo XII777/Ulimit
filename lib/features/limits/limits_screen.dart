@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/engine/restriction_engine.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/theme/tokens.dart';
+import '../../shared/widgets/app_sheet.dart';
 import '../../data/apps_repository.dart';
 import '../../data/db/app_database.dart';
 import '../../data/providers.dart';
@@ -117,13 +118,13 @@ class LimitsScreen extends ConsumerWidget {
     required String appName,
     int initialSeconds = 30 * 60,
   }) async {
-    final result = await showModalBottomSheet<int>(
+    final result = await showAppSheet<int>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.bg,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
-      builder: (_) => _LimitEditorSheet(appName: appName, initialSeconds: initialSeconds),
+      title: 'Daily limit',
+      subtitle: appName,
+      initialSize: 0.75,
+      builder: (_, scrollController) =>
+          _LimitEditorSheet(appName: appName, initialSeconds: initialSeconds, scrollController: scrollController),
     );
     if (result == null || result <= 0) return;
     await ref.read(databaseProvider).setAppLimit(packageName, Duration(seconds: result));
@@ -291,32 +292,27 @@ class _AppLimitRow extends ConsumerWidget {
     final catalog = ref.read(appsCatalogProvider).valueOrNull;
     final appName = catalog?.nameFor(view.packageName) ?? view.packageName;
 
-    final result = await showModalBottomSheet<String>(
+    final result = await showAppSheet<String>(
       context: context,
-      backgroundColor: AppColors.bg,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Text('Edit limit — $appName',
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.ink)),
-            ),
-            ListTile(
-              title: const Text('Change daily limit', style: TextStyle(color: AppColors.ink, fontSize: 14)),
-              onTap: () => Navigator.of(sheetContext).pop('change'),
-            ),
-            ListTile(
-              title: const Text('Remove limit', style: TextStyle(color: AppColors.ink, fontSize: 14)),
-              onTap: () => Navigator.of(sheetContext).pop('remove'),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
+      title: 'Edit limit',
+      subtitle: appName,
+      initialSize: 0.5,
+      minSize: 0.35,
+      builder: (sheetContext, scrollController) => ListView(
+        controller: scrollController,
+        physics: springScrollPhysics,
+        shrinkWrap: false,
+        padding: const EdgeInsets.only(bottom: 8),
+        children: [
+          ListTile(
+            title: const Text('Change daily limit', style: TextStyle(color: AppColors.ink, fontSize: 14)),
+            onTap: () => Navigator.of(sheetContext).pop('change'),
+          ),
+          ListTile(
+            title: const Text('Remove limit', style: TextStyle(color: AppColors.ink, fontSize: 14)),
+            onTap: () => Navigator.of(sheetContext).pop('remove'),
+          ),
+        ],
       ),
     );
 
@@ -327,13 +323,13 @@ class _AppLimitRow extends ConsumerWidget {
       return;
     }
     if (context.mounted) {
-      final seconds = await showModalBottomSheet<int>(
+      final seconds = await showAppSheet<int>(
         context: context,
-        isScrollControlled: true,
-        backgroundColor: AppColors.bg,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
-        builder: (_) => _LimitEditorSheet(appName: appName, initialSeconds: view.limitSeconds),
+        title: 'Daily limit',
+        subtitle: appName,
+        initialSize: 0.75,
+        builder: (_, scrollController) => _LimitEditorSheet(
+            appName: appName, initialSeconds: view.limitSeconds, scrollController: scrollController),
       );
       if (seconds != null && seconds > 0) {
         await db.setAppLimit(view.packageName, Duration(seconds: seconds));
@@ -343,9 +339,14 @@ class _AppLimitRow extends ConsumerWidget {
 }
 
 class _LimitEditorSheet extends StatefulWidget {
-  const _LimitEditorSheet({required this.appName, required this.initialSeconds});
+  const _LimitEditorSheet({
+    required this.appName,
+    required this.initialSeconds,
+    required this.scrollController,
+  });
   final String appName;
   final int initialSeconds;
+  final ScrollController scrollController;
 
   @override
   State<_LimitEditorSheet> createState() => _LimitEditorSheetState();
@@ -358,67 +359,63 @@ class _LimitEditorSheetState extends State<_LimitEditorSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Daily limit — ${widget.appName}',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.ink)),
-            const SizedBox(height: 18),
-            Text(
-              formatDurationShort(Duration(minutes: _minutes.round())),
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w600, color: AppColors.ink),
-            ),
-            Slider(
-              value: _minutes.clamp(5, 360),
-              min: 5,
-              max: 360,
-              divisions: 71,
-              onChanged: (v) => setState(() => _minutes = v),
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
-              children: [
-                for (final m in _presets)
-                  GestureDetector(
-                    onTap: () => setState(() => _minutes = m.toDouble()),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                      decoration: BoxDecoration(
-                        color: _minutes.round() == m ? AppColors.ink : AppColors.surface,
-                        borderRadius: BorderRadius.circular(AppRadius.pill),
-                      ),
-                      child: Text(
-                        '${m}m',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: _minutes.round() == m ? AppColors.bg : AppColors.inkDim),
-                      ),
+    return SingleChildScrollView(
+      controller: widget.scrollController,
+      physics: springScrollPhysics,
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            formatDurationShort(Duration(minutes: _minutes.round())),
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w600, color: AppColors.ink),
+          ),
+          Slider(
+            value: _minutes.clamp(5, 360),
+            min: 5,
+            max: 360,
+            divisions: 71,
+            onChanged: (v) => setState(() => _minutes = v),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              for (final m in _presets)
+                GestureDetector(
+                  onTap: () => setState(() => _minutes = m.toDouble()),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: _minutes.round() == m ? AppColors.ink : AppColors.surface,
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                    child: Text(
+                      '${m}m',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _minutes.round() == m ? AppColors.bg : AppColors.inkDim),
                     ),
                   ),
-              ],
+                ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(_minutes.round() * 60),
+            style: TextButton.styleFrom(
+              backgroundColor: AppColors.ink,
+              foregroundColor: AppColors.bg,
+              padding: const EdgeInsets.all(14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
             ),
-            const SizedBox(height: 20),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(_minutes.round() * 60),
-              style: TextButton.styleFrom(
-                backgroundColor: AppColors.ink,
-                foregroundColor: AppColors.bg,
-                padding: const EdgeInsets.all(14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-              ),
-              child: const Text('Save limit', style: TextStyle(fontWeight: FontWeight.w600)),
-            ),
-          ],
-        ),
+            child: const Text('Save limit', style: TextStyle(fontWeight: FontWeight.w600)),
+          ),
+        ],
       ),
     );
   }

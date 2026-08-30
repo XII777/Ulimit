@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/router/app_router.dart';
+import 'app_sheet.dart';
 
 /// The app's navigation shell. Owns three global behaviors:
 ///
@@ -137,23 +138,32 @@ class _NavShellState extends State<NavShell> {
             // Clear the gesture-navigation inset so the pill floats
             // above it rather than colliding with the system bar.
             bottom: MediaQuery.paddingOf(context).bottom + 16,
-            child: AnimatedSlide(
-              // Hidden while scrolling down, revealed on scroll up.
-              offset: _navVisible ? Offset.zero : const Offset(0, 1.4),
-              duration: const Duration(milliseconds: 240),
-              curve: _navVisible ? Curves.easeOutCubic : Curves.easeInCubic,
-              child: AnimatedOpacity(
-                opacity: _navVisible ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 200),
-                child: IgnorePointer(
-                  // A hidden pill must not eat taps meant for content.
-                  ignoring: !_navVisible,
-                  child: _FloatingNavBar(
-                    tabs: _tabs,
-                    activeIndex: activeIndex,
-                    onTap: goToTab,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: AppUiObserver.overlayOpen,
+              builder: (context, overlayOpen, pill) {
+                final visible = _navVisible && !overlayOpen;
+                return AnimatedSlide(
+                  // Hidden while scrolling down or while any overlay is
+                  // open — the pill must never sit over a popup.
+                  offset: visible ? Offset.zero : const Offset(0, 1.4),
+                  duration: const Duration(milliseconds: 240),
+                  curve: visible ? Curves.easeOutCubic : Curves.easeInCubic,
+                  child: AnimatedOpacity(
+                    opacity: visible ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: IgnorePointer(
+                      // A hidden pill must not eat taps meant for
+                      // content or overlays.
+                      ignoring: !visible,
+                      child: pill!,
+                    ),
                   ),
-                ),
+                );
+              },
+              child: _FloatingNavBar(
+                tabs: _tabs,
+                activeIndex: activeIndex,
+                onTap: goToTab,
               ),
             ),
           ),

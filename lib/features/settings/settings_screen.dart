@@ -15,6 +15,7 @@ import '../../data/db/app_database.dart';
 import '../../data/permissions_providers.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
+import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -220,14 +221,7 @@ class SettingsScreen extends ConsumerWidget {
     final json = await buildExport(db);
     final path = await NativePermissions.exportFile(json);
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      backgroundColor: AppColors.surface2,
-      behavior: SnackBarBehavior.floating,
-      content: Text(
-        path == null ? 'Export failed' : 'Exported to Downloads',
-        style: const TextStyle(color: AppColors.ink, fontSize: 12),
-      ),
-    ));
+    showAppSnack(context, path == null ? 'Export failed' : 'Exported to Downloads');
   }
 
   Future<void> _importData(BuildContext context, WidgetRef ref) async {
@@ -236,14 +230,7 @@ class SettingsScreen extends ConsumerWidget {
     if (json == null || !context.mounted) return;
     final ok = await restoreExport(db, json);
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      backgroundColor: AppColors.surface2,
-      behavior: SnackBarBehavior.floating,
-      content: Text(
-        ok ? 'Data restored' : 'Import failed — not a valid Ulimit export',
-        style: const TextStyle(color: AppColors.ink, fontSize: 12),
-      ),
-    ));
+    showAppSnack(context, ok ? 'Data restored' : 'Import failed — not a valid Ulimit export');
   }
 
   Future<void> _deleteAllData(BuildContext context, WidgetRef ref) async {
@@ -276,13 +263,23 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   Future<void> _showCrashLogs(BuildContext context) async {
-    await showModalBottomSheet<void>(
+    final revision = ValueNotifier<int>(0);
+    await showAppSheet<void>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.bg,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
-      builder: (_) => const _CrashLogsSheet(),
+      title: 'Crash logs',
+      subtitle: 'Captured on-device. Never uploaded — copy or export a log '
+          'only when reporting a problem.',
+      initialSize: 0.85,
+      minSize: 0.4,
+      trailing: TextButton(
+        onPressed: () {
+          CrashCollector.clear();
+          revision.value++;
+        },
+        child: const Text('Clear all', style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
+      ),
+      builder: (_, scrollController) =>
+          _CrashLogsContent(scrollController: scrollController, revision: revision),
     );
   }
 }
@@ -474,124 +471,77 @@ Future<bool> restoreExport(AppDatabase db, String jsonString) async {
 // Crash logs viewer
 // ---------------------------------------------------------------------------
 
-class _CrashLogsSheet extends StatefulWidget {
-  const _CrashLogsSheet();
+class _CrashLogsContent extends StatefulWidget {
+  const _CrashLogsContent({required this.scrollController, required this.revision});
+  final ScrollController scrollController;
+  final ValueNotifier<int> revision;
 
   @override
-  State<_CrashLogsSheet> createState() => _CrashLogsSheetState();
+  State<_CrashLogsContent> createState() => _CrashLogsContentState();
 }
 
-class _CrashLogsSheetState extends State<_CrashLogsSheet> {
-  late Future<List<FileSystemEntity>> _logs;
-
-  @override
-  void initState() {
-    super.initState();
-    _logs = CrashCollector.list();
-  }
-
-  void _reload() {
-    setState(() => _logs = CrashCollector.list());
-  }
-
+class _CrashLogsContentState extends State<_CrashLogsContent> {
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.72,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 12, 6),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Crash logs',
-                            style: TextStyle(
-                                fontSize: 17, fontWeight: FontWeight.w600, color: AppColors.ink)),
-                        const SizedBox(height: 2),
-                        const Text(
-                          'Captured on-device. Never uploaded — copy or '
-                          'export a log only when reporting a problem.',
-                          style: TextStyle(fontSize: 11, color: AppColors.inkFaint, height: 1.4),
-                        ),
-                      ],
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () async {
-                      await CrashCollector.clear();
-                      _reload();
-                    },
-                    child: const Text('Clear all',
-                        style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
-                  ),
-                ],
-              ),
+    return ValueListenableBuilder<int>(
+      valueListenable: widget.revision,
+      builder: (context, revision, __) {
+        return FutureBuilder<List<FileSystemEntity>>(
+          key: ValueKey(revision),
+          future: CrashCollector.list(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+        }
+        final files = snapshot.data ?? const [];
+        if (files.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const AppIcon(AppIconName.check, size: 22, color: AppColors.inkFaint),
+                const SizedBox(height: 10),
+                const Text('No crashes captured',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink)),
+                const SizedBox(height: 4),
+                const Text(
+                  'When the app hits an error, the report\nappears here automatically.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 11.5, color: AppColors.inkFaint, height: 1.5),
+                ),
+              ],
             ),
-            const Divider(height: 1, color: AppColors.stroke),
-            Expanded(
-              child: FutureBuilder<List<FileSystemEntity>>(
-                future: _logs,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-                  }
-                  final files = snapshot.data ?? const [];
-                  if (files.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const AppIcon(AppIconName.check, size: 22, color: AppColors.inkFaint),
-                          const SizedBox(height: 10),
-                          const Text('No crashes captured',
-                              style: TextStyle(
-                                  fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink)),
-                          const SizedBox(height: 4),
-                          const Text(
-                            'When the app hits an error, the report\nappears here automatically.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 11.5, color: AppColors.inkFaint, height: 1.5),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-                  return ListView.separated(
-                    physics: springScrollPhysics,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: files.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1, color: AppColors.stroke),
-                    itemBuilder: (context, i) {
-                      final file = files[i] as File;
-                      final stat = file.statSync();
-                      return ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-                        title: Text(
-                          _prettyName(file.uri.pathSegments.last),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 13.5, color: AppColors.ink),
-                        ),
-                        subtitle: Text(
-                          '${_formatDate(stat.modified)} · ${_formatSize(stat.size)}',
-                          style: const TextStyle(fontSize: 11, color: AppColors.inkFaint),
-                        ),
-                        trailing: const AppIcon(AppIconName.chevronRight, size: 13, color: AppColors.inkFaint),
-                        onTap: () => _viewLog(context, file),
-                      );
-                    },
-                  );
-                },
+          );
+        }
+        return ListView.separated(
+          controller: widget.scrollController,
+          physics: springScrollPhysics,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemCount: files.length,
+          separatorBuilder: (_, __) => const Divider(height: 1, color: AppColors.stroke),
+          itemBuilder: (context, i) {
+            final file = files[i] as File;
+            final stat = file.statSync();
+            return ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+              title: Text(
+                _prettyName(file.uri.pathSegments.last),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13.5, color: AppColors.ink),
               ),
-            ),
-          ],
-        ),
-      ),
+              subtitle: Text(
+                '${_formatDate(stat.modified)} · ${_formatSize(stat.size)}',
+                style: const TextStyle(fontSize: 11, color: AppColors.inkFaint),
+              ),
+              trailing: const AppIcon(AppIconName.chevronRight, size: 13, color: AppColors.inkFaint),
+              onTap: () => _viewLog(context, file),
+            );
+          },
+        );
+      },
+        );
+      },
     );
   }
 
@@ -620,12 +570,7 @@ class _CrashLogsSheetState extends State<_CrashLogsSheet> {
           TextButton(
             onPressed: () {
               Clipboard.setData(ClipboardData(text: content));
-              ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(
-                backgroundColor: AppColors.surface2,
-                behavior: SnackBarBehavior.floating,
-                content: Text('Copied to clipboard',
-                    style: TextStyle(color: AppColors.ink, fontSize: 12)),
-              ));
+              showAppSnack(dialogContext, 'Copied to clipboard');
             },
             child: const Text('Copy', style: TextStyle(color: AppColors.ink)),
           ),
