@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/icons/app_icons.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/native/permissions_channel.dart';
 import '../../data/permissions_providers.dart';
@@ -67,7 +68,7 @@ class _PermissionsScreenState extends ConsumerState<PermissionsScreen>
                   color: AppColors.surface2,
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
-                child: const Icon(Icons.lock_rounded, color: AppColors.inkDim, size: 22),
+                child: const AppIcon(AppIconName.lock, color: AppColors.inkDim, size: 22),
               ),
               const SizedBox(height: 12),
               Text(
@@ -132,11 +133,10 @@ class _PermissionsScreenState extends ConsumerState<PermissionsScreen>
 }
 
 class _PermissionMeta {
-  const _PermissionMeta(this.title, this.description, this.icon, this.iconColor, this.optional);
+  const _PermissionMeta(this.title, this.description, this.icon, this.optional);
   final String title;
   final String description;
-  final IconData icon;
-  final Color iconColor;
+  final AppIconName icon;
   final bool optional;
 }
 
@@ -144,37 +144,32 @@ const _meta = {
   PermissionKind.accessibility: _PermissionMeta(
     'Accessibility',
     'The core engine — detects app usage, enforces limits, and shows the block screen instantly.',
-    Icons.visibility_rounded,
-    AppColors.inkDim,
+    AppIconName.visibility,
     false,
   ),
   PermissionKind.vpn: _PermissionMeta(
     'VPN & Network',
     'Creates a local, on-device filter for internet and website blocking.',
-    Icons.public_rounded,
-    AppColors.inkDim,
+    AppIconName.internet,
     false,
   ),
   PermissionKind.deviceAdmin: _PermissionMeta(
     'Device Admin',
     "Stops Ulimit from being uninstalled or force-stopped to bypass a limit. "
     "Optional here — you can turn this on later in Parental & Lock.",
-    Icons.shield_rounded,
-    AppColors.inkDim,
+    AppIconName.shieldLock,
     false,
   ),
   PermissionKind.notificationListener: _PermissionMeta(
     'Notification Access',
     'Lets Ulimit batch or mute notifications during focus sessions.',
-    Icons.notifications_rounded,
-    AppColors.inkDim,
+    AppIconName.notifications,
     false,
   ),
   PermissionKind.biometric: _PermissionMeta(
     'Biometrics',
     'Optional — protects your limits from being changed by others.',
-    Icons.fingerprint_rounded,
-    AppColors.inkDim,
+    AppIconName.biometric,
     true,
   ),
 };
@@ -201,10 +196,10 @@ class _PermissionCard extends ConsumerWidget {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: meta.iconColor.withOpacity(0.15),
+              color: AppColors.surface2,
               borderRadius: BorderRadius.circular(9),
             ),
-            child: Icon(meta.icon, size: 15, color: meta.iconColor),
+            child: Center(child: AppIcon(meta.icon, size: 15, color: AppColors.inkDim)),
           ),
           const SizedBox(width: 12),
           Expanded(

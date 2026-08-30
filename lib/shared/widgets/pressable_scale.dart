@@ -14,7 +14,10 @@ class PressableScale extends StatefulWidget {
   });
 
   final Widget child;
-  final VoidCallback onTap;
+
+  /// Null disables interaction — the child renders without the press
+  /// behavior, matching how disabled buttons read.
+  final VoidCallback? onTap;
   final double scale;
 
   @override
@@ -26,6 +29,8 @@ class _PressableScaleState extends State<PressableScale> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.onTap == null) return widget.child;
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: (_) => setState(() => _pressed = true),

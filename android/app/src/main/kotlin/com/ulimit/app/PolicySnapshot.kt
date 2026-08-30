@@ -1,0 +1,272 @@
+package com.ulimit.app
+
+import android.content.Context
+import android.content.SharedPreferences
+import org.json.JSONArray
+import org.json.JSONObject
+
+/**
+ * The single native-side view of Dart's policy state.
+ *
+ * Dart pushes the full snapshot on every relevant change; native
+ * consumers (AccessibilityService overlay, VpnService, BootReceiver,
+ * BedtimeAlarmReceiver) read it from SharedPreferences so enforcement
+ * survives process death and reboots.
+ *
+ * Native-side evaluation is deliberately limited to simple, locally
+ * computable checks — timestamp expiry, minute-of-day windows, and
+ * usage thresholds — so Dart stays the only source of business logic.
+ */
+object PolicySnapshot {
+
+    const val PREFS = "ulimit_native"
+    const val KEY_SNAPSHOT = "policy_snapshot"
+    const val KEY_VPN_ENABLED = "vpn_enabled"
+    const val KEY_BEDTIME_ACTIVE = "bedtime_active"
+
+    // Per-day foreground usage accumulated from accessibility events —
+    // keyed by package, in seconds. Reset when the local date changes.
+    const val KEY_USAGE_DAY = "usage_day"
+    const val KEY_USAGE = "usage_json"
+
+    data class ManualRule(val pkg: String, val permanent: Boolean, val untilMillis: Long)
+
+    data class Focus(
+        val untilMillis: Long,
+        val packages: List<String>,
+        val pauseNotifications: Boolean,
+        val blockInternet: Boolean
+    )
+
+    data class Bedtime(
+        val startMinutes: Int,
+        val endMinutes: Int,
+        val pauseApps: Boolean,
+        val blockInternet: Boolean,
+        val packages: List<String>
+    )
+
+    data class Group(val limitSeconds: Int, val packages: List<String>)
+
+    data class Snapshot(
+        val pushedAtMillis: Long,
+        val manual: List<ManualRule>,
+        val limits: Map<String, Int>,
+        val groups: List<Group>,
+        val focus: Focus?,
+        val bedtime: Bedtime?,
+        val internetBlocks: List<String>
+    )
+
+    fun prefs(context: Context): SharedPreferences =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    fun write(context: Context, json: String) {
+        prefs(context).edit().putString(KEY_SNAPSHOT, json).apply()
+    }
+
+    fun read(context: Context): Snapshot? {
+        val raw = prefs(context).getString(KEY_SNAPSHOT, null) ?: return null
+        return try {
+            parse(raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun parse(raw: String): Snapshot {
+        val root = JSONObject(raw)
+        val manual = mutableListOf<ManualRule>()
+        val manualArr = root.optJSONArray("manual") ?: JSONArray()
+        for (i in 0 until manualArr.length()) {
+            val o = manualArr.getJSONObject(i)
+            manual.add(
+                ManualRule(
+                    pkg = o.getString("package"),
+                    permanent = o.optBoolean("permanent", false),
+                    untilMillis = o.optLong("untilMillis", 0L)
+                )
+            )
+        }
+
+        val limits = mutableMapOf<String, Int>()
+        val limitsObj = root.optJSONObject("limits") ?: JSONObject()
+        val keys = limitsObj.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            limits[k] = limitsObj.optInt(k, 0)
+        }
+
+        val groups = mutableListOf<Group>()
+        val groupsArr = root.optJSONArray("groups") ?: JSONArray()
+        for (i in 0 until groupsArr.length()) {
+            val o = groupsArr.getJSONObject(i)
+            val pkgs = mutableListOf<String>()
+            val pkgArr = o.optJSONArray("packages") ?: JSONArray()
+            for (j in 0 until pkgArr.length()) pkgs.add(pkgArr.getString(j))
+            groups.add(Group(limitSeconds = o.optInt("limitSeconds", 0), packages = pkgs))
+        }
+
+        val focusObj = root.optJSONObject("focus")
+        val focus = focusObj?.let {
+            val pkgs = mutableListOf<String>()
+            val pkgArr = it.optJSONArray("packages") ?: JSONArray()
+            for (j in 0 until pkgArr.length()) pkgs.add(pkgArr.getString(j))
+            Focus(
+                untilMillis = it.optLong("untilMillis", 0L),
+                packages = pkgs,
+                pauseNotifications = it.optBoolean("pauseNotifications", true),
+                blockInternet = it.optBoolean("blockInternet", false)
+            )
+        }
+
+        val bedtimeObj = root.optJSONObject("bedtime")
+        val bedtime = bedtimeObj?.let {
+            val pkgs = mutableListOf<String>()
+            val pkgArr = it.optJSONArray("packages") ?: JSONArray()
+            for (j in 0 until pkgArr.length()) pkgs.add(pkgArr.getString(j))
+            Bedtime(
+                startMinutes = it.optInt("startMinutes", 0),
+                endMinutes = it.optInt("endMinutes", 0),
+                pauseApps = it.optBoolean("pauseApps", true),
+                blockInternet = it.optBoolean("blockInternet", false),
+                packages = pkgs
+            )
+        }
+
+        val internet = mutableListOf<String>()
+        val internetArr = root.optJSONArray("internetBlocks") ?: JSONArray()
+        for (i in 0 until internetArr.length()) internet.add(internetArr.getString(i))
+
+        return Snapshot(
+            pushedAtMillis = root.optLong("pushedAtMillis", 0L),
+            manual = manual,
+            limits = limits,
+            groups = groups,
+            focus = focus,
+            bedtime = bedtime,
+            internetBlocks = internet
+        )
+    }
+
+    // ---------------------------------------------------------------------
+    // Native-side usage accumulation (for daily limits and groups).
+    // Seconds are accumulated here from accessibility foreground events
+    // so a daily limit still fires even when Ulimit itself is closed.
+    // ---------------------------------------------------------------------
+
+    fun addForegroundSeconds(context: Context, pkg: String, seconds: Int) {
+        if (seconds <= 0) return
+        val prefs = prefs(context)
+        val today = todayKey()
+        val usageJson = prefs.getString(KEY_USAGE, null)
+        val usage: MutableMap<String, Int> = HashMap()
+        val existingDay = prefs.getString(KEY_USAGE_DAY, null)
+        if (existingDay == today && usageJson != null) {
+            try {
+                val o = JSONObject(usageJson)
+                val k = o.keys()
+                while (k.hasNext()) {
+                    val key = k.next()
+                    usage[key] = o.optInt(key, 0)
+                }
+            } catch (_: Exception) {
+            }
+        } else {
+            // New day — the accumulator resets, matching how daily
+            // limits reset in the engine.
+            prefs.edit().putString(KEY_USAGE_DAY, today).apply()
+        }
+        usage[pkg] = (usage[pkg] ?: 0) + seconds
+        val out = JSONObject()
+        for ((k, v) in usage) out.put(k, v)
+        prefs.edit().putString(KEY_USAGE, out.toString()).apply()
+    }
+
+    fun usageSeconds(context: Context): Map<String, Int> {
+        val prefs = prefs(context)
+        if (prefs.getString(KEY_USAGE_DAY, null) != todayKey()) return emptyMap()
+        val usageJson = prefs.getString(KEY_USAGE, null) ?: return emptyMap()
+        return try {
+            val o = JSONObject(usageJson)
+            val out = mutableMapOf<String, Int>()
+            val k = o.keys()
+            while (k.hasNext()) {
+                val key = k.next()
+                out[key] = o.optInt(key, 0)
+            }
+            out
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    private fun todayKey(): String {
+        val c = java.util.Calendar.getInstance()
+        return "%04d-%02d-%02d".format(c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1, c.get(java.util.Calendar.DAY_OF_MONTH))
+    }
+
+    // ---------------------------------------------------------------------
+    // The one decision native makes per foreground app.
+    // ---------------------------------------------------------------------
+
+    fun shouldBlock(context: Context, pkg: String, nowMillis: Long): String? {
+        val snapshot = read(context) ?: return null
+        val nowMin = let {
+            val c = java.util.Calendar.getInstance()
+            c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE)
+        }
+
+        for (rule in snapshot.manual) {
+            if (rule.pkg != pkg) continue
+            if (rule.permanent) return "Blocked"
+            if (rule.untilMillis > nowMillis) return "Blocked"
+        }
+
+        val usage = usageSeconds(context)
+        val limit = snapshot.limits[pkg]
+        if (limit != null && limit > 0 && (usage[pkg] ?: 0) >= limit) return "Daily limit reached"
+
+        for (group in snapshot.groups) {
+            if (pkg !in group.packages) continue
+            var used = 0
+            for (member in group.packages) used += usage[member] ?: 0
+            if (group.limitSeconds > 0 && used >= group.limitSeconds) return "Group limit reached"
+        }
+
+        val focus = snapshot.focus
+        if (focus != null && focus.untilMillis > nowMillis && pkg in focus.packages) {
+            return "Focus session"
+        }
+
+        val bedtime = snapshot.bedtime
+        if (bedtime != null && bedtime.pauseApps && pkg in bedtime.packages && inWindow(nowMin, bedtime.startMinutes, bedtime.endMinutes)) {
+            return "Bedtime"
+        }
+
+        return null
+    }
+
+    fun isInternetBlocked(context: Context, nowMillis: Long): Boolean {
+        val snapshot = read(context) ?: return false
+        val nowMin = let {
+            val c = java.util.Calendar.getInstance()
+            c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE)
+        }
+        if (snapshot.internetBlocks.isNotEmpty()) return true
+        val focus = snapshot.focus
+        if (focus != null && focus.blockInternet && focus.untilMillis > nowMillis) return true
+        val bedtime = snapshot.bedtime
+        if (bedtime != null && bedtime.blockInternet &&
+            inWindow(nowMin, bedtime.startMinutes, bedtime.endMinutes)
+        ) return true
+        return false
+    }
+
+    fun inWindow(minutesNow: Int, start: Int, end: Int): Boolean {
+        val m = minutesNow % (24 * 60)
+        return if (start == end) false
+        else if (start < end) m >= start && m < end
+        else m >= start || m < end
+    }
+}

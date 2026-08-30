@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../core/theme/tokens.dart';
+
+import '../../core/icons/app_icons.dart';
 import '../../core/native/permissions_channel.dart';
+import '../../core/theme/tokens.dart';
 import '../../data/permissions_providers.dart';
+import '../../data/providers.dart';
+import '../../shared/widgets/spring_scroll.dart';
 
 class ParentalScreen extends ConsumerStatefulWidget {
   const ParentalScreen({super.key});
@@ -41,9 +45,13 @@ class _ParentalScreenState extends ConsumerState<ParentalScreen> with WidgetsBin
     // actually gets turned on for real, so it should never lie about
     // whether it's genuinely active.
     final deviceAdminActive = ref.watch(deviceAdminActiveProvider);
+    final settings = ref.watch(ulimitSettingsProvider).valueOrNull;
+    final biometricAvailable = ref.watch(biometricAvailableProvider).valueOrNull ?? false;
+    final biometricOn = settings?.biometricProtection ?? false;
 
     return SafeArea(
       child: ListView(
+        physics: springScrollPhysics,
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
         children: [
           Row(
@@ -57,7 +65,7 @@ class _ParentalScreenState extends ConsumerState<ParentalScreen> with WidgetsBin
                 ),
                 child: IconButton(
                   padding: EdgeInsets.zero,
-                  icon: const Icon(Icons.arrow_back_rounded, size: 14, color: AppColors.inkDim),
+                  icon: const AppIcon(AppIconName.back, size: 14, color: AppColors.inkDim),
                   onPressed: () => Navigator.of(context).maybePop(),
                 ),
               ),
@@ -65,8 +73,10 @@ class _ParentalScreenState extends ConsumerState<ParentalScreen> with WidgetsBin
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Parental & Lock', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontSize: 19)),
-                  Text('Protects settings from being changed', style: Theme.of(context).textTheme.bodySmall),
+                  Text('Parental & Lock',
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontSize: 19)),
+                  Text('Protects settings from being changed',
+                      style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
             ],
@@ -98,16 +108,40 @@ class _ParentalScreenState extends ConsumerState<ParentalScreen> with WidgetsBin
                 const Divider(height: 1, color: AppColors.stroke),
                 _ToggleRow(
                   label: 'Require biometric to edit',
-                  sublabel: 'Face unlock or fingerprint',
-                  value: false,
-                  onChanged: (_) {}, // wire to a real settings row once biometric-lock is built
+                  sublabel: biometricAvailable
+                      ? 'Authenticates before restrictions can be changed or removed'
+                      : 'Requires a fingerprint or face unlock on this device',
+                  value: biometricOn,
+                  onChanged: biometricAvailable ? (v) => _toggleBiometric(context, v) : null,
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              'Invincible Mode is not about making the phone impossible to '
+              'use. It exists to put a moment of friction between an impulse '
+              'and a bypass.',
+              style: TextStyle(fontSize: 11, color: AppColors.inkFaint, height: 1.55),
             ),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _toggleBiometric(BuildContext context, bool value) async {
+    if (value) {
+      // Prove it works at enable-time — not after the user has already
+      // started relying on it.
+      final ok = await NativePermissions.authenticate(
+        reason: 'Authenticate to enable biometric protection.',
+      );
+      if (!ok) return;
+    }
+    await ref.read(settingsControllerProvider).setBiometricProtection(value);
   }
 }
 
@@ -123,7 +157,7 @@ class _StatusCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        gradient: LinearGradient(
+        gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [AppColors.surface2, AppColors.surface],
@@ -138,8 +172,8 @@ class _StatusCard extends StatelessWidget {
               color: AppColors.surface2,
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
-            child: Icon(
-              active ? Icons.shield_rounded : Icons.shield_outlined,
+            child: AppIcon(
+              active ? AppIconName.shieldLock : AppIconName.shield,
               color: active ? AppColors.ink : AppColors.inkFaint,
               size: 22,
             ),
@@ -179,7 +213,8 @@ class _DeviceAdminRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Block uninstall', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 13)),
-                Text('Requires Device Admin', style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10.5)),
+                Text('Requires Device Admin',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 10.5)),
               ],
             ),
           ),
@@ -189,7 +224,8 @@ class _DeviceAdminRow extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(AppRadius.pill)),
-              child: const Text('✓ On', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.bg)),
+              child: const Text('✓ On',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.bg)),
             )
           else
             GestureDetector(
@@ -197,7 +233,8 @@ class _DeviceAdminRow extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                 decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(AppRadius.pill)),
-                child: const Text('Enable', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.bg)),
+                child: const Text('Enable',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.bg)),
               ),
             ),
         ],
@@ -216,7 +253,7 @@ class _ToggleRow extends StatelessWidget {
   final String label;
   final String sublabel;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -236,7 +273,8 @@ class _ToggleRow extends StatelessWidget {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: AppColors.ink,
+            activeTrackColor: AppColors.ink,
+            activeColor: AppColors.bg,
           ),
         ],
       ),

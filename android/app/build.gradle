@@ -19,7 +19,7 @@ if (releaseSigningReady) {
 
 android {
     namespace "com.ulimit.app"
-    compileSdk 34
+    compileSdk 35
     ndkVersion flutter.ndkVersion
 
     compileOptions {
@@ -40,8 +40,8 @@ android {
         // sqlite3_flutter_libs and drift both work fine from API 23+;
         // going lower buys negligible reach in 2026 and complicates the
         // AccessibilityService APIs used above.
-        minSdk 23
-        targetSdk 34
+        minSdkVersion flutter.minSdkVersion
+        targetSdk 35
         versionCode flutter.versionCode
         versionName flutter.versionName
     }

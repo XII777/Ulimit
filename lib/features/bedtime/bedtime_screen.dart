@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../core/engine/restriction_engine.dart';
+import '../../core/icons/app_icons.dart';
+import '../../core/native/enforcement_channel.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/db/app_database.dart';
 import '../../data/providers.dart';
+import '../../shared/widgets/app_selector.dart';
+import '../../shared/widgets/pressable_scale.dart';
+import '../../shared/widgets/spring_scroll.dart';
 
 class BedtimeScreen extends ConsumerWidget {
   const BedtimeScreen({super.key});
@@ -11,57 +18,69 @@ class BedtimeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final schedule = ref.watch(bedtimeScheduleProvider);
-    final db = ref.read(databaseProvider);
+    final db = ref.watch(databaseProvider);
 
-    return SafeArea(
-      child: schedule.when(
-        data: (row) => _buildBody(context, db, row),
-        loading: () => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-        error: (e, __) => Center(
-          child: Text('Could not load bedtime settings: $e', style: Theme.of(context).textTheme.bodySmall),
-        ),
+    return schedule.when(
+      data: (row) => _Body(row: row, db: db, ref: ref),
+      loading: () => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      error: (e, __) => Center(
+        child: Text('Could not load bedtime settings: $e',
+            style: Theme.of(context).textTheme.bodySmall),
       ),
     );
   }
+}
 
-  Widget _buildBody(BuildContext context, AppDatabase db, BedtimeScheduleData? row) {
-    // No row yet (fresh install) — show the same defaults the first
-    // toggle-write will actually create, so the screen doesn't flash
-    // from one set of numbers to another once a toggle is touched.
+class _Body extends ConsumerWidget {
+  const _Body({required this.row, required this.db, required this.ref});
+
+  final BedtimeScheduleData? row;
+  final AppDatabase db;
+  final WidgetRef ref;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = row?.enabled ?? false;
     final startTime = row?.startTime ?? '22:30';
     final endTime = row?.endTime ?? '06:30';
     final dnd = row?.dndEnabled ?? true;
     final pauseApps = row?.pauseApps ?? true;
+    final internet = row?.blockInternet ?? false;
     final grayscale = row?.grayscale ?? false;
+    final apps = row?.selectedApps ?? const <String>[];
     final protectedHours = _hoursBetween(startTime, endTime);
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
+      physics: springScrollPhysics,
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 110),
       children: [
         Text('Bedtime', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 4),
-        Text('Scheduled · repeats every night', style: Theme.of(context).textTheme.bodySmall),
+        Text(enabled ? 'Scheduled · repeats every night' : 'Schedule is off',
+            style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 12),
 
-        Center(child: _MoonArc(progress: _nightProgress(startTime, endTime))),
+        Center(child: _MoonArc(progress: enabled ? _nightProgress(startTime, endTime) : 0.0)),
 
         const SizedBox(height: 4),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(_formatTime(startTime), style: GoogleFonts.spaceGrotesk(
-              fontSize: 22,
-              fontWeight: FontWeight.w600,
-              color: AppColors.ink,
-            )),
+            GestureDetector(
+              onTap: () => _pickTime(context, isStart: true),
+              child: Text(_formatTime(startTime),
+                  style: GoogleFonts.spaceGrotesk(
+                      fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink)),
+            ),
             const SizedBox(width: 10),
-            const Icon(Icons.arrow_forward_rounded, size: 16, color: AppColors.inkFaint),
+            const AppIcon(AppIconName.chevronRight, size: 16, color: AppColors.inkFaint),
             const SizedBox(width: 10),
-            Text(_formatTime(endTime), style: GoogleFonts.spaceGrotesk(
-              fontSize: 22,
-              fontWeight: FontWeight.w600,
-              color: AppColors.ink,
-            )),
+            GestureDetector(
+              onTap: () => _pickTime(context, isStart: false),
+              child: Text(_formatTime(endTime),
+                  style: GoogleFonts.spaceGrotesk(
+                      fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink)),
+            ),
           ],
         ),
         const SizedBox(height: 6),
@@ -80,18 +99,44 @@ class BedtimeScreen extends ConsumerWidget {
           ),
           child: Column(
             children: [
+              SwitchListTile(
+                title: const Text('Bedtime enabled', style: TextStyle(fontSize: 13.5, color: AppColors.ink)),
+                subtitle: const Text('Restrictions activate every night',
+                    style: TextStyle(fontSize: 11, color: AppColors.inkFaint)),
+                value: enabled,
+                onChanged: (v) => _setEnabled(context, v),
+                activeTrackColor: AppColors.ink,
+                activeColor: AppColors.bg,
+              ),
+              const Divider(height: 1, color: AppColors.stroke),
               _ToggleRow(
                 label: 'Do Not Disturb',
                 subtitle: 'Silence calls & notifications',
                 value: dnd,
-                onChanged: (v) => db.setDndEnabled(v),
+                onChanged: (v) async {
+                  await db.setDndEnabled(v);
+                  await _rescheduleAlarms();
+                },
               ),
               const Divider(height: 1, color: AppColors.stroke),
               _ToggleRow(
                 label: 'Pause distracting apps',
-                subtitle: 'Uses the same list as invincible mode',
+                subtitle: 'Selected apps are blocked all night',
                 value: pauseApps,
-                onChanged: (v) => db.setPauseApps(v),
+                onChanged: (v) async {
+                  await db.setPauseApps(v);
+                  await _rescheduleAlarms();
+                },
+              ),
+              const Divider(height: 1, color: AppColors.stroke),
+              _ToggleRow(
+                label: 'Block internet',
+                subtitle: 'All apps lose network access during bedtime',
+                value: internet,
+                onChanged: (v) async {
+                  await db.setBedtimeInternet(v);
+                  await _rescheduleAlarms();
+                },
               ),
               const Divider(height: 1, color: AppColors.stroke),
               _ToggleRow(
@@ -103,13 +148,95 @@ class BedtimeScreen extends ConsumerWidget {
             ],
           ),
         ),
+        const SizedBox(height: 10),
+
+        PressableScale(
+          onTap: pauseApps ? () => _pickApps(context) : null,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+              border: Border.all(color: AppColors.stroke),
+            ),
+            child: apps.isEmpty
+                ? const Text('Choose apps to pause overnight',
+                    style: TextStyle(fontSize: 13, color: AppColors.inkDim))
+                : Text('${apps.length} apps pause overnight',
+                    style: const TextStyle(fontSize: 13, color: AppColors.ink)),
+          ),
+        ),
       ],
     );
   }
 
-  /// "22:30" -> "10:30 PM". Schedule times are stored as "HH:mm" 24h
-  /// strings (see BedtimeSchedule) rather than DateTime, since they
-  /// repeat nightly and aren't tied to a specific date.
+  Future<void> _setEnabled(BuildContext context, bool value) async {
+    await db.setBedtimeEnabled(value);
+    await _rescheduleAlarms();
+    if (value) {
+      final bedtime = await (db.select(db.bedtimeSchedule)..limit(1)).getSingleOrNull();
+      if (bedtime != null && bedtime.dndEnabled) {
+        // If the schedule is being turned on by hand, apply DND right
+        // away when currently inside the window; the daily alarm keeps
+        // it correct on every other day.
+        await EnforcementChannel.setDnd(true);
+      }
+    }
+  }
+
+  Future<void> _rescheduleAlarms() async {
+    final bedtime = await (db.select(db.bedtimeSchedule)..limit(1)).getSingleOrNull();
+    final enabled = bedtime?.enabled ?? false;
+    await EnforcementChannel.setBedtimeAlarms(
+      enabled: enabled,
+      startTime: bedtime?.startTime ?? '22:30',
+      endTime: bedtime?.endTime ?? '06:30',
+    );
+  }
+
+  Future<void> _pickTime(BuildContext context, {required bool isStart}) async {
+    final current = (isStart ? row?.startTime : row?.endTime) ?? '22:30';
+    final parts = current.split(':');
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1])),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          timePickerTheme: TimePickerThemeData(
+            backgroundColor: AppColors.surface,
+            hourMinuteTextColor: AppColors.ink,
+            dialHandColor: AppColors.ink,
+            dialBackgroundColor: AppColors.surface2,
+            dayPeriodColor: AppColors.surface2,
+            dayPeriodTextColor: AppColors.ink,
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked == null) return;
+    final hhmm = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+    if (isStart) {
+      await db.setBedtimeTimes(hhmm, row?.endTime ?? '06:30');
+    } else {
+      await db.setBedtimeTimes(row?.startTime ?? '22:30', hhmm);
+    }
+    await _rescheduleAlarms();
+  }
+
+  Future<void> _pickApps(BuildContext context) async {
+    final result = await showAppSelector(
+      context,
+      title: 'Pause overnight',
+      multiSelect: true,
+      initiallySelected: (row?.selectedApps ?? const <String>[]).toSet(),
+    );
+    if (result is Set<String>) {
+      await db.setBedtimeApps(result.toList());
+    }
+  }
+
   String _formatTime(String hhmm) {
     final parts = hhmm.split(':');
     var h = int.parse(parts[0]);
@@ -123,7 +250,7 @@ class BedtimeScreen extends ConsumerWidget {
   int _hoursBetween(String start, String end) {
     final s = _minutesSinceMidnight(start);
     final e = _minutesSinceMidnight(end);
-    final diff = e >= s ? e - s : (24 * 60 - s) + e; // handles overnight wrap
+    final diff = e >= s ? e - s : (24 * 60 - s) + e;
     return (diff / 60).round();
   }
 
@@ -135,12 +262,9 @@ class BedtimeScreen extends ConsumerWidget {
     final total = e >= s ? e - s : (24 * 60 - s) + e;
     if (total <= 0) return 0;
 
-    final elapsed = nowMinutes >= s
-        ? nowMinutes - s
-        : nowMinutes <= e
-            ? (24 * 60 - s) + nowMinutes
-            : null;
-    if (elapsed == null) return 0; // outside the window right now
+    final inWindow = isMinuteInWindow(nowMinutes, s, e);
+    if (!inWindow) return 0;
+    final elapsed = nowMinutes >= s ? nowMinutes - s : (24 * 60 - s) + nowMinutes;
     return (elapsed / total).clamp(0.0, 1.0);
   }
 
@@ -150,11 +274,6 @@ class BedtimeScreen extends ConsumerWidget {
   }
 }
 
-/// Open half-arc (not a full [LimitRing]) representing tonight's
-/// schedule window — deliberately a separate small painter rather than
-/// stretching LimitRing to support open arcs, since LimitRing's contract
-/// (full 0–2π sweep) is used correctly everywhere else and shouldn't
-/// grow a special case for this one screen.
 class _MoonArc extends StatelessWidget {
   const _MoonArc({required this.progress});
   final double progress;
@@ -173,8 +292,8 @@ class _MoonArcPainter extends CustomPainter {
   _MoonArcPainter({required this.progress});
   final double progress;
 
-  static const _start = 3.14159; // 180deg
-  static const _sweepTotal = 3.14159; // 180deg total arc
+  static const _start = 3.14159;
+  static const _sweepTotal = 3.14159;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -182,29 +301,10 @@ class _MoonArcPainter extends CustomPainter {
     final radius = size.width / 2 - 10;
     final rect = Rect.fromCircle(center: center, radius: radius);
 
-    canvas.drawArc(
-      rect,
-      _start,
-      _sweepTotal,
-      false,
-      Paint()
-        ..color = AppColors.stroke
-        ..strokeWidth = 10
-        ..strokeCap = StrokeCap.round
-        ..style = PaintingStyle.stroke,
-    );
-
-    canvas.drawArc(
-      rect,
-      _start,
-      _sweepTotal * progress.clamp(0.0, 1.0),
-      false,
-      Paint()
-        ..color = AppColors.ink
-        ..strokeWidth = 10
-        ..strokeCap = StrokeCap.round
-        ..style = PaintingStyle.stroke,
-    );
+    canvas.drawArc(rect, _start, _sweepTotal, false,
+        Paint()..color = AppColors.stroke..strokeWidth = 10..strokeCap = StrokeCap.round..style = PaintingStyle.stroke);
+    canvas.drawArc(rect, _start, _sweepTotal * progress.clamp(0.0, 1.0), false,
+        Paint()..color = AppColors.ink..strokeWidth = 10..strokeCap = StrokeCap.round..style = PaintingStyle.stroke);
 
     final dotPaint = Paint()..color = AppColors.ink;
     canvas.drawCircle(Offset(center.dx - radius, center.dy), 5, dotPaint);
@@ -233,27 +333,24 @@ class _ToggleRow extends StatelessWidget {
     return InkWell(
       onTap: () => onChanged(!value),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 13.5)),
+                  Text(label, style: const TextStyle(fontSize: 13.5, color: AppColors.ink)),
                   const SizedBox(height: 2),
-                  Text(subtitle, style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11)),
+                  Text(subtitle, style: const TextStyle(fontSize: 11, color: AppColors.inkFaint)),
                 ],
               ),
             ),
             Switch(
               value: value,
               onChanged: onChanged,
-              activeColor: AppColors.bg,
               activeTrackColor: AppColors.ink,
-              inactiveThumbColor: AppColors.inkFaint,
-              inactiveTrackColor: AppColors.surface2,
-              trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
+              activeColor: AppColors.bg,
             ),
           ],
         ),

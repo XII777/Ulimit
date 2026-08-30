@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/icons/app_icons.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/router/app_router.dart';
 
@@ -8,11 +9,11 @@ class NavShell extends StatelessWidget {
   final Widget child;
 
   static const _tabs = [
-    (Routes.home, Icons.home_rounded, 'Home'),
-    (Routes.focus, Icons.track_changes_rounded, 'Focus'),
-    (Routes.limits, Icons.grid_view_rounded, 'Limits'),
-    (Routes.bedtime, Icons.dark_mode_rounded, 'Bedtime'),
-    (Routes.settings, Icons.settings_rounded, 'Settings'),
+    (Routes.home, AppIconName.home, 'Home'),
+    (Routes.focus, AppIconName.focus, 'Focus'),
+    (Routes.limits, AppIconName.limits, 'Limits'),
+    (Routes.bedtime, AppIconName.bedtime, 'Bedtime'),
+    (Routes.settings, AppIconName.settings, 'Settings'),
   ];
 
   @override
@@ -52,7 +53,9 @@ class NavShell extends StatelessWidget {
           Positioned(
             left: 16,
             right: 16,
-            bottom: 16,
+            // Clear the gesture-navigation inset so the pill floats
+            // above it rather than colliding with the system bar.
+            bottom: MediaQuery.paddingOf(context).bottom + 16,
             child: _FloatingNavBar(
               tabs: _tabs,
               activeIndex: activeIndex,
@@ -72,7 +75,7 @@ class _FloatingNavBar extends StatelessWidget {
     required this.onTap,
   });
 
-  final List<(String, IconData, String)> tabs;
+  final List<(String, AppIconName, String)> tabs;
   final int activeIndex;
   final ValueChanged<int> onTap;
 
@@ -123,7 +126,7 @@ class _NavItem extends StatelessWidget {
     required this.onTap,
   });
 
-  final IconData icon;
+  final AppIconName icon;
   final String label;
   final bool isActive;
   final VoidCallback onTap;
@@ -148,10 +151,12 @@ class _NavItem extends StatelessWidget {
           children: [
             SizedBox(
               width: 38,
-              child: Icon(
-                icon,
-                size: 18,
-                color: isActive ? AppColors.bg : AppColors.inkFaint,
+              child: Center(
+                child: AppIcon(
+                  icon,
+                  size: 19,
+                  color: isActive ? AppColors.bg : AppColors.inkFaint,
+                ),
               ),
             ),
             // AnimatedSize + fade avoids laying out invisible text every

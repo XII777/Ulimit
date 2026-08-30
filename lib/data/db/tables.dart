@@ -1,19 +1,21 @@
 import 'package:drift/drift.dart';
 
-/// One local profile row (singleton — no accounts). Display name, photo
-/// path, and theme preference for the share card / settings.
+import 'converters.dart';
+
+/// One local profile row (singleton — no accounts). Display name and
+/// daily screen-time budget live here.
 class Profile extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get displayName => text().withDefault(const Constant('You'))();
   TextColumn get photoPath => text().nullable()();
-  TextColumn get themeId => text().withDefault(const Constant('violet'))();
-  // Daily screen-time budget in minutes, used by the Home ring and the
-  // score formula's screen-time component. Configurable in Settings;
-  // defaults to 4h for a fresh install so the ring has something
+  // Daily screen-time budget in minutes, used by the Home ring.
+  // Defaults to 4h for a fresh install so the ring has something
   // meaningful to show before the user sets their own number.
   IntColumn get dailyBudgetMinutes => integer().withDefault(const Constant(240))();
 }
 
+/// One focus session. A running session is simply one with `endedAt`
+/// still null; the restriction engine reads the newest such row.
 class FocusSessions extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get label => text()(); // "Deep Work", "Study"...
@@ -21,6 +23,16 @@ class FocusSessions extends Table {
   DateTimeColumn get endedAt => dateTime().nullable()();
   IntColumn get plannedSeconds => integer()();
   BoolColumn get invincible => boolean().withDefault(const Constant(false))();
+
+  // Focus policy — which enforcement policies this session activates.
+  // Apps chosen in the start flow, stored per session so enforcement
+  // survives process death (the engine re-derives everything from DB).
+  TextColumn get blockedPackages => text()
+      .map(const StringListConverter())
+      .withDefault(const Constant('[]'))();
+  BoolColumn get pauseNotifications => boolean().withDefault(const Constant(true))();
+  BoolColumn get blockInternet => boolean().withDefault(const Constant(false))();
+  BoolColumn get blockWebsites => boolean().withDefault(const Constant(false))();
   BoolColumn get completed => boolean().withDefault(const Constant(false))();
 }
 
@@ -31,7 +43,7 @@ class FocusSessions extends Table {
 class AppUsage extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get packageName => text()();
-  DateTimeColumn get day => dateTime()(); // truncated to midnight
+  DateTimeColumn get day => dateTime()(); // truncated to midnight local
   IntColumn get foregroundSeconds => integer().withDefault(const Constant(0))();
 
   @override
@@ -55,10 +67,39 @@ class RestrictionGroupApps extends Table {
   Set<Column> get primaryKey => {groupId, packageName};
 }
 
-class BlockedApps extends Table {
+/// Per-app daily allowance. `usedTime` is never stored here — it's
+/// always derived from [AppUsage] for today, so the number on screen and
+/// the number the engine enforces can never disagree.
+class AppLimits extends Table {
   TextColumn get packageName => text()();
-  TextColumn get scheduleStart => text().nullable()(); // "HH:mm" or null = all day
-  TextColumn get scheduleEnd => text().nullable()();
+  IntColumn get dailyLimitSeconds => integer()();
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+
+  @override
+  Set<Column> get primaryKey => {packageName};
+}
+
+/// A manual restriction with a real expiration timestamp. This is the
+/// superset that replaces the old schedule-string blocks:
+///  - temporary block  → expiresAt set
+///  - persistent block  → permanent = true (expiresAt null)
+///  - invincible block  → removing it requires biometric auth
+class AppRestrictions extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get packageName => text()();
+  DateTimeColumn get createdAt => dateTime()();
+  // Null = no expiry (only valid alongside permanent=true).
+  DateTimeColumn get expiresAt => dateTime().nullable()();
+  BoolColumn get permanent => boolean().withDefault(const Constant(false))();
+  BoolColumn get invincible => boolean().withDefault(const Constant(false))();
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+}
+
+/// Per-app internet blocking (enforced by the local VPN's per-app
+/// routing). Separate from [AppRestrictions] because the two are
+/// enforced by different layers with different lifetimes.
+class InternetBlocks extends Table {
+  TextColumn get packageName => text()();
   BoolColumn get enabled => boolean().withDefault(const Constant(true))();
 
   @override
@@ -69,37 +110,68 @@ class BedtimeSchedule extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get startTime => text()(); // "22:30"
   TextColumn get endTime => text()(); // "06:30"
+  BoolColumn get enabled => boolean().withDefault(const Constant(false))();
   BoolColumn get dndEnabled => boolean().withDefault(const Constant(true))();
   BoolColumn get pauseApps => boolean().withDefault(const Constant(true))();
+  BoolColumn get blockInternet => boolean().withDefault(const Constant(false))();
   BoolColumn get grayscale => boolean().withDefault(const Constant(false))();
+  TextColumn get selectedApps => text()
+      .map(const StringListConverter())
+      .withDefault(const Constant('[]'))();
 }
 
-/// Daily snapshot of the Limit score components, so the score is
-/// recomputable/auditable rather than a single mutated integer —
-/// important once "decay" or recalculation logic changes later.
-class ScoreLog extends Table {
+/// One website rule — either a user-added domain (`custom`) or a domain
+/// imported from a block-list category (`<category-id>`). Per-domain
+/// `enabled` is the user's granular toggle; a disabled row stays in the
+/// DB so the toggle survives list updates.
+class WebsiteRules extends Table {
   IntColumn get id => integer().autoIncrement()();
-  DateTimeColumn get day => dateTime()();
-  RealColumn get screenTimeComponent => real()();
-  RealColumn get focusConsistencyComponent => real()();
-  RealColumn get streakComponent => real()();
-  RealColumn get limitsKeptComponent => real()();
-  IntColumn get totalScore => integer()();
+  TextColumn get domain => text()();
+  TextColumn get category => text().withDefault(const Constant('custom'))();
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+
+  @override
+  List<Set<Column>> get uniqueKeys => [
+        {domain, category}
+      ];
 }
 
-class EmergencyUnlocks extends Table {
+/// Per-category state for the downloadable block lists (HaGeZi
+/// dns-blocklists). The catalog itself (titles/URLs/descriptions) is
+/// static Dart; this table records what the user has downloaded and
+/// whether the category's filter is on. `locked` is the one-way flag:
+/// the Adult category cannot be turned off after being turned on.
+class BlockListCategories extends Table {
+  TextColumn get id => text()();
+  BoolColumn get downloaded => boolean().withDefault(const Constant(false))();
+  BoolColumn get enabled => boolean().withDefault(const Constant(false))();
+  BoolColumn get locked => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get downloadedAt => dateTime().nullable()();
+  IntColumn get siteCount => integer().withDefault(const Constant(0))();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// Singleton settings row. Anything the engine or enforcement layer
+/// reads belongs here (or in a dedicated table) — never in shared_prefs
+/// only, so Flutter and native always agree on the same source of truth.
+class UlimitSettings extends Table {
   IntColumn get id => integer().autoIncrement()();
-  DateTimeColumn get usedAt => dateTime()();
-  TextColumn get packageName => text()();
-  IntColumn get grantedSeconds => integer()();
+  // Require biometric/device credential before restrictions can be
+  // changed or removed (Invincible Mode's core behavior).
+  BoolColumn get biometricProtection => boolean().withDefault(const Constant(false))();
+  BoolColumn get hapticsEnabled => boolean().withDefault(const Constant(true))();
+  BoolColumn get pauseNotificationsDuringFocus => boolean().withDefault(const Constant(true))();
+  IntColumn get defaultFocusMinutes => integer().withDefault(const Constant(25))();
+  // Desired VPN state — the VPN reconnects to match this after reboot.
+  BoolColumn get vpnEnabled => boolean().withDefault(const Constant(false))();
 }
 
 /// One row per day. Incremented every time the AccessibilityService
 /// reports a foreground-app transition — this is what "Pickups / day"
-/// on Home actually measures. Approximate by nature (a true "unlock"
-/// signal would need ACTION_USER_PRESENT from a separate BroadcastReceiver,
-/// which is a reasonable v2 addition), but every foreground switch is a
-/// real, on-device event, not a guess.
+/// on Home actually measures.
 class PickupsLog extends Table {
   DateTimeColumn get day => dateTime()(); // truncated to midnight
 

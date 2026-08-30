@@ -13,7 +13,71 @@ final databaseProvider = Provider<AppDatabase>((ref) {
   return db;
 });
 
-DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
+DateTime startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
+
+/// Re-evaluation tick for time-derived state (restriction expiry,
+/// countdowns). 15s cadence: frequent enough that "Blocked until 8:00 PM"
+/// flips to allowed within a quarter minute of expiry, cheap enough
+/// that it's invisible in battery stats. Expiry is ALWAYS evaluated
+/// against real timestamps at read time — this tick only refreshes UI,
+/// it is never the authority.
+final evaluationTickProvider = StreamProvider<void>((ref) {
+  return Stream<void>.periodic(const Duration(seconds: 15));
+});
+
+/// Singleton settings row.
+final ulimitSettingsProvider = StreamProvider<UlimitSetting>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.select(db.ulimitSettings).watchSingle();
+});
+
+class SettingsController {
+  SettingsController(this._db);
+  final AppDatabase _db;
+
+  Future<void> setBiometricProtection(bool v) =>
+      _update(UlimitSettingsCompanion(biometricProtection: Value(v)));
+  Future<void> setHapticsEnabled(bool v) =>
+      _update(UlimitSettingsCompanion(hapticsEnabled: Value(v)));
+  Future<void> setPauseNotificationsDuringFocus(bool v) =>
+      _update(UlimitSettingsCompanion(pauseNotificationsDuringFocus: Value(v)));
+  Future<void> setDefaultFocusMinutes(int v) =>
+      _update(UlimitSettingsCompanion(defaultFocusMinutes: Value(v)));
+  Future<void> setVpnEnabled(bool v) =>
+      _update(UlimitSettingsCompanion(vpnEnabled: Value(v)));
+
+  Future<void> _update(UlimitSettingsCompanion c) async {
+    await _ensureRow();
+    await (_db.update(_db.ulimitSettings)..where((t) => t.id.equals(1))).write(c);
+  }
+
+  Future<void> _ensureRow() async {
+    final rows = await _db.select(_db.ulimitSettings).get();
+    if (rows.isEmpty) {
+      await _db.into(_db.ulimitSettings).insert(UlimitSettingsCompanion.insert());
+    }
+  }
+}
+
+final settingsControllerProvider = Provider<SettingsController>(
+  (ref) => SettingsController(ref.watch(databaseProvider)),
+);
+
+/// User-configurable daily screen-time budget (minutes).
+final dailyBudgetProvider = StreamProvider<int>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.select(db.profile).watchSingleOrNull().map((row) => row?.dailyBudgetMinutes ?? 240);
+});
+
+Future<void> setDailyBudget(AppDatabase db, int minutes) async {
+  final existing = await db.select(db.profile).get();
+  if (existing.isEmpty) {
+    await db.into(db.profile).insert(ProfileCompanion(dailyBudgetMinutes: Value(minutes)));
+  } else {
+    await (db.update(db.profile)..where((t) => t.id.equals(existing.first.id)))
+        .write(ProfileCompanion(dailyBudgetMinutes: Value(minutes)));
+  }
+}
 
 /// Today's total foreground time across all tracked apps, as a live
 /// stream — Drift's .watch() pushes updates only when the underlying
@@ -21,44 +85,39 @@ DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
 /// polling.
 final todayScreenTimeProvider = StreamProvider<Duration>((ref) {
   final db = ref.watch(databaseProvider);
-  final startOfDay = _startOfDay(DateTime.now());
+  final startOfDay_ = startOfDay(DateTime.now());
 
-  final query = db.select(db.appUsage)..where((t) => t.day.equals(startOfDay));
+  final query = db.select(db.appUsage)..where((t) => t.day.equals(startOfDay_));
 
   return query.watch().map(
         (rows) => Duration(seconds: rows.fold(0, (sum, r) => sum + r.foregroundSeconds)),
       );
 });
 
+/// Today's per-package usage — the input the restriction engine and the
+/// Limits screen share, so a bar and the enforcement decision can never
+/// disagree about "used".
+final todayUsageByPackageProvider = StreamProvider<Map<String, int>>((ref) {
+  final db = ref.watch(databaseProvider);
+  final today = startOfDay(DateTime.now());
+  final query = db.select(db.appUsage)..where((t) => t.day.equals(today));
+  return query.watch().map(
+        (rows) => {for (final r in rows) r.packageName: r.foregroundSeconds},
+      );
+});
+
 /// Last 7 days of total foreground time, oldest first — feeds Home's
-/// weekly trend chart. One GROUP-BY-shaped query instead of 7 separate
-/// day lookups.
+/// weekly trend chart. One bucket pass instead of 7 separate day lookups.
 final weeklyScreenTimeProvider = StreamProvider<List<Duration>>((ref) {
   final db = ref.watch(databaseProvider);
-  final today = _startOfDay(DateTime.now());
+  final today = startOfDay(DateTime.now());
   final start = today.subtract(const Duration(days: 6));
 
   final query = db.select(db.appUsage)..where((t) => t.day.isBiggerOrEqualValue(start));
 
-  return query.watch().map((rows) => _bucketByDay(rows.map((r) => (r.day, r.foregroundSeconds)), start));
-});
-
-/// The 7 days before [weeklyScreenTimeProvider]'s window — used only to
-/// compute the "vs last week" delta shown next to the weekly chart, so
-/// that delta is a real comparison rather than a made-up percentage.
-final previousWeekScreenTimeAvgProvider = StreamProvider<Duration>((ref) {
-  final db = ref.watch(databaseProvider);
-  final today = _startOfDay(DateTime.now());
-  final start = today.subtract(const Duration(days: 13));
-  final end = today.subtract(const Duration(days: 6));
-
-  final query = db.select(db.appUsage)
-    ..where((t) => t.day.isBiggerOrEqualValue(start) & t.day.isSmallerThanValue(end));
-
-  return query.watch().map((rows) {
-    final total = rows.fold(0, (sum, r) => sum + r.foregroundSeconds);
-    return Duration(seconds: total ~/ 7);
-  });
+  return query.watch().map(
+        (rows) => bucketByDay(rows.map((r) => (r.day, r.foregroundSeconds)), start),
+      );
 });
 
 /// Last 7 days of completed-focus-session time, oldest first. Falls
@@ -66,7 +125,7 @@ final previousWeekScreenTimeAvgProvider = StreamProvider<Duration>((ref) {
 /// progress) so an active session doesn't read as zero minutes.
 final weeklyFocusTimeProvider = StreamProvider<List<Duration>>((ref) {
   final db = ref.watch(databaseProvider);
-  final today = _startOfDay(DateTime.now());
+  final today = startOfDay(DateTime.now());
   final start = today.subtract(const Duration(days: 6));
 
   final query = db.select(db.focusSessions)
@@ -77,35 +136,15 @@ final weeklyFocusTimeProvider = StreamProvider<List<Duration>>((ref) {
       final seconds = r.endedAt != null ? r.endedAt!.difference(r.startedAt).inSeconds : r.plannedSeconds;
       return (r.startedAt, seconds);
     });
-    return _bucketByDay(entries, start);
-  });
-});
-
-/// Previous-week counterpart to [weeklyFocusTimeProvider], for its delta.
-final previousWeekFocusTimeAvgProvider = StreamProvider<Duration>((ref) {
-  final db = ref.watch(databaseProvider);
-  final today = _startOfDay(DateTime.now());
-  final start = today.subtract(const Duration(days: 13));
-  final end = today.subtract(const Duration(days: 6));
-
-  final query = db.select(db.focusSessions)
-    ..where((t) =>
-        t.completed.equals(true) & t.startedAt.isBiggerOrEqualValue(start) & t.startedAt.isSmallerThanValue(end));
-
-  return query.watch().map((rows) {
-    final total = rows.fold<int>(0, (sum, r) {
-      final seconds = r.endedAt != null ? r.endedAt!.difference(r.startedAt).inSeconds : r.plannedSeconds;
-      return sum + seconds;
-    });
-    return Duration(seconds: total ~/ 7);
+    return bucketByDay(entries, start);
   });
 });
 
 /// Count of focus sessions completed so far today — feeds both Home's
-/// "N sessions" pill and Focus's "today's sessions" dot row.
+/// "N sessions" pill and Focus's session dot row.
 final todaysCompletedSessionsProvider = StreamProvider<int>((ref) {
   final db = ref.watch(databaseProvider);
-  final start = _startOfDay(DateTime.now());
+  final start = startOfDay(DateTime.now());
   final end = start.add(const Duration(days: 1));
 
   final query = db.select(db.focusSessions)
@@ -116,24 +155,22 @@ final todaysCompletedSessionsProvider = StreamProvider<int>((ref) {
 });
 
 /// Turns a stream of (day, seconds) rows into a fixed 7-slot list
-/// starting at [start], zero-filling any day with no rows. Shared by
-/// both weekly providers above so "bucket into a 7-day window" is
-/// implemented once.
-List<Duration> _bucketByDay(Iterable<(DateTime, int)> entries, DateTime start) {
-  final byDay = <DateTime, int>{for (var i = 0; i <= 6; i++) start.add(Duration(days: i)): 0};
+/// starting at [start], zero-filling any day with no rows.
+List<Duration> bucketByDay(Iterable<(DateTime, int)> entries, DateTime start) {
+  final byDay = <DateTime, int>{for (var i = 0; i <= 6; i++) startOfDay(start.add(Duration(days: i))): 0};
   for (final (day, seconds) in entries) {
-    final d = _startOfDay(day);
+    final d = startOfDay(day);
     byDay[d] = (byDay[d] ?? 0) + seconds;
   }
   final orderedDays = byDay.keys.toList()..sort();
   return [for (final d in orderedDays) Duration(seconds: byDay[d]!)];
 }
 
-/// One restriction group with today's live usage joined in. Replaces
-/// the Limits screen's hardcoded group list — `packageNames` drives the
-/// icon row, `usedSeconds`/`limitSeconds` drive the bar and its color.
+/// One restriction group with today's live usage joined in. `used` is
+/// the shared pool across members — the same number the engine checks.
 class RestrictionGroupView {
   const RestrictionGroupView({
+    required this.id,
     required this.name,
     required this.usedSeconds,
     required this.limitSeconds,
@@ -141,6 +178,7 @@ class RestrictionGroupView {
     required this.packageNames,
   });
 
+  final int id;
   final String name;
   final int usedSeconds;
   final int limitSeconds;
@@ -150,11 +188,8 @@ class RestrictionGroupView {
 
 final restrictionGroupsProvider = StreamProvider<List<RestrictionGroupView>>((ref) {
   final db = ref.watch(databaseProvider);
-  final today = _startOfDay(DateTime.now());
+  final today = startOfDay(DateTime.now());
 
-  // One joined query rather than combining separate group/usage streams
-  // — keeps this a single reactive source instead of hand-rolled stream
-  // combination.
   final query = db.customSelect(
     '''
     SELECT rg.id AS group_id, rg.name AS name, rg.daily_limit_seconds AS daily_limit_seconds,
@@ -191,7 +226,7 @@ final restrictionGroupsProvider = StreamProvider<List<RestrictionGroupView>>((re
       }
     }
 
-    return [for (final id in order) byGroup[id]!.toView()];
+    return [for (final id in order) byGroup[id]!.toView(id)];
   });
 });
 
@@ -203,7 +238,8 @@ class _MutableGroup {
   int usedSeconds = 0;
   final List<String> packageNames = [];
 
-  RestrictionGroupView toView() => RestrictionGroupView(
+  RestrictionGroupView toView(int id) => RestrictionGroupView(
+        id: id,
         name: name,
         usedSeconds: usedSeconds,
         limitSeconds: limitSeconds,
@@ -212,16 +248,7 @@ class _MutableGroup {
       );
 }
 
-/// Count of enabled entries in [BlockedApps] — feeds the "App Blocking"
-/// control tile's subtitle on Home.
-final blockedAppsCountProvider = StreamProvider<int>((ref) {
-  final db = ref.watch(databaseProvider);
-  final query = db.select(db.blockedApps)..where((t) => t.enabled.equals(true));
-  return query.watch().map((rows) => rows.length);
-});
-
-/// The single [BedtimeSchedule] row (singleton, like [Profile]) — null
-/// until the first toggle write creates it.
+/// The single [BedtimeSchedule] row (singleton) — null until first edit.
 final bedtimeScheduleProvider = StreamProvider<BedtimeScheduleData?>((ref) {
   final db = ref.watch(databaseProvider);
   final query = db.select(db.bedtimeSchedule)..limit(1);
@@ -229,13 +256,26 @@ final bedtimeScheduleProvider = StreamProvider<BedtimeScheduleData?>((ref) {
 });
 
 extension BedtimeScheduleActions on AppDatabase {
-  Future<void> _ensureBedtimeRow() async {
+  Future<BedtimeScheduleData> _ensureBedtimeRow() async {
     final existing = await (select(bedtimeSchedule)..limit(1)).getSingleOrNull();
-    if (existing == null) {
-      await into(bedtimeSchedule).insert(
-        BedtimeScheduleCompanion.insert(startTime: '22:30', endTime: '06:30'),
-      );
-    }
+    if (existing != null) return existing;
+    final id = await into(bedtimeSchedule).insert(
+      BedtimeScheduleCompanion.insert(startTime: '22:30', endTime: '06:30'),
+    );
+    return (select(bedtimeSchedule)..where((t) => t.id.equals(id))).getSingle();
+  }
+
+  Future<void> setBedtimeEnabled(bool value) async {
+    await _ensureBedtimeRow();
+    await update(bedtimeSchedule).write(BedtimeScheduleCompanion(enabled: Value(value)));
+  }
+
+  Future<void> setBedtimeTimes(String start, String end) async {
+    await _ensureBedtimeRow();
+    await update(bedtimeSchedule).write(BedtimeScheduleCompanion(
+      startTime: Value(start),
+      endTime: Value(end),
+    ));
   }
 
   Future<void> setDndEnabled(bool value) async {
@@ -252,4 +292,32 @@ extension BedtimeScheduleActions on AppDatabase {
     await _ensureBedtimeRow();
     await update(bedtimeSchedule).write(BedtimeScheduleCompanion(grayscale: Value(value)));
   }
+
+  Future<void> setBedtimeInternet(bool value) async {
+    await _ensureBedtimeRow();
+    await update(bedtimeSchedule).write(BedtimeScheduleCompanion(blockInternet: Value(value)));
+  }
+
+  Future<void> setBedtimeApps(List<String> packages) async {
+    await _ensureBedtimeRow();
+    await update(bedtimeSchedule).write(BedtimeScheduleCompanion(
+      selectedApps: Value(packages),
+    ));
+  }
 }
+
+/// Daily pickup counts for the last 7 days, oldest→newest.
+final weeklyPickupsProvider = StreamProvider<List<int>>((ref) {
+  final db = ref.watch(databaseProvider);
+  final start = startOfDay(DateTime.now().subtract(const Duration(days: 6)));
+
+  final query = db.select(db.pickupsLog)..where((t) => t.day.isBiggerOrEqualValue(start));
+
+  return query.watch().map((rows) {
+    final byDay = {for (final r in rows) r.day: r.count};
+    return List.generate(7, (i) {
+      final day = start.add(Duration(days: i));
+      return byDay[day] ?? 0;
+    });
+  });
+});

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../shared/widgets/pressable_scale.dart';
+import '../icons/app_icons.dart';
 import 'tokens.dart';
-import 'pressable_scale.dart';
 
 /// The horizontal feature-navigation tile used throughout the app:
 /// icon, title, description, chevron. One component, one place to
@@ -17,7 +18,9 @@ class PremiumFeatureTile extends StatelessWidget {
     this.onTap,
   });
 
-  final IconData icon;
+  /// Pre-rendered icon widget (typically an [AppIcon]) so the tile
+  /// stays icon-system agnostic.
+  final Widget icon;
   final String title;
   final String description;
   /// Defaults to a chevron; pass something else (a status label, a
@@ -46,7 +49,10 @@ class PremiumFeatureTile extends StatelessWidget {
               color: AppColors.surface2,
               borderRadius: BorderRadius.circular(AppRadius.sm),
             ),
-            child: Icon(icon, size: 18, color: AppColors.ink),
+            child: IconTheme.merge(
+              data: const IconThemeData(size: 18),
+              child: icon,
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -122,7 +128,7 @@ class PremiumHeader extends StatelessWidget {
           ),
           child: IconButton(
             padding: EdgeInsets.zero,
-            icon: const Icon(Icons.arrow_back_rounded, size: 16, color: AppColors.inkDim),
+            icon: const AppIcon(AppIconName.back, size: 15, color: AppColors.inkDim),
             onPressed: onBack ?? () => Navigator.of(context).maybePop(),
           ),
         ),

@@ -5,15 +5,22 @@
     <!-- Core -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Android 14+ requires a typed foreground service; the VPN uses
+         specialUse (DNS-level filtering is its exact purpose). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Bedtime alarms. USE_EXACT_ALARM is auto-granted; the
+         SCHEDULE_EXACT_ALARM fallback keeps 12/12L devices working via
+         the inexact path when the user hasn't granted exact access. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <!-- Android 13+ runtime permission for notification batching/muting -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Needed to enumerate installed apps for the app-picker in
-         Limits/Blocking screens. Google Play requires a declared-use
-         justification form for this on submission — it's granted at
-         install time (normal permission), not a runtime prompt. -->
+         Limits/Blocking screens. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
@@ -72,8 +79,8 @@
             </intent-filter>
         </receiver>
 
-        <!-- Notification Listener — powers notification batching/muting
-             during focus sessions and Bedtime mode. -->
+        <!-- Notification Listener — powers notification holding during
+             focus sessions. -->
         <service
             android:name=".UlimitNotificationListenerService"
             android:label="Ulimit"
@@ -85,15 +92,33 @@
         </service>
 
         <!-- Local VPN — per-app internet blocking and website/domain
-             filtering. Traffic never leaves the device; see UlimitVpnService. -->
+             filtering. Traffic never leaves the device. -->
         <service
             android:name=".UlimitVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
-            android:exported="false">
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local on-device DNS and app network filtering" />
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
         </service>
+
+        <!-- Restores enforcement work after a reboot. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Bedtime window edges (DND on/off, VPN nudge). -->
+        <receiver
+            android:name=".BedtimeAlarmReceiver"
+            android:exported="false" />
 
     </application>
 

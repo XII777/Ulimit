@@ -50,4 +50,36 @@ class NativePermissions {
   static Future<bool> isBiometricAvailable() async {
     return await _channel.invokeMethod<bool>('isBiometricAvailable') ?? false;
   }
+
+  /// Shows the system BiometricPrompt (or device credential fallback)
+  /// and resolves true only on success. Used by Invincible Mode before
+  /// restriction changes and by early-ending an invincible session.
+  static Future<bool> authenticate({required String reason}) async {
+    try {
+      return await _channel.invokeMethod<bool>('authenticate', reason) ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// Writes [json] to a user-visible file (Downloads via MediaStore on
+  /// API 29+, app documents otherwise) and returns the resulting path,
+  /// or null on failure.
+  static Future<String?> exportFile(String json) async {
+    try {
+      return await _channel.invokeMethod<String>('exportData', json);
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  /// Opens the system document picker and returns the selected file's
+  /// text content, or null when cancelled.
+  static Future<String?> importFile() async {
+    try {
+      return await _channel.invokeMethod<String>('importData');
+    } on PlatformException {
+      return null;
+    }
+  }
 }

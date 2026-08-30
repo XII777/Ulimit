@@ -31,6 +31,14 @@ dependencies:
   # the 2 families used across the whole app, not a bundle).
   google_fonts: ^6.2.1
 
+  # App iconography — Solar Bold icon set rendered from SVG assets.
+  # Tinted monochrome at the call site; no multi-color assets shipped.
+  flutter_svg: ^2.3.0
+
+  # Block-list downloads (HaGeZi dns-blocklists). Kept to the tiny
+  # `http` package — no dio/heavyweight client for three GETs.
+  http: ^1.2.0
+
   # Native Android integration point for Accessibility Service +
   # Device Admin (see android/ — MethodChannel, not a plugin, since no
   # existing plugin exposes AccessibilityService the way we need it).
@@ -45,3 +53,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icons/

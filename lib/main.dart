@@ -4,6 +4,7 @@ import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'data/permissions_providers.dart';
 import 'data/providers.dart';
+import 'data/restriction_providers.dart';
 import 'data/usage_tracker.dart';
 import 'features/onboarding/permissions_screen.dart';
 
@@ -20,6 +21,7 @@ class UlimitApp extends ConsumerStatefulWidget {
 
 class _UlimitAppState extends ConsumerState<UlimitApp> {
   UsageTracker? _tracker;
+  bool _nativeSynced = false;
 
   @override
   Widget build(BuildContext context) {
@@ -45,6 +47,16 @@ class _UlimitAppState extends ConsumerState<UlimitApp> {
           // true; see requiredPermissionsGrantedProvider's doc comment.
         ),
       );
+    }
+
+    // Once inside the app: keep the native enforcement snapshot in sync
+    // with every policy change for the whole process lifetime.
+    if (!_nativeSynced) {
+      _nativeSynced = true;
+      // Trigger lazily on first frame so DB streams are ready.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(enforcementSyncProvider).push();
+      });
     }
 
     return MaterialApp.router(
