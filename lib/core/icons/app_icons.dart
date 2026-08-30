@@ -73,18 +73,21 @@ class AppIcon extends StatelessWidget {
   final double size;
   final Color? color;
 
-  static const _package = 'ulimit';
   static const _assetDir = 'assets/icons';
 
   @override
   Widget build(BuildContext context) {
     final effective = color ?? Theme.of(context).iconTheme.color ?? const Color(0xFFF5F5F4);
+    // NOTE: these SVGs are the app's OWN assets — no `package:` prefix.
+    // Package-prefixed asset keys only resolve for dependency packages;
+    // for the root app they 404 and flutter_svg fails every screen.
     return SvgPicture.asset(
       '$_assetDir/${name.asset}.svg',
-      package: _package,
       width: size,
       height: size,
       colorFilter: ColorFilter.mode(effective, BlendMode.srcIn),
+      // An icon must never take down a screen — render empty instead.
+      errorBuilder: (_, __, ___) => SizedBox(width: size, height: size),
     );
   }
 }
