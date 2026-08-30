@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/crash/crash_collector.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'data/permissions_providers.dart';
@@ -9,6 +12,10 @@ import 'data/usage_tracker.dart';
 import 'features/onboarding/permissions_screen.dart';
 
 void main() {
+  // Crash collection starts before anything else — an error thrown
+  // during startup itself is exactly the kind of crash that is hardest
+  // to reproduce without a trace.
+  unawaited(CrashCollector.initialize());
   runApp(const ProviderScope(child: UlimitApp()));
 }
 

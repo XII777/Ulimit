@@ -26,7 +26,7 @@
 
     <application
         android:label="Ulimit"
-        android:name="${applicationName}"
+        android:name=".UlimitApplication"
         android:icon="@mipmap/ic_launcher">
 
         <activity

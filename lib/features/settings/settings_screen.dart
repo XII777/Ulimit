@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/crash/crash_collector.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/native/permissions_channel.dart';
 import '../../core/theme/premium_components.dart';
@@ -104,6 +107,13 @@ class SettingsScreen extends ConsumerWidget {
                   sublabel: 'Restore an Ulimit export file',
                   trailing: const AppIcon(AppIconName.import, size: 15, color: AppColors.inkFaint),
                   onTap: () => _importData(context, ref),
+                ),
+                const PremiumDivider(),
+                PremiumListTile(
+                  label: 'Crash logs',
+                  sublabel: 'Review, copy or export captured crash reports',
+                  trailing: const AppIcon(AppIconName.info, size: 15, color: AppColors.inkFaint),
+                  onTap: () => _showCrashLogs(context),
                 ),
                 const PremiumDivider(),
                 PremiumListTile(
@@ -264,6 +274,17 @@ class SettingsScreen extends ConsumerWidget {
     if (confirmed == true) {
       await ref.read(databaseProvider).wipeAllData();
     }
+  }
+
+  Future<void> _showCrashLogs(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.bg,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
+      builder: (_) => const _CrashLogsSheet(),
+    );
   }
 }
 
@@ -448,4 +469,208 @@ Future<bool> restoreExport(AppDatabase db, String jsonString) async {
     }
     return true;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Crash logs viewer
+// ---------------------------------------------------------------------------
+
+class _CrashLogsSheet extends StatefulWidget {
+  const _CrashLogsSheet();
+
+  @override
+  State<_CrashLogsSheet> createState() => _CrashLogsSheetState();
+}
+
+class _CrashLogsSheetState extends State<_CrashLogsSheet> {
+  late Future<List<FileSystemEntity>> _logs;
+
+  @override
+  void initState() {
+    super.initState();
+    _logs = CrashCollector.list();
+  }
+
+  void _reload() {
+    setState(() => _logs = CrashCollector.list());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.72,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 12, 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Crash logs',
+                            style: TextStyle(
+                                fontSize: 17, fontWeight: FontWeight.w600, color: AppColors.ink)),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Captured on-device. Never uploaded — copy or '
+                          'export a log only when reporting a problem.',
+                          style: TextStyle(fontSize: 11, color: AppColors.inkFaint, height: 1.4),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      await CrashCollector.clear();
+                      _reload();
+                    },
+                    child: const Text('Clear all',
+                        style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: AppColors.stroke),
+            Expanded(
+              child: FutureBuilder<List<FileSystemEntity>>(
+                future: _logs,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                  }
+                  final files = snapshot.data ?? const [];
+                  if (files.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const AppIcon(AppIconName.check, size: 22, color: AppColors.inkFaint),
+                          const SizedBox(height: 10),
+                          const Text('No crashes captured',
+                              style: TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink)),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'When the app hits an error, the report\nappears here automatically.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 11.5, color: AppColors.inkFaint, height: 1.5),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  return ListView.separated(
+                    physics: springScrollPhysics,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: files.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1, color: AppColors.stroke),
+                    itemBuilder: (context, i) {
+                      final file = files[i] as File;
+                      final stat = file.statSync();
+                      return ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+                        title: Text(
+                          _prettyName(file.uri.pathSegments.last),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13.5, color: AppColors.ink),
+                        ),
+                        subtitle: Text(
+                          '${_formatDate(stat.modified)} · ${_formatSize(stat.size)}',
+                          style: const TextStyle(fontSize: 11, color: AppColors.inkFaint),
+                        ),
+                        trailing: const AppIcon(AppIconName.chevronRight, size: 13, color: AppColors.inkFaint),
+                        onTap: () => _viewLog(context, file),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _viewLog(BuildContext context, File file) async {
+    final content = await file.readAsString();
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
+        title: Text(_prettyName(file.uri.pathSegments.last),
+            style: const TextStyle(fontSize: 14, color: AppColors.ink)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 320,
+          child: SingleChildScrollView(
+            physics: springScrollPhysics,
+            child: SelectableText(
+              content,
+              style: const TextStyle(fontSize: 10.5, color: AppColors.inkDim, height: 1.45),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: content));
+              ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(
+                backgroundColor: AppColors.surface2,
+                behavior: SnackBarBehavior.floating,
+                content: Text('Copied to clipboard',
+                    style: TextStyle(color: AppColors.ink, fontSize: 12)),
+              ));
+            },
+            child: const Text('Copy', style: TextStyle(color: AppColors.ink)),
+          ),
+          TextButton(
+            onPressed: () async {
+              await NativePermissions.exportFile(content);
+              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+            },
+            child: const Text('Save to Downloads',
+                style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _prettyName(String raw) {
+    // "flutter-2026-08-30T06-12-00.123.log" → "Flutter crash · 30 Aug, 06:12"
+    final kind = raw.startsWith('native-')
+        ? 'Native crash'
+        : raw.startsWith('flutter-')
+            ? 'Flutter crash'
+            : raw.startsWith('async-')
+                ? 'Async error'
+                : raw.startsWith('isolate-')
+                    ? 'Isolate error'
+                    : 'Crash';
+    final match = RegExp(r'(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})').firstMatch(raw);
+    if (match == null) return kind;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final day = match.group(3) ?? '';
+    final monthIndex = (int.tryParse(match.group(2) ?? '1') ?? 1).clamp(1, 12);
+    final time = '${match.group(4) ?? ''}:${match.group(5) ?? ''}';
+    return '$kind · $day ${months[monthIndex - 1]}, $time';
+  }
+
+  String _formatDate(DateTime dt) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${dt.day} ${months[dt.month - 1]}, '
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  }
 }
