@@ -15,7 +15,8 @@ jobs:
       - uses: actions/checkout@v4
 
       # Must match the toolchain the project is developed against:
-      # Gradle 8.14 + AGP 8.3 + JDK 17 (see android/ gradle files).
+      # Gradle 8.14 + AGP 8.11.1 + Kotlin 2.1 + JDK 17 (see android/
+      # gradle files).
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
