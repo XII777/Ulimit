@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/constants/build_info.dart';
 import '../../core/engine/restriction_engine.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/router/app_router.dart';
@@ -139,7 +140,7 @@ class _DiagnosticsBanner extends ConsumerWidget {
         'settings: ${state(settingsAsync)} · screenTime: '
         '${state(screenTime)} (${screenTime.valueOrNull ?? 0}s) · '
         'focus: ${focusSeconds.valueOrNull ?? 0}s · '
-        'apps: ${catalog.valueOrNull?.apps.length ?? 0}',
+        'apps: ${catalog.valueOrNull?.apps.length ?? 0} · build: $buildLabel',
         style: TextStyle(fontSize: 10, color: AppColors.inkFaint, height: 1.4),
       ),
     );
