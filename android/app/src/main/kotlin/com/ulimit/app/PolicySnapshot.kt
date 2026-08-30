@@ -50,6 +50,7 @@ object PolicySnapshot {
 
     data class Snapshot(
         val pushedAtMillis: Long,
+        val blockedNow: Map<String, Pair<String, Long>>,
         val manual: List<ManualRule>,
         val limits: Map<String, Int>,
         val groups: List<Group>,
@@ -76,6 +77,17 @@ object PolicySnapshot {
 
     fun parse(raw: String): Snapshot {
         val root = JSONObject(raw)
+
+        // Dart's engine verdict: package → (reason, untilMillis). The
+        // fast enforcement path — guaranteed to match what the UI shows.
+        val blockedNow = mutableMapOf<String, Pair<String, Long>>()
+        val blockedArr = root.optJSONArray("blockedNow") ?: JSONArray()
+        for (i in 0 until blockedArr.length()) {
+            val o = blockedArr.getJSONObject(i)
+            blockedNow[o.getString("package")] =
+                Pair(o.optString("reason", "Blocked"), o.optLong("untilMillis", 0L))
+        }
+
         val manual = mutableListOf<ManualRule>()
         val manualArr = root.optJSONArray("manual") ?: JSONArray()
         for (i in 0 until manualArr.length()) {
@@ -140,6 +152,7 @@ object PolicySnapshot {
 
         return Snapshot(
             pushedAtMillis = root.optLong("pushedAtMillis", 0L),
+            blockedNow = blockedNow,
             manual = manual,
             limits = limits,
             groups = groups,
@@ -212,6 +225,16 @@ object PolicySnapshot {
 
     fun shouldBlock(context: Context, pkg: String, nowMillis: Long): String? {
         val snapshot = read(context) ?: return null
+
+        // Fast path: Dart's engine already decided this package is
+        // blocked. Re-validate the expiry here so a stale snapshot can
+        // never block longer than the engine intended, then enforce.
+        snapshot.blockedNow[pkg]?.let { (reason, untilMillis) ->
+            if (untilMillis == 0L || untilMillis > nowMillis) return reason
+        }
+
+        // Structural fallback — covers state that changed while Ulimit
+        // was closed (e.g. a daily limit crossed without the app open).
         val nowMin = let {
             val c = java.util.Calendar.getInstance()
             c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE)

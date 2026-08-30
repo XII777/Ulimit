@@ -7,15 +7,16 @@ import '../../core/theme/tokens.dart';
 /// four separate SVG-in-a-Container implementations per screen — one
 /// painter to profile, one to optimize.
 class LimitRing extends StatelessWidget {
-  const LimitRing({
+  LimitRing({
     super.key,
     required this.progress,
     required this.size,
     this.strokeWidth = 10,
-    this.color = AppColors.accent,
-    this.trackColor = AppColors.stroke,
+    Color? color,
+    Color? trackColor,
     this.child,
-  });
+  })  : color = color ?? AppColors.accent,
+        trackColor = trackColor ?? AppColors.stroke;
 
   /// 0.0–1.0. Callers animate this externally (e.g. with
   /// TweenAnimationBuilder) rather than the ring owning a controller —

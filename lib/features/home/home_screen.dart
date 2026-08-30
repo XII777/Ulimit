@@ -8,6 +8,7 @@ import '../../core/router/app_router.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/premium_components.dart';
 import '../../data/apps_repository.dart';
+import '../../shared/widgets/spring_scroll.dart';
 import '../../data/db/app_database.dart';
 import '../../data/focus_providers.dart';
 import '../../data/home_data_providers.dart';
@@ -38,18 +39,8 @@ class HomeScreen extends ConsumerWidget {
         decisions.values.where((d) => d.appBlocked).length;
     final bedtime = ref.watch(bedtimeScheduleProvider).valueOrNull;
 
-    return DecoratedBox(
-      // A very faint white top vignette for depth — lighting, not accent.
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          stops: [0.0, 0.35],
-          colors: [Color(0x14FFFFFF), Colors.transparent],
-        ),
-      ),
-      child: ListView(
-        physics: const BouncingScrollPhysics(parent: RangeMaintainingScrollPhysics()),
+    return ListView(
+        physics: springScrollPhysics,
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
         children: [
           const _Header(),
@@ -112,13 +103,12 @@ class HomeScreen extends ConsumerWidget {
           const SizedBox(height: 10),
           const _ControlsList(),
         ],
-      ),
     );
   }
 
   Widget _buildRing(AsyncValue<Duration> screenTime, AsyncValue<int> budgetMinutes) {
     if (screenTime.isLoading || budgetMinutes.isLoading) {
-      return const LimitRing(progress: 0, size: 130, trackColor: AppColors.stroke);
+      return LimitRing(progress: 0, size: 130, trackColor: AppColors.stroke);
     }
     final used = screenTime.valueOrNull ?? Duration.zero;
     final budget = Duration(minutes: budgetMinutes.valueOrNull ?? 240);
@@ -149,10 +139,10 @@ class _Header extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(greeting,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 26, fontWeight: FontWeight.w600, color: AppColors.ink, letterSpacing: -0.3)),
         const SizedBox(height: 2),
-        Text(_formattedDate(), style: const TextStyle(fontSize: AppText.body, color: AppColors.inkDim)),
+        Text(_formattedDate(), style: TextStyle(fontSize: AppText.body, color: AppColors.inkDim)),
       ],
     );
   }
@@ -194,10 +184,10 @@ class _ScreenTimeRing extends StatelessWidget {
           children: [
             RollingNumber(
               text: formatDurationShort(remaining),
-              style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w600, color: AppColors.ink),
+              style: TextStyle(fontSize: 30, fontWeight: FontWeight.w600, color: AppColors.ink),
             ),
             const SizedBox(height: 4),
-            const Text('LEFT TODAY',
+            Text('LEFT TODAY',
                 style: TextStyle(
                     fontSize: AppText.overline, color: AppColors.inkFaint, letterSpacing: 0.6)),
           ],
@@ -232,7 +222,7 @@ class _CurrentFocusCard extends ConsumerWidget {
               color: AppColors.surface2,
               borderRadius: BorderRadius.circular(AppRadius.sm),
             ),
-            child: const AppIcon(AppIconName.stopwatch, size: 18, color: AppColors.ink),
+            child: AppIcon(AppIconName.stopwatch, size: 18, color: AppColors.ink),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -240,20 +230,20 @@ class _CurrentFocusCard extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(session.label,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: AppText.title, fontWeight: FontWeight.w600, color: AppColors.ink)),
                 const SizedBox(height: 2),
                 Text('Ends at $endsAt',
-                    style: const TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),
+                    style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),
               ],
             ),
           ),
           Text(
             formatClock(remaining),
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: AppColors.ink),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: AppColors.ink),
           ),
           const SizedBox(width: 8),
-          const AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
+          AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
         ],
       ),
     );
@@ -332,15 +322,15 @@ class _RestrictionLine extends StatelessWidget {
                 Text(appName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: AppText.body, color: AppColors.ink)),
+                    style: TextStyle(fontSize: AppText.body, color: AppColors.ink)),
                 Text(untilText,
-                    style: const TextStyle(fontSize: 11, color: AppColors.inkDim)),
+                    style: TextStyle(fontSize: 11, color: AppColors.inkDim)),
               ],
             ),
           ),
           Text(
             decision.reason?.label ?? '',
-            style: const TextStyle(fontSize: 10.5, color: AppColors.inkFaint),
+            style: TextStyle(fontSize: 10.5, color: AppColors.inkFaint),
           ),
         ],
       ),
@@ -366,26 +356,26 @@ class _BedtimeCard extends StatelessWidget {
               color: AppColors.surface2,
               borderRadius: BorderRadius.circular(AppRadius.sm),
             ),
-            child: const AppIcon(AppIconName.moon, size: 18, color: AppColors.ink),
+            child: AppIcon(AppIconName.moon, size: 18, color: AppColors.ink),
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Bedtime',
+                Text('Bedtime',
                     style: TextStyle(
                         fontSize: AppText.title, fontWeight: FontWeight.w600, color: AppColors.ink)),
                 const SizedBox(height: 2),
                 Text(
                   '${_fmt(context, bedtime.startTime)} — ${_fmt(context, bedtime.endTime)}'
                   '${bedtime.dndEnabled ? ' · DND' : ''}',
-                  style: const TextStyle(fontSize: AppText.caption, color: AppColors.inkDim),
+                  style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim),
                 ),
               ],
             ),
           ),
-          const AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
+          AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
         ],
       ),
     );
@@ -415,7 +405,7 @@ class _WeeklyTrendCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Avg. daily screen time',
+              Text('Avg. daily screen time',
                   style: TextStyle(
                       fontSize: AppText.caption, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
               if (delta.hasData) _DeltaLabel(delta: delta),
@@ -424,13 +414,13 @@ class _WeeklyTrendCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             hasData ? _formatHours(avg) : 'No data yet',
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
           ),
           const SizedBox(height: 8),
           if (hasData)
             TrendAreaChart(values: values, color: AppColors.ink, showAverageLine: false)
           else
-            const SizedBox(
+            SizedBox(
               height: 84,
               child: Center(
                 child: Text(
@@ -467,7 +457,7 @@ class _DeltaLabel extends StatelessWidget {
     final arrow = delta.isPositive ? '▲' : '▼';
     return Text(
       '$arrow ${delta.percent.round()}%',
-      style: const TextStyle(
+      style: TextStyle(
           fontSize: AppText.caption, color: AppColors.inkDim, fontWeight: FontWeight.w600),
     );
   }
@@ -478,7 +468,7 @@ class _DayLabel extends StatelessWidget {
   final String text;
   @override
   Widget build(BuildContext context) =>
-      Text(text, style: const TextStyle(fontSize: 9, color: AppColors.inkFaint));
+      Text(text, style: TextStyle(fontSize: 9, color: AppColors.inkFaint));
 }
 
 class _MiniTrendCard extends StatelessWidget {
@@ -501,14 +491,14 @@ class _MiniTrendCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label,
-              style: const TextStyle(
+              style: TextStyle(
                   fontSize: 11.5, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
           Sparkline(values: values, color: AppColors.ink),
           const SizedBox(height: 6),
           RollingNumber(
             text: valueText,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
           ),
           if (delta.hasData) ...[
             const SizedBox(height: 2),

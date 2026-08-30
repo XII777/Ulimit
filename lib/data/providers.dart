@@ -46,6 +46,10 @@ class SettingsController {
   Future<void> setVpnEnabled(bool v) =>
       _update(UlimitSettingsCompanion(vpnEnabled: Value(v)));
 
+  /// Tile Appearance: 'system' | 'dark' | 'white'.
+  Future<void> setThemeMode(String v) =>
+      _update(UlimitSettingsCompanion(themeMode: Value(v)));
+
   Future<void> _update(UlimitSettingsCompanion c) async {
     await _ensureRow();
     await (_db.update(_db.ulimitSettings)..where((t) => t.id.equals(1))).write(c);
@@ -67,6 +71,12 @@ final settingsControllerProvider = Provider<SettingsController>(
 final dailyBudgetProvider = StreamProvider<int>((ref) {
   final db = ref.watch(databaseProvider);
   return db.select(db.profile).watchSingleOrNull().map((row) => row?.dailyBudgetMinutes ?? 240);
+});
+
+/// Tile Appearance selection: 'system' | 'dark' | 'white'.
+final themeModeProvider = StreamProvider<String>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.select(db.ulimitSettings).watchSingle().map((s) => s.themeMode);
 });
 
 Future<void> setDailyBudget(AppDatabase db, int minutes) async {

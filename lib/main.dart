@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/crash/crash_collector.dart';
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/tokens.dart';
 import 'data/permissions_providers.dart';
 import 'data/providers.dart';
 import 'data/restriction_providers.dart';
@@ -26,15 +27,54 @@ class UlimitApp extends ConsumerStatefulWidget {
   ConsumerState<UlimitApp> createState() => _UlimitAppState();
 }
 
-class _UlimitAppState extends ConsumerState<UlimitApp> {
+class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserver {
   UsageTracker? _tracker;
   bool _nativeSynced = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _tracker?.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Re-sync the native enforcement snapshot on every resume: the
+    // accessibility service may have (re)started while the app was
+    // away, and it must never run on a stale or missing snapshot.
+    if (state == AppLifecycleState.resumed) {
+      if (_nativeSynced) {
+        ref.read(enforcementSyncProvider).push();
+      }
+    }
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    // System mode follows the OS: re-sync the static palette the
+    // painters/icons read, then rebuild.
+    setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
     _tracker ??= UsageTracker(ref.read(databaseProvider))..start();
 
     final permissionsGranted = ref.watch(requiredPermissionsGrantedProvider);
+    final themeMode = _resolveThemeMode(ref.watch(themeModeProvider).valueOrNull ?? 'system');
+
+    // Sync the static palette (CustomPainters, the accessibility-driven
+    // overlay chrome and other non-Theme readers resolve colors from
+    // AppColors, not Theme.of) BEFORE building, so even the first frame
+    // of a newly selected appearance is consistent.
+    AppColors.use(themeMode == ThemeMode.light ? Brightness.light : Brightness.dark);
 
     // The gate: until every required permission is granted, the app
     // shows nothing but the permissions screen — there's no route to
@@ -47,7 +87,9 @@ class _UlimitAppState extends ConsumerState<UlimitApp> {
       return MaterialApp(
         title: 'Ulimit',
         debugShowCheckedModeBanner: false,
-        theme: AppTheme.dark,
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: themeMode,
         home: PermissionsScreen(
           onAllGranted: () {}, // no-op — the provider watch above
           // handles the transition the instant permissionsGranted flips
@@ -69,14 +111,22 @@ class _UlimitAppState extends ConsumerState<UlimitApp> {
     return MaterialApp.router(
       title: 'Ulimit',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.dark,
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: themeMode,
       routerConfig: appRouter,
     );
   }
 
-  @override
-  void dispose() {
-    _tracker?.dispose();
-    super.dispose();
+  /// 'system' | 'dark' | 'white' → Flutter ThemeMode.
+  ThemeMode _resolveThemeMode(String setting) {
+    switch (setting) {
+      case 'dark':
+        return ThemeMode.dark;
+      case 'white':
+        return ThemeMode.light;
+      default:
+        return ThemeMode.system;
+    }
   }
 }

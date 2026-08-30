@@ -167,6 +167,9 @@ class UlimitSettings extends Table {
   IntColumn get defaultFocusMinutes => integer().withDefault(const Constant(25))();
   // Desired VPN state — the VPN reconnects to match this after reboot.
   BoolColumn get vpnEnabled => boolean().withDefault(const Constant(false))();
+  // Tile Appearance: 'system' | 'dark' | 'white' — AMOLED dark theme,
+  // monochrome white theme, or follow the Android system setting.
+  TextColumn get themeMode => text().withDefault(const Constant('system'))();
 }
 
 /// One row per day. Incremented every time the AccessibilityService

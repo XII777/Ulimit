@@ -54,7 +54,7 @@ class RestrictionsScreen extends ConsumerWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const AppIcon(AppIconName.block, size: 18, color: AppColors.bg),
+                    AppIcon(AppIconName.block, size: 18, color: AppColors.bg),
                     const SizedBox(width: 10),
                     Text('Block an application',
                         style: TextStyle(
@@ -65,7 +65,7 @@ class RestrictionsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 24),
 
-            const Text('ACTIVE',
+            Text('ACTIVE',
                 style: TextStyle(
                     fontSize: AppText.overline,
                     color: AppColors.inkFaint,
@@ -96,11 +96,11 @@ class RestrictionsScreen extends ConsumerWidget {
               loading: () => const SizedBox(
                   height: 100, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
               error: (e, _) => Text('Could not load restrictions: $e',
-                  style: const TextStyle(fontSize: 12, color: AppColors.inkFaint)),
+                  style: TextStyle(fontSize: 12, color: AppColors.inkFaint)),
             ),
 
             const SizedBox(height: 24),
-            const Text('ENDED',
+            Text('ENDED',
                 style: TextStyle(
                     fontSize: AppText.overline,
                     color: AppColors.inkFaint,
@@ -182,8 +182,8 @@ class RestrictionsScreen extends ConsumerWidget {
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
         title: Text('Block $appName permanently?',
-            style: const TextStyle(fontSize: 15.5, color: AppColors.ink)),
-        content: const Text(
+            style: TextStyle(fontSize: 15.5, color: AppColors.ink)),
+        content: Text(
           'The app stays blocked until you remove the block here. '
           'There is no automatic end — this is not a temporary block.',
           style: TextStyle(fontSize: 12.5, color: AppColors.inkDim, height: 1.5),
@@ -191,11 +191,11 @@ class RestrictionsScreen extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.inkDim)),
+            child: Text('Cancel', style: TextStyle(color: AppColors.inkDim)),
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Block permanently',
+            child: Text('Block permanently',
                 style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
           ),
         ],
@@ -217,7 +217,7 @@ class _EmptyState extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(color: AppColors.stroke),
       ),
-      child: const Column(
+      child: Column(
         children: [
           AppIcon(AppIconName.block, size: 20, color: AppColors.inkFaint),
           SizedBox(height: 10),
@@ -274,18 +274,18 @@ class _ActiveRestrictionRow extends ConsumerWidget {
                 Text(appName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 14, color: AppColors.ink)),
+                    style: TextStyle(fontSize: 14, color: AppColors.ink)),
                 const SizedBox(height: 2),
                 Row(
                   children: [
                     if (restriction.invincible) ...[
-                      const AppIcon(AppIconName.lock, size: 10, color: AppColors.inkDim),
+                      AppIcon(AppIconName.lock, size: 10, color: AppColors.inkDim),
                       const SizedBox(width: 4),
                     ],
                     Flexible(
                       child: Text(until,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 11, color: AppColors.inkDim)),
+                          style: TextStyle(fontSize: 11, color: AppColors.inkDim)),
                     ),
                   ],
                 ),
@@ -294,7 +294,7 @@ class _ActiveRestrictionRow extends ConsumerWidget {
           ),
           IconButton(
             onPressed: () => _remove(context, ref),
-            icon: const AppIcon(AppIconName.close, size: 16, color: AppColors.inkFaint),
+            icon: AppIcon(AppIconName.close, size: 16, color: AppColors.inkFaint),
           ),
         ],
       ),
@@ -345,11 +345,11 @@ class _EndedRow extends StatelessWidget {
               child: Text(appName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
+                  style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
             ),
             Text(
               restriction.enabled ? 'Ended' : 'Removed',
-              style: const TextStyle(fontSize: 10.5, color: AppColors.inkFaint),
+              style: TextStyle(fontSize: 10.5, color: AppColors.inkFaint),
             ),
           ],
         ),

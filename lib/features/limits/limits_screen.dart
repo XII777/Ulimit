@@ -31,11 +31,11 @@ class LimitsScreen extends ConsumerWidget {
       children: [
         Text('Limits', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 4),
-        const Text('Daily allowances that reset at midnight',
+        Text('Daily allowances that reset at midnight',
             style: TextStyle(fontSize: AppText.body, color: AppColors.inkDim)),
         const SizedBox(height: 20),
 
-        const Text('APP LIMITS',
+        Text('APP LIMITS',
             style: TextStyle(
                 fontSize: AppText.overline, color: AppColors.inkFaint, letterSpacing: 0.6, fontWeight: FontWeight.w600)),
         const SizedBox(height: 10),
@@ -62,7 +62,7 @@ class LimitsScreen extends ConsumerWidget {
         ),
 
         const SizedBox(height: 28),
-        const Text('RESTRICTION GROUPS',
+        Text('RESTRICTION GROUPS',
             style: TextStyle(
                 fontSize: AppText.overline, color: AppColors.inkFaint, letterSpacing: 0.6, fontWeight: FontWeight.w600)),
         const SizedBox(height: 10),
@@ -84,7 +84,7 @@ class LimitsScreen extends ConsumerWidget {
                   Padding(
                     padding: const EdgeInsets.only(left: 2, top: 2),
                     child: Text('${data.length} groups · $totalApps apps covered',
-                        style: const TextStyle(fontSize: 11, color: AppColors.inkFaint)),
+                        style: TextStyle(fontSize: 11, color: AppColors.inkFaint)),
                   ),
                 ],
               ],
@@ -173,7 +173,7 @@ class _EmptyHint extends StatelessWidget {
       ),
       child: Text(text,
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 12.5, color: AppColors.inkFaint, height: 1.5)),
+          style: TextStyle(fontSize: 12.5, color: AppColors.inkFaint, height: 1.5)),
     );
   }
 }
@@ -202,7 +202,7 @@ class _AddTile extends StatelessWidget {
             AppIcon(icon, size: 16, color: AppColors.inkDim),
             const SizedBox(width: 8),
             Text(label,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.inkDim)),
           ],
         ),
@@ -242,7 +242,7 @@ class _AppLimitRow extends ConsumerWidget {
                   child: Text(appName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 13.5, fontWeight: FontWeight.w600, color: AppColors.ink)),
                 ),
                 Text(
@@ -252,7 +252,7 @@ class _AppLimitRow extends ConsumerWidget {
                   style: TextStyle(fontSize: 11, color: over ? AppColors.ink : AppColors.inkDim),
                 ),
                 const SizedBox(width: 6),
-                const AppIcon(AppIconName.chevronRight, size: 13, color: AppColors.inkFaint),
+                AppIcon(AppIconName.chevronRight, size: 13, color: AppColors.inkFaint),
               ],
             ),
             const SizedBox(height: 10),
@@ -278,7 +278,7 @@ class _AppLimitRow extends ConsumerWidget {
                 Text(
                   '${formatDurationShort(Duration(seconds: view.usedSeconds))} / '
                   '${formatDurationShort(Duration(seconds: view.limitSeconds))}',
-                  style: const TextStyle(fontSize: 10.5, color: AppColors.inkFaint),
+                  style: TextStyle(fontSize: 10.5, color: AppColors.inkFaint),
                 ),
               ],
             ),
@@ -305,11 +305,11 @@ class _AppLimitRow extends ConsumerWidget {
         padding: const EdgeInsets.only(bottom: 8),
         children: [
           ListTile(
-            title: const Text('Change daily limit', style: TextStyle(color: AppColors.ink, fontSize: 14)),
+            title: Text('Change daily limit', style: TextStyle(color: AppColors.ink, fontSize: 14)),
             onTap: () => Navigator.of(sheetContext).pop('change'),
           ),
           ListTile(
-            title: const Text('Remove limit', style: TextStyle(color: AppColors.ink, fontSize: 14)),
+            title: Text('Remove limit', style: TextStyle(color: AppColors.ink, fontSize: 14)),
             onTap: () => Navigator.of(sheetContext).pop('remove'),
           ),
         ],
@@ -369,7 +369,7 @@ class _LimitEditorSheetState extends State<_LimitEditorSheet> {
           Text(
             formatDurationShort(Duration(minutes: _minutes.round())),
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w600, color: AppColors.ink),
+            style: TextStyle(fontSize: 34, fontWeight: FontWeight.w600, color: AppColors.ink),
           ),
           Slider(
             value: _minutes.clamp(5, 360),
@@ -448,14 +448,14 @@ class _GroupCard extends StatelessWidget {
                 child: Text(group.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: AppColors.ink)),
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: AppColors.ink)),
               ),
               Text(
                 hasLimit
                     ? '${formatDurationShort(Duration(seconds: group.usedSeconds))} / '
                         '${formatDurationShort(Duration(seconds: group.limitSeconds))}'
                     : 'No limit',
-                style: const TextStyle(fontSize: 11, color: AppColors.inkDim),
+                style: TextStyle(fontSize: 11, color: AppColors.inkDim),
               ),
             ],
           ),
@@ -480,7 +480,7 @@ class _GroupCard extends StatelessWidget {
           ],
           if (group.invincible) ...[
             const SizedBox(height: 8),
-            const Row(
+            Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 AppIcon(AppIconName.lock, size: 11, color: AppColors.inkDim),
@@ -502,7 +502,7 @@ class _AppIconRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (packageNames.isEmpty) {
-      return const Text('No apps assigned',
+      return Text('No apps assigned',
           style: TextStyle(fontSize: 10.5, color: AppColors.inkFaint));
     }
     final shown = packageNames.take(6).toList();
@@ -514,7 +514,7 @@ class _AppIconRow extends StatelessWidget {
         ],
         if (packageNames.length > shown.length)
           Text('+${packageNames.length - shown.length}',
-              style: const TextStyle(fontSize: 10, color: AppColors.inkFaint)),
+              style: TextStyle(fontSize: 10, color: AppColors.inkFaint)),
       ],
     );
   }
@@ -527,12 +527,12 @@ Future<String?> _promptGroupName(BuildContext context) {
     builder: (dialogContext) => AlertDialog(
       backgroundColor: AppColors.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-      title: const Text('Group name', style: TextStyle(fontSize: 16, color: AppColors.ink)),
+      title: Text('Group name', style: TextStyle(fontSize: 16, color: AppColors.ink)),
       content: TextField(
         controller: controller,
         autofocus: true,
-        style: const TextStyle(color: AppColors.ink),
-        decoration: const InputDecoration(
+        style: TextStyle(color: AppColors.ink),
+        decoration: InputDecoration(
           hintText: 'e.g. Social Media',
           hintStyle: TextStyle(color: AppColors.inkFaint),
         ),
@@ -540,11 +540,11 @@ Future<String?> _promptGroupName(BuildContext context) {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(dialogContext).pop(),
-          child: const Text('Cancel', style: TextStyle(color: AppColors.inkDim)),
+          child: Text('Cancel', style: TextStyle(color: AppColors.inkDim)),
         ),
         TextButton(
           onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-          child: const Text('Next', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+          child: Text('Next', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
         ),
       ],
     ),
@@ -558,13 +558,13 @@ Future<int?> _promptGroupLimit(BuildContext context) {
     builder: (dialogContext) => AlertDialog(
       backgroundColor: AppColors.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-      title: const Text('Combined daily limit', style: TextStyle(fontSize: 16, color: AppColors.ink)),
+      title: Text('Combined daily limit', style: TextStyle(fontSize: 16, color: AppColors.ink)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           for (final m in presets)
             ListTile(
-              title: Text('$m minutes', style: const TextStyle(color: AppColors.ink, fontSize: 14)),
+              title: Text('$m minutes', style: TextStyle(color: AppColors.ink, fontSize: 14)),
               onTap: () => Navigator.of(dialogContext).pop(m),
             ),
         ],

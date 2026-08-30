@@ -68,7 +68,7 @@ class _PermissionsScreenState extends ConsumerState<PermissionsScreen>
                   color: AppColors.surface2,
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
-                child: const AppIcon(AppIconName.lock, color: AppColors.inkDim, size: 22),
+                child: AppIcon(AppIconName.lock, color: AppColors.inkDim, size: 22),
               ),
               const SizedBox(height: 12),
               Text(
@@ -98,7 +98,7 @@ class _PermissionsScreenState extends ConsumerState<PermissionsScreen>
                   value: requiredTotal == 0 ? 0 : grantedCount / requiredTotal,
                   minHeight: 5,
                   backgroundColor: AppColors.stroke,
-                  valueColor: const AlwaysStoppedAnimation(AppColors.ink),
+                  valueColor: AlwaysStoppedAnimation(AppColors.ink),
                 ),
               ),
               const SizedBox(height: 8),
@@ -231,7 +231,7 @@ class _ActionButton extends ConsumerWidget {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(AppRadius.pill)),
-        child: const Text('✓ Done', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.bg)),
+        child: Text('✓ Done', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.bg)),
       );
     }
 

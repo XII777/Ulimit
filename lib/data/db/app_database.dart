@@ -30,7 +30,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.connect(super.e);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   // Migrations are explicit (rather than "just delete and recreate")
   // because this is local user data — wiping someone's focus history on
@@ -75,6 +75,10 @@ class AppDatabase extends _$AppDatabase {
             await m.deleteTable('blocked_apps');
             await m.deleteTable('score_log');
             await m.deleteTable('emergency_unlocks');
+          }
+          if (from < 3) {
+            // v2 → v3: Tile Appearance setting.
+            await m.addColumn(ulimitSettings, ulimitSettings.themeMode);
           }
         },
         beforeOpen: (details) async {

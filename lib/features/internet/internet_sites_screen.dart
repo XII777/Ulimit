@@ -67,7 +67,7 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
             _VpnCard(),
             const SizedBox(height: 20),
 
-            const Text('APP INTERNET ACCESS',
+            Text('APP INTERNET ACCESS',
                 style: TextStyle(
                     fontSize: AppText.overline,
                     color: AppColors.inkFaint,
@@ -77,7 +77,7 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
             _InternetBlocksSection(),
             const SizedBox(height: 20),
 
-            const Text('BLOCKED WEBSITES',
+            Text('BLOCKED WEBSITES',
                 style: TextStyle(
                     fontSize: AppText.overline,
                     color: AppColors.inkFaint,
@@ -87,14 +87,14 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
             const _CustomSitesSection(),
             const SizedBox(height: 20),
 
-            const Text('BLOCK LISTS',
+            Text('BLOCK LISTS',
                 style: TextStyle(
                     fontSize: AppText.overline,
                     color: AppColors.inkFaint,
                     letterSpacing: 0.6,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(bottom: 10),
               child: Text(
                 'Curated domain lists by category. Download a list, toggle '
@@ -151,13 +151,13 @@ class _VpnCard extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(running ? 'Network protection active' : 'Network protection inactive',
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: AppText.title, fontWeight: FontWeight.w600, color: AppColors.ink)),
                     Text(
                       running
                           ? 'Internet blocks and website filters are enforced'
                           : 'Turn on to enforce internet & website rules',
-                      style: const TextStyle(fontSize: AppText.caption, color: AppColors.inkDim),
+                      style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim),
                     ),
                   ],
                 ),
@@ -189,7 +189,7 @@ class _VpnCard extends ConsumerWidget {
           ),
           if ((settings?.vpnEnabled ?? false) && !running) ...[
             const SizedBox(height: 10),
-            const Text(
+            Text(
               'Ulimit will reconnect the VPN automatically after a restart.',
               style: TextStyle(fontSize: 11, color: AppColors.inkFaint),
             ),
@@ -240,7 +240,7 @@ class _InternetBlocksSection extends ConsumerWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const AppIcon(AppIconName.add, size: 15, color: AppColors.inkDim),
+                  AppIcon(AppIconName.add, size: 15, color: AppColors.inkDim),
                   const SizedBox(width: 8),
                   Text('Add app',
                       style: TextStyle(
@@ -254,7 +254,7 @@ class _InternetBlocksSection extends ConsumerWidget {
       loading: () => const SizedBox(
           height: 60, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
       error: (e, _) => Text('Could not load: $e',
-          style: const TextStyle(fontSize: 12, color: AppColors.inkFaint)),
+          style: TextStyle(fontSize: 12, color: AppColors.inkFaint)),
     );
   }
 }
@@ -281,9 +281,9 @@ class _InternetBlockRow extends ConsumerWidget {
             child: Text(appName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: AppText.body, color: AppColors.ink)),
+                style: TextStyle(fontSize: AppText.body, color: AppColors.ink)),
           ),
-          const Text('Internet blocked',
+          Text('Internet blocked',
               style: TextStyle(fontSize: 11, color: AppColors.inkDim)),
           const SizedBox(width: 8),
           GestureDetector(
@@ -291,7 +291,7 @@ class _InternetBlockRow extends ConsumerWidget {
               await ref.read(databaseProvider).setInternetBlocked(packageName, false);
               ref.read(enforcementSyncProvider).push();
             },
-            child: const AppIcon(AppIconName.close, size: 15, color: AppColors.inkFaint),
+            child: AppIcon(AppIconName.close, size: 15, color: AppColors.inkFaint),
           ),
         ],
       ),
@@ -335,7 +335,7 @@ class _CustomSitesSectionState extends ConsumerState<_CustomSitesSection> {
                 borderRadius: BorderRadius.circular(AppRadius.lg),
                 border: Border.all(color: AppColors.stroke),
               ),
-              child: const Text(
+              child: Text(
                 'No custom sites yet.\nAdd any domain — every site you add gets its own toggle.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: AppColors.inkFaint, height: 1.5),
@@ -350,10 +350,10 @@ class _CustomSitesSectionState extends ConsumerState<_CustomSitesSection> {
               Expanded(
                 child: TextField(
                   controller: _controller,
-                  style: const TextStyle(color: AppColors.ink, fontSize: 13.5),
+                  style: TextStyle(color: AppColors.ink, fontSize: 13.5),
                   decoration: InputDecoration(
                     hintText: 'Add a website, e.g. example.com',
-                    hintStyle: const TextStyle(color: AppColors.inkFaint, fontSize: 12.5),
+                    hintStyle: TextStyle(color: AppColors.inkFaint, fontSize: 12.5),
                     filled: true,
                     fillColor: AppColors.surface,
                     border: OutlineInputBorder(
@@ -373,7 +373,7 @@ class _CustomSitesSectionState extends ConsumerState<_CustomSitesSection> {
                     color: AppColors.ink,
                     borderRadius: BorderRadius.circular(AppRadius.md),
                   ),
-                  child: const AppIcon(AppIconName.add, size: 18, color: AppColors.bg),
+                  child: AppIcon(AppIconName.add, size: 18, color: AppColors.bg),
                 ),
               ),
             ],
@@ -382,7 +382,7 @@ class _CustomSitesSectionState extends ConsumerState<_CustomSitesSection> {
       ),
       loading: () => const SizedBox.shrink(),
       error: (e, _) => Text('Could not load sites: $e',
-          style: const TextStyle(fontSize: 12, color: AppColors.inkFaint)),
+          style: TextStyle(fontSize: 12, color: AppColors.inkFaint)),
     );
   }
 
@@ -411,7 +411,7 @@ class _SiteTile extends ConsumerWidget {
       child: Row(
         children: [
           const SizedBox(width: 4),
-          const AppIcon(AppIconName.link, size: 13, color: AppColors.inkFaint),
+          AppIcon(AppIconName.link, size: 13, color: AppColors.inkFaint),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -461,7 +461,7 @@ class _BlockListSection extends ConsumerWidget {
       ),
       loading: () => const SizedBox.shrink(),
       error: (e, _) => Text('Could not load lists: $e',
-          style: const TextStyle(fontSize: 12, color: AppColors.inkFaint)),
+          style: TextStyle(fontSize: 12, color: AppColors.inkFaint)),
     );
   }
 }
@@ -497,17 +497,17 @@ class _BlockListTile extends ConsumerWidget {
                         child: Text(template.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink)),
                       ),
                       if (template.recommended) ...[
                         const SizedBox(width: 6),
-                        const Text('RECOMMENDED',
+                        Text('RECOMMENDED',
                             style: TextStyle(fontSize: 8.5, letterSpacing: 0.5, color: AppColors.inkFaint)),
                       ],
                       if (view.locked) ...[
                         const SizedBox(width: 6),
-                        const AppIcon(AppIconName.lock, size: 11, color: AppColors.inkDim),
+                        AppIcon(AppIconName.lock, size: 11, color: AppColors.inkDim),
                       ],
                     ],
                   ),
@@ -516,7 +516,7 @@ class _BlockListTile extends ConsumerWidget {
                     template.description,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, color: AppColors.inkFaint, height: 1.4),
+                    style: TextStyle(fontSize: 11, color: AppColors.inkFaint, height: 1.4),
                   ),
                   const SizedBox(height: 5),
                   Text(
@@ -524,7 +524,7 @@ class _BlockListTile extends ConsumerWidget {
                         ? '${view.siteCount} sites · downloaded '
                             '${_fmtDate(view.downloadedAt)}${view.enabled ? '' : ' · filter off'}'
                         : '~${_fmtCount(template.approxEntries)} sites · not downloaded',
-                    style: const TextStyle(fontSize: 10.5, color: AppColors.inkFaint),
+                    style: TextStyle(fontSize: 10.5, color: AppColors.inkFaint),
                   ),
                 ],
               ),
@@ -557,7 +557,7 @@ class _BlockListTile extends ConsumerWidget {
             color: AppColors.ink,
             borderRadius: BorderRadius.circular(AppRadius.pill),
           ),
-          child: const Text('Download',
+          child: Text('Download',
               style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.bg)),
         ),
       );
@@ -575,7 +575,7 @@ class _BlockListTile extends ConsumerWidget {
         ),
         GestureDetector(
           onTap: () => _openSites(context, ref),
-          child: const Padding(
+          child: Padding(
             padding: EdgeInsets.only(top: 2),
             child: Text('View sites',
                 style: TextStyle(fontSize: 10, color: AppColors.inkFaint)),
@@ -590,16 +590,16 @@ class _BlockListTile extends ConsumerWidget {
                   backgroundColor: AppColors.surface,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
                   title: Text('Remove "${template.title}"?',
-                      style: const TextStyle(fontSize: 15, color: AppColors.ink)),
+                      style: TextStyle(fontSize: 15, color: AppColors.ink)),
                   content: Text('All ${template.title} sites and their toggles will be deleted.',
                       style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
                   actions: [
                     TextButton(
                         onPressed: () => Navigator.of(dialogContext).pop(false),
-                        child: const Text('Cancel', style: TextStyle(color: AppColors.inkDim))),
+                        child: Text('Cancel', style: TextStyle(color: AppColors.inkDim))),
                     TextButton(
                         onPressed: () => Navigator.of(dialogContext).pop(true),
-                        child: const Text('Remove', style: TextStyle(color: AppColors.ink))),
+                        child: Text('Remove', style: TextStyle(color: AppColors.ink))),
                   ],
                 ),
               );
@@ -608,7 +608,7 @@ class _BlockListTile extends ConsumerWidget {
                 ref.read(enforcementSyncProvider).push();
               }
             },
-          child: const Padding(
+          child: Padding(
             padding: EdgeInsets.only(top: 4),
             child: Text('Remove list',
                 style: TextStyle(fontSize: 10, color: AppColors.inkFaint)),
@@ -641,9 +641,9 @@ class _BlockListTile extends ConsumerWidget {
         builder: (dialogContext) => AlertDialog(
           backgroundColor: AppColors.surface,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-          title: const Text('This cannot be undone',
+          title: Text('This cannot be undone',
               style: TextStyle(fontSize: 16, color: AppColors.ink)),
-          content: const Text(
+          content: Text(
             'Once adult-content blocking is turned on, it cannot be turned '
             'off again. The list will keep blocking adult sites on this '
             'device. Individual sites inside the list can still be '
@@ -653,11 +653,11 @@ class _BlockListTile extends ConsumerWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel', style: TextStyle(color: AppColors.inkDim)),
+              child: Text('Cancel', style: TextStyle(color: AppColors.inkDim)),
             ),
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Turn on permanently',
+              child: Text('Turn on permanently',
                   style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
             ),
           ],
@@ -734,7 +734,7 @@ class _CategorySitesScreenState extends ConsumerState<_CategorySitesScreen> {
                     ),
                     child: IconButton(
                       padding: EdgeInsets.zero,
-                      icon: const AppIcon(AppIconName.back, size: 15, color: AppColors.inkDim),
+                      icon: AppIcon(AppIconName.back, size: 15, color: AppColors.inkDim),
                       onPressed: () => Navigator.of(context).maybePop(),
                     ),
                   ),
@@ -744,10 +744,10 @@ class _CategorySitesScreenState extends ConsumerState<_CategorySitesScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(widget.view.template.title,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: AppText.headline, fontWeight: FontWeight.w600, color: AppColors.ink)),
                         Text('${widget.view.siteCount} sites',
-                            style: const TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),
+                            style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),
                       ],
                     ),
                   ),
@@ -763,10 +763,10 @@ class _CategorySitesScreenState extends ConsumerState<_CategorySitesScreen> {
                     setState(() => _query = v);
                   });
                 },
-                style: const TextStyle(color: AppColors.ink, fontSize: 13.5),
+                style: TextStyle(color: AppColors.ink, fontSize: 13.5),
                 decoration: InputDecoration(
                   hintText: 'Search ${widget.view.template.title.toLowerCase()} sites…',
-                  hintStyle: const TextStyle(color: AppColors.inkFaint, fontSize: 12.5),
+                  hintStyle: TextStyle(color: AppColors.inkFaint, fontSize: 12.5),
                   prefixIcon: Padding(
                     padding: const EdgeInsets.all(12),
                     child: AppIcon(AppIconName.search, size: 16, color: AppColors.inkFaint),
@@ -785,7 +785,7 @@ class _CategorySitesScreenState extends ConsumerState<_CategorySitesScreen> {
               child: sites.when(
                 data: (rows) {
                   if (rows.isEmpty) {
-                    return const Center(
+                    return Center(
                       child: Text('No sites match this search',
                           style: TextStyle(fontSize: 12.5, color: AppColors.inkFaint)),
                     );
@@ -800,7 +800,7 @@ class _CategorySitesScreenState extends ConsumerState<_CategorySitesScreen> {
                 loading: () => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                 error: (e, _) => Center(
                   child: Text('Could not load sites: $e',
-                      style: const TextStyle(fontSize: 12, color: AppColors.inkFaint)),
+                      style: TextStyle(fontSize: 12, color: AppColors.inkFaint)),
                 ),
               ),
             ),

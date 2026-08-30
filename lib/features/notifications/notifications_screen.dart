@@ -59,7 +59,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
             ),
             const SizedBox(height: 18),
 
-            const Text('BEHAVIOUR',
+            Text('BEHAVIOUR',
                 style: TextStyle(
                     fontSize: AppText.overline,
                     color: AppColors.inkFaint,
@@ -85,7 +85,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
               ),
             ),
             const SizedBox(height: 8),
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(horizontal: 4),
               child: Text(
                 'Focus sessions and Bedtime can each override this — '
@@ -95,7 +95,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
             ),
             const SizedBox(height: 20),
 
-            const Text('SYSTEM ACCESS',
+            Text('SYSTEM ACCESS',
                 style: TextStyle(
                     fontSize: AppText.overline,
                     color: AppColors.inkFaint,
@@ -178,11 +178,11 @@ class _CapabilityCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: AppText.title, fontWeight: FontWeight.w600, color: AppColors.ink)),
                 const SizedBox(height: 2),
                 Text(subtitle,
-                    style: const TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),
+                    style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),
               ],
             ),
           ),
@@ -194,7 +194,7 @@ class _CapabilityCard extends StatelessWidget {
                 color: AppColors.ink,
                 borderRadius: BorderRadius.circular(AppRadius.pill),
               ),
-              child: const Text('✓ On',
+              child: Text('✓ On',
                   style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.bg)),
             )
           else if (actionLabel != null)
@@ -207,7 +207,7 @@ class _CapabilityCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(AppRadius.pill),
                 ),
                 child: Text(actionLabel!,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.bg)),
               ),
             ),
@@ -242,10 +242,10 @@ class _ToggleRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: const TextStyle(fontSize: AppText.body, color: AppColors.ink)),
+                  Text(label, style: TextStyle(fontSize: AppText.body, color: AppColors.ink)),
                   const SizedBox(height: 2),
                   Text(sublabel,
-                      style: const TextStyle(fontSize: 11, color: AppColors.inkFaint, height: 1.4)),
+                      style: TextStyle(fontSize: 11, color: AppColors.inkFaint, height: 1.4)),
                 ],
               ),
             ),

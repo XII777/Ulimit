@@ -25,7 +25,7 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final permissions = ref.watch(allPermissionsProvider);
     final settings = ref.watch(ulimitSettingsProvider).valueOrNull;
-    final budget = ref.watch(dailyBudgetProvider).valueOrNull ?? 240;
+    final themeMode = ref.watch(themeModeProvider).valueOrNull ?? 'system';
 
     // Top spacing is owned by NavShell's collapsing inset.
     return ListView(
@@ -34,7 +34,7 @@ class SettingsScreen extends ConsumerWidget {
       children: [
           Text('Settings', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 4),
-          const Text('Local profile · not synced',
+          Text('Local profile · not synced',
               style: TextStyle(fontSize: AppText.body, color: AppColors.inkDim)),
           const SizedBox(height: 20),
 
@@ -45,17 +45,10 @@ class SettingsScreen extends ConsumerWidget {
             child: Column(
               children: [
                 PremiumListTile(
-                  label: 'Daily screen-time budget',
-                  sublabel: 'Drives the Home ring — $budget min / day',
-                  trailing: const AppIcon(AppIconName.edit, size: 15, color: AppColors.inkFaint),
-                  onTap: () => _editBudget(context, ref, budget),
-                ),
-                const PremiumDivider(),
-                PremiumListTile(
-                  label: 'Default focus duration',
-                  sublabel: '${settings?.defaultFocusMinutes ?? 25} minutes',
-                  trailing: const AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
-                  onTap: () => _editDefaultFocus(context, ref, settings?.defaultFocusMinutes ?? 25),
+                  label: 'Tile Appearance',
+                  sublabel: _appearanceLabel(themeMode),
+                  trailing: AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
+                  onTap: () => _pickAppearance(context, ref),
                 ),
                 const PremiumDivider(),
                 PremiumListTile(
@@ -99,21 +92,21 @@ class SettingsScreen extends ConsumerWidget {
                 PremiumListTile(
                   label: 'Export data',
                   sublabel: 'Save limits, rules & history as JSON to your device',
-                  trailing: const AppIcon(AppIconName.export, size: 15, color: AppColors.inkFaint),
+                  trailing: AppIcon(AppIconName.export, size: 15, color: AppColors.inkFaint),
                   onTap: () => _exportData(context, ref),
                 ),
                 const PremiumDivider(),
                 PremiumListTile(
                   label: 'Import data',
                   sublabel: 'Restore an Ulimit export file',
-                  trailing: const AppIcon(AppIconName.import, size: 15, color: AppColors.inkFaint),
+                  trailing: AppIcon(AppIconName.import, size: 15, color: AppColors.inkFaint),
                   onTap: () => _importData(context, ref),
                 ),
                 const PremiumDivider(),
                 PremiumListTile(
                   label: 'Crash logs',
                   sublabel: 'Review, copy or export captured crash reports',
-                  trailing: const AppIcon(AppIconName.info, size: 15, color: AppColors.inkFaint),
+                  trailing: AppIcon(AppIconName.info, size: 15, color: AppColors.inkFaint),
                   onTap: () => _showCrashLogs(context),
                 ),
                 const PremiumDivider(),
@@ -136,7 +129,7 @@ class SettingsScreen extends ConsumerWidget {
                 PremiumListTile(
                   label: 'Privacy',
                   sublabel: 'All data stays on this device. No account, no cloud, no ads.',
-                  trailing: const AppIcon(AppIconName.info, size: 15, color: AppColors.inkFaint),
+                  trailing: AppIcon(AppIconName.info, size: 15, color: AppColors.inkFaint),
                 ),
                 const PremiumDivider(),
                 const PremiumListTile(
@@ -160,59 +153,40 @@ class SettingsScreen extends ConsumerWidget {
         PermissionKind.biometric => 'Biometrics',
       };
 
-  Future<void> _editBudget(BuildContext context, WidgetRef ref, int current) async {
-    final db = ref.read(databaseProvider);
-    final controller = TextEditingController(text: '$current');
-    final value = await showDialog<int>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-        title: const Text('Daily budget (minutes)', style: TextStyle(fontSize: 15.5, color: AppColors.ink)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          style: const TextStyle(color: AppColors.ink),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel', style: TextStyle(color: AppColors.inkDim))),
-          TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(int.tryParse(controller.text)),
-              child: const Text('Save', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600))),
-        ],
-      ),
-    );
-    if (value != null && value > 0) {
-      await setDailyBudget(db, value);
-    }
-  }
+  String _appearanceLabel(String mode) => switch (mode) {
+        'dark' => 'AMOLED dark',
+        'white' => 'White',
+        _ => 'System',
+      };
 
-  Future<void> _editDefaultFocus(BuildContext context, WidgetRef ref, int current) async {
-    const options = [15, 25, 45, 60, 90];
-    final value = await showDialog<int>(
+  Future<void> _pickAppearance(BuildContext context, WidgetRef ref) async {
+    final themeMode = ref.read(themeModeProvider).valueOrNull ?? 'system';
+    final selected = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-        title: const Text('Default focus duration', style: TextStyle(fontSize: 15.5, color: AppColors.ink)),
+        title: Text('Tile Appearance', style: TextStyle(fontSize: 15.5, color: AppColors.ink)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            for (final m in options)
+            for (final (mode, label, sub) in [
+              ('system', 'System', 'Follow the Android appearance'),
+              ('dark', 'Dark', 'AMOLED pure-black theme'),
+              ('white', 'White', 'Monochrome white theme'),
+            ])
               ListTile(
-                title: Text('$m minutes', style: const TextStyle(color: AppColors.ink, fontSize: 14)),
-                trailing: m == current ? const AppIcon(AppIconName.check, size: 15) : null,
-                onTap: () => Navigator.of(dialogContext).pop(m),
+                title: Text(label, style: TextStyle(color: AppColors.ink, fontSize: 14)),
+                subtitle: Text(sub, style: TextStyle(fontSize: 11, color: AppColors.inkFaint)),
+                trailing: mode == themeMode ? AppIcon(AppIconName.check, size: 15) : null,
+                onTap: () => Navigator.of(dialogContext).pop(mode),
               ),
           ],
         ),
       ),
     );
-    if (value != null) {
-      await ref.read(settingsControllerProvider).setDefaultFocusMinutes(value);
+    if (selected != null && selected != themeMode) {
+      await ref.read(settingsControllerProvider).setThemeMode(selected);
     }
   }
 
@@ -239,8 +213,8 @@ class SettingsScreen extends ConsumerWidget {
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-        title: const Text('Delete all data?', style: TextStyle(fontSize: 15.5, color: AppColors.ink)),
-        content: const Text(
+        title: Text('Delete all data?', style: TextStyle(fontSize: 15.5, color: AppColors.ink)),
+        content: Text(
           'Usage history, focus sessions, limits, restrictions, groups, '
           'bedtime settings, websites and downloaded lists will be '
           'permanently removed from this device.',
@@ -249,10 +223,10 @@ class SettingsScreen extends ConsumerWidget {
         actions: [
           TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel', style: TextStyle(color: AppColors.inkDim))),
+              child: Text('Cancel', style: TextStyle(color: AppColors.inkDim))),
           TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Delete everything',
+              child: Text('Delete everything',
                   style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600))),
         ],
       ),
@@ -276,7 +250,7 @@ class SettingsScreen extends ConsumerWidget {
           CrashCollector.clear();
           revision.value++;
         },
-        child: const Text('Clear all', style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
+        child: Text('Clear all', style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
       ),
       builder: (_, scrollController) =>
           _CrashLogsContent(scrollController: scrollController, revision: revision),
@@ -296,7 +270,7 @@ class _PermissionRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 13, color: AppColors.ink))),
+          Expanded(child: Text(label, style: TextStyle(fontSize: 13, color: AppColors.ink))),
           if (loading)
             const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
           else
@@ -499,12 +473,12 @@ class _CrashLogsContentState extends State<_CrashLogsContent> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const AppIcon(AppIconName.check, size: 22, color: AppColors.inkFaint),
+                AppIcon(AppIconName.check, size: 22, color: AppColors.inkFaint),
                 const SizedBox(height: 10),
-                const Text('No crashes captured',
+                Text('No crashes captured',
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink)),
                 const SizedBox(height: 4),
-                const Text(
+                Text(
                   'When the app hits an error, the report\nappears here automatically.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 11.5, color: AppColors.inkFaint, height: 1.5),
@@ -518,7 +492,7 @@ class _CrashLogsContentState extends State<_CrashLogsContent> {
           physics: springScrollPhysics,
           padding: const EdgeInsets.symmetric(vertical: 8),
           itemCount: files.length,
-          separatorBuilder: (_, __) => const Divider(height: 1, color: AppColors.stroke),
+          separatorBuilder: (_, __) => Divider(height: 1, color: AppColors.stroke),
           itemBuilder: (context, i) {
             final file = files[i] as File;
             final stat = file.statSync();
@@ -528,13 +502,13 @@ class _CrashLogsContentState extends State<_CrashLogsContent> {
                 _prettyName(file.uri.pathSegments.last),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 13.5, color: AppColors.ink),
+                style: TextStyle(fontSize: 13.5, color: AppColors.ink),
               ),
               subtitle: Text(
                 '${_formatDate(stat.modified)} · ${_formatSize(stat.size)}',
-                style: const TextStyle(fontSize: 11, color: AppColors.inkFaint),
+                style: TextStyle(fontSize: 11, color: AppColors.inkFaint),
               ),
-              trailing: const AppIcon(AppIconName.chevronRight, size: 13, color: AppColors.inkFaint),
+              trailing: AppIcon(AppIconName.chevronRight, size: 13, color: AppColors.inkFaint),
               onTap: () => _viewLog(context, file),
             );
           },
@@ -554,7 +528,7 @@ class _CrashLogsContentState extends State<_CrashLogsContent> {
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
         title: Text(_prettyName(file.uri.pathSegments.last),
-            style: const TextStyle(fontSize: 14, color: AppColors.ink)),
+            style: TextStyle(fontSize: 14, color: AppColors.ink)),
         content: SizedBox(
           width: double.maxFinite,
           height: 320,
@@ -562,7 +536,7 @@ class _CrashLogsContentState extends State<_CrashLogsContent> {
             physics: springScrollPhysics,
             child: SelectableText(
               content,
-              style: const TextStyle(fontSize: 10.5, color: AppColors.inkDim, height: 1.45),
+              style: TextStyle(fontSize: 10.5, color: AppColors.inkDim, height: 1.45),
             ),
           ),
         ),
@@ -572,14 +546,14 @@ class _CrashLogsContentState extends State<_CrashLogsContent> {
               Clipboard.setData(ClipboardData(text: content));
               showAppSnack(dialogContext, 'Copied to clipboard');
             },
-            child: const Text('Copy', style: TextStyle(color: AppColors.ink)),
+            child: Text('Copy', style: TextStyle(color: AppColors.ink)),
           ),
           TextButton(
             onPressed: () async {
               await NativePermissions.exportFile(content);
               if (dialogContext.mounted) Navigator.of(dialogContext).pop();
             },
-            child: const Text('Save to Downloads',
+            child: Text('Save to Downloads',
                 style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
           ),
         ],

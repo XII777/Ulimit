@@ -27,13 +27,7 @@ class FocusScreen extends ConsumerWidget {
     final session = ref.watch(activeFocusSessionProvider).valueOrNull;
 
     return Container(
-      decoration: const BoxDecoration(
-        gradient: RadialGradient(
-          center: Alignment(0, -0.6),
-          radius: 1.0,
-          colors: [AppColors.surface2, AppColors.bg],
-        ),
-      ),
+      color: AppColors.bg,
       // Top spacing is owned by NavShell's collapsing inset — no
       // SafeArea here, so scrolling expands content to full height.
       child: session == null ? const _IdleFocusView() : _RunningFocusView(session: session),
@@ -98,7 +92,7 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
         Text('One session. One intention.', style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 22),
 
-        const Text('SESSION',
+        Text('SESSION',
             style: TextStyle(fontSize: AppText.overline, color: AppColors.inkFaint, letterSpacing: 0.6)),
         const SizedBox(height: 10),
         Wrap(
@@ -115,7 +109,7 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
         ),
         const SizedBox(height: 22),
 
-        const Text('DURATION',
+        Text('DURATION',
             style: TextStyle(fontSize: AppText.overline, color: AppColors.inkFaint, letterSpacing: 0.6)),
         const SizedBox(height: 10),
         Wrap(
@@ -132,7 +126,7 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
         ),
         const SizedBox(height: 22),
 
-        const Text('APPS TO BLOCK',
+        Text('APPS TO BLOCK',
             style: TextStyle(fontSize: AppText.overline, color: AppColors.inkFaint, letterSpacing: 0.6)),
         const SizedBox(height: 10),
         PressableScale(
@@ -145,7 +139,7 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
               border: Border.all(color: AppColors.stroke),
             ),
             child: _blockedApps.isEmpty
-                ? const Row(
+                ? Row(
                     children: [
                       AppIcon(AppIconName.block, size: 16, color: AppColors.inkFaint),
                       SizedBox(width: 10),
@@ -160,10 +154,10 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
                     children: [
                       Row(
                         children: [
-                          const AppIcon(AppIconName.block, size: 14, color: AppColors.inkDim),
+                          AppIcon(AppIconName.block, size: 14, color: AppColors.inkDim),
                           const SizedBox(width: 8),
                           Text('${_blockedApps.length} apps will be blocked',
-                              style: const TextStyle(fontSize: AppText.body, color: AppColors.ink)),
+                              style: TextStyle(fontSize: AppText.body, color: AppColors.ink)),
                         ],
                       ),
                       const SizedBox(height: 6),
@@ -171,7 +165,7 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
                         _blockedApps.join(' · '),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 11, color: AppColors.inkFaint),
+                        style: TextStyle(fontSize: 11, color: AppColors.inkFaint),
                       ),
                     ],
                   ),
@@ -179,7 +173,7 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
         ),
         const SizedBox(height: 22),
 
-        const Text('POLICIES',
+        Text('POLICIES',
             style: TextStyle(fontSize: AppText.overline, color: AppColors.inkFaint, letterSpacing: 0.6)),
         const SizedBox(height: 10),
         _policyCard(context),
@@ -195,7 +189,7 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
               borderRadius: BorderRadius.circular(AppRadius.md),
             ),
             child: _starting
-                ? const SizedBox(
+                ? SizedBox(
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.bg),
@@ -203,11 +197,11 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
                 : Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const AppIcon(AppIconName.play, size: 20, color: AppColors.bg),
+                      AppIcon(AppIconName.play, size: 20, color: AppColors.bg),
                       const SizedBox(width: 10),
                       Text(
                         'Start focus · $_minutes min',
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: AppText.body, fontWeight: FontWeight.w600, color: AppColors.bg),
                       ),
                     ],
@@ -233,21 +227,21 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
             value: _pauseNotifications,
             onChanged: (v) => setState(() => _pauseNotifications = v),
           ),
-          const Divider(height: 1, color: AppColors.stroke),
+          Divider(height: 1, color: AppColors.stroke),
           _PolicyToggle(
             icon: AppIconName.internet,
             label: 'Block internet',
             value: _blockInternet,
             onChanged: (v) => setState(() => _blockInternet = v),
           ),
-          const Divider(height: 1, color: AppColors.stroke),
+          Divider(height: 1, color: AppColors.stroke),
           _PolicyToggle(
             icon: AppIconName.link,
             label: 'Block websites',
             value: _blockWebsites,
             onChanged: (v) => setState(() => _blockWebsites = v),
           ),
-          const Divider(height: 1, color: AppColors.stroke),
+          Divider(height: 1, color: AppColors.stroke),
           _PolicyToggle(
             icon: AppIconName.lock,
             label: 'Invincible mode',
@@ -358,10 +352,10 @@ class _RunningFocusView extends ConsumerWidget {
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.all(14),
                 backgroundColor: AppColors.surface2,
-                side: const BorderSide(color: AppColors.stroke),
+                side: BorderSide(color: AppColors.stroke),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
               ),
-              child: const Text('End session early', style: TextStyle(color: AppColors.inkDim)),
+              child: Text('End session early', style: TextStyle(color: AppColors.inkDim)),
             ),
           ),
         ),
@@ -390,11 +384,11 @@ class _RunningFocusView extends ConsumerWidget {
                   child: OutlinedButton(
                     onPressed: () => Navigator.of(sheetContext).pop(false),
                     style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: AppColors.stroke),
+                      side: BorderSide(color: AppColors.stroke),
                       padding: const EdgeInsets.all(13),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                     ),
-                    child: const Text('Keep going', style: TextStyle(color: AppColors.ink)),
+                    child: Text('Keep going', style: TextStyle(color: AppColors.ink)),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -442,7 +436,7 @@ class _InvincibleChip extends StatelessWidget {
         border: Border.all(color: AppColors.stroke),
         borderRadius: BorderRadius.circular(AppRadius.pill),
       ),
-      child: const Row(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           AppIcon(AppIconName.lock, size: 12, color: AppColors.inkDim),
@@ -484,7 +478,7 @@ class _PolicySummary extends ConsumerWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const AppIcon(AppIconName.check, size: 12, color: AppColors.inkFaint),
+                AppIcon(AppIconName.check, size: 12, color: AppColors.inkFaint),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
@@ -527,11 +521,11 @@ class _TodaysSessionsDots extends ConsumerWidget {
               Container(
                 width: 10,
                 height: 10,
-                decoration: const BoxDecoration(color: AppColors.ink, shape: BoxShape.circle),
+                decoration: BoxDecoration(color: AppColors.ink, shape: BoxShape.circle),
               ),
             ],
             if (count == 0)
-              const Text('None yet', style: TextStyle(fontSize: 11, color: AppColors.inkFaint)),
+              Text('None yet', style: TextStyle(fontSize: 11, color: AppColors.inkFaint)),
           ],
         ),
       ],
@@ -599,10 +593,10 @@ class _PolicyToggle extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: const TextStyle(fontSize: AppText.body, color: AppColors.ink)),
+                  Text(label, style: TextStyle(fontSize: AppText.body, color: AppColors.ink)),
                   if (sublabel != null) ...[
                     const SizedBox(height: 1),
-                    Text(sublabel!, style: const TextStyle(fontSize: 10.5, color: AppColors.inkFaint)),
+                    Text(sublabel!, style: TextStyle(fontSize: 10.5, color: AppColors.inkFaint)),
                   ],
                 ],
               ),

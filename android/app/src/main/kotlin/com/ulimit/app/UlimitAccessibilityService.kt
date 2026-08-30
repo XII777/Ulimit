@@ -1,6 +1,7 @@
 package com.ulimit.app
 
 import android.accessibilityservice.AccessibilityService
+import android.util.Log
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
@@ -48,15 +49,39 @@ class UlimitAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
 
         // The system UI and this app itself aren't real "the user picked
-        // a different app" transitions worth tracking.
+        // a different app" transitions worth tracking. Note: the overlay
+        // is still hidden here, and lastPackageName is intentionally NOT
+        // updated — returning to the same app must re-run enforcement
+        // because the policy may have changed in between.
         if (packageName == this.packageName || packageName.startsWith("com.android.systemui")) {
             hideOverlay()
             return
         }
+
+        // 1. ENFORCEMENT FIRST — on every window-state event, even for
+        // the same package as the previous event. The dedupe below only
+        // applies to usage tracking; skipping enforcement here created a
+        // window where a blocked app was fully usable (e.g.
+        // blocked app → Recents (system UI) → blocked app again, or
+        // blocked app → Ulimit → blocked app again).
+        val reason = PolicySnapshot.shouldBlock(this, packageName, now)
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "UlimitBlock",
+                "foreground=$packageName blocked=${reason != null} reason=$reason"
+            )
+        }
+        if (reason != null) {
+            showOverlay(packageName, reason)
+        } else if (overlayPackageName == packageName) {
+            // Only clear our own overlay; another package's event must
+            // not hide an overlay that is still valid for it.
+            hideOverlay()
+        }
+
+        // 2. Usage tracking dedupe — after enforcement.
         if (packageName == lastPackageName) return
 
-        // 1. Usage attribution: the elapsed time since the previous
-        // transition belongs to the previously-foregrounded package.
         val previous = lastPackageName
         if (previous != null && lastEventTimestamp > 0) {
             val elapsedSeconds = ((now - lastEventTimestamp) / 1000).toInt()
@@ -69,18 +94,10 @@ class UlimitAccessibilityService : AccessibilityService() {
         lastPackageName = packageName
         lastEventTimestamp = now
 
-        // 2. Forward the transition to Dart (which owns the authoritative
+        // 3. Forward the transition to Dart (which owns the authoritative
         // SQLite usage history and pickup counting). Native emits the
         // *new* package; Dart attributes elapsed time itself.
         UsageEventBridge.emit(packageName, now)
-
-        // 3. Enforcement.
-        val reason = PolicySnapshot.shouldBlock(this, packageName, now)
-        if (reason != null) {
-            showOverlay(packageName, reason)
-        } else {
-            hideOverlay()
-        }
     }
 
     override fun onInterrupt() {

@@ -73,7 +73,7 @@ class _Body extends ConsumerWidget {
                       fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink)),
             ),
             const SizedBox(width: 10),
-            const AppIcon(AppIconName.chevronRight, size: 16, color: AppColors.inkFaint),
+            AppIcon(AppIconName.chevronRight, size: 16, color: AppColors.inkFaint),
             const SizedBox(width: 10),
             GestureDetector(
               onTap: () => _pickTime(context, isStart: false),
@@ -100,15 +100,15 @@ class _Body extends ConsumerWidget {
           child: Column(
             children: [
               SwitchListTile(
-                title: const Text('Bedtime enabled', style: TextStyle(fontSize: 13.5, color: AppColors.ink)),
-                subtitle: const Text('Restrictions activate every night',
+                title: Text('Bedtime enabled', style: TextStyle(fontSize: 13.5, color: AppColors.ink)),
+                subtitle: Text('Restrictions activate every night',
                     style: TextStyle(fontSize: 11, color: AppColors.inkFaint)),
                 value: enabled,
                 onChanged: (v) => _setEnabled(context, v),
                 activeTrackColor: AppColors.ink,
                 activeColor: AppColors.bg,
               ),
-              const Divider(height: 1, color: AppColors.stroke),
+              Divider(height: 1, color: AppColors.stroke),
               _ToggleRow(
                 label: 'Do Not Disturb',
                 subtitle: 'Silence calls & notifications',
@@ -118,7 +118,7 @@ class _Body extends ConsumerWidget {
                   await _rescheduleAlarms();
                 },
               ),
-              const Divider(height: 1, color: AppColors.stroke),
+              Divider(height: 1, color: AppColors.stroke),
               _ToggleRow(
                 label: 'Pause distracting apps',
                 subtitle: 'Selected apps are blocked all night',
@@ -128,7 +128,7 @@ class _Body extends ConsumerWidget {
                   await _rescheduleAlarms();
                 },
               ),
-              const Divider(height: 1, color: AppColors.stroke),
+              Divider(height: 1, color: AppColors.stroke),
               _ToggleRow(
                 label: 'Block internet',
                 subtitle: 'All apps lose network access during bedtime',
@@ -138,7 +138,7 @@ class _Body extends ConsumerWidget {
                   await _rescheduleAlarms();
                 },
               ),
-              const Divider(height: 1, color: AppColors.stroke),
+              Divider(height: 1, color: AppColors.stroke),
               _ToggleRow(
                 label: 'Grayscale display',
                 subtitle: 'Dims the pull to check',
@@ -161,10 +161,10 @@ class _Body extends ConsumerWidget {
               border: Border.all(color: AppColors.stroke),
             ),
             child: apps.isEmpty
-                ? const Text('Choose apps to pause overnight',
+                ? Text('Choose apps to pause overnight',
                     style: TextStyle(fontSize: 13, color: AppColors.inkDim))
                 : Text('${apps.length} apps pause overnight',
-                    style: const TextStyle(fontSize: 13, color: AppColors.ink)),
+                    style: TextStyle(fontSize: 13, color: AppColors.ink)),
           ),
         ),
       ],
@@ -340,9 +340,9 @@ class _ToggleRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: const TextStyle(fontSize: 13.5, color: AppColors.ink)),
+                  Text(label, style: TextStyle(fontSize: 13.5, color: AppColors.ink)),
                   const SizedBox(height: 2),
-                  Text(subtitle, style: const TextStyle(fontSize: 11, color: AppColors.inkFaint)),
+                  Text(subtitle, style: TextStyle(fontSize: 11, color: AppColors.inkFaint)),
                 ],
               ),
             ),

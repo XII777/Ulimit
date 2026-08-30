@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../core/icons/app_icons.dart';
 import '../../core/theme/tokens.dart';
 import 'spring_scroll.dart';
 
@@ -76,7 +77,7 @@ Future<T?> showAppSheet<T>({
                 return false;
               },
               child: Container(
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   color: AppColors.bg,
                   borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
                 ),
@@ -106,14 +107,14 @@ Future<T?> showAppSheet<T>({
                                 children: [
                                   Text(
                                     title,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                         fontSize: 17, fontWeight: FontWeight.w600, color: AppColors.ink),
                                   ),
                                   if (subtitle != null) ...[
                                     const SizedBox(height: 2),
                                     Text(
                                       subtitle,
-                                      style: const TextStyle(fontSize: 11.5, color: AppColors.inkDim),
+                                      style: TextStyle(fontSize: 11.5, color: AppColors.inkDim),
                                     ),
                                   ],
                                 ],
@@ -123,7 +124,7 @@ Future<T?> showAppSheet<T>({
                             if (showClose)
                               IconButton(
                                 onPressed: () => Navigator.of(context).pop(),
-                                icon: const Icon(Icons.close_rounded, size: 20, color: AppColors.inkDim),
+                                icon: AppIcon(AppIconName.close, size: 18, color: AppColors.inkDim),
                               ),
                           ],
                         ),
@@ -147,7 +148,7 @@ Future<T?> showAppSheet<T>({
 void showAppSnack(BuildContext context, String message) {
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content: Text(message, style: const TextStyle(color: AppColors.ink, fontSize: 12.5)),
+      content: Text(message, style: TextStyle(color: AppColors.ink, fontSize: 12.5)),
       backgroundColor: AppColors.surface2,
       behavior: SnackBarBehavior.floating,
       // Clear the floating pill + gesture inset so the snackbar never

@@ -11,6 +11,7 @@ import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.biometric.BiometricManager
@@ -109,6 +110,12 @@ class MainActivity : FlutterFragmentActivity() {
                         @Suppress("UNCHECKED_CAST")
                         putAll(obj, args as? Map<String, Any?>)
                         PolicySnapshot.write(this, obj.toString())
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                                "UlimitBlock",
+                                "snapshot pushed (${obj.toString().length} chars)"
+                            )
+                        }
                         // The accessibility service evaluates the new
                         // snapshot on the very next window event — nothing
                         // to notify directly.

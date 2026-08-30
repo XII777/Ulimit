@@ -60,21 +60,21 @@ class PremiumFeatureTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: AppText.title, fontWeight: FontWeight.w600, color: AppColors.ink)),
                 const SizedBox(height: 2),
                 Text(
                   description,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: AppText.caption, color: AppColors.inkDim),
+                  style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim),
                 ),
               ],
             ),
           ),
           const SizedBox(width: 8),
           trailing ??
-              const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.inkFaint),
+              Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.inkFaint),
         ],
       ),
     );
@@ -94,7 +94,7 @@ class PremiumSectionLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Text(
         text,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: AppText.overline,
           color: AppColors.inkFaint,
           letterSpacing: 0.6,
@@ -128,7 +128,7 @@ class PremiumHeader extends StatelessWidget {
           ),
           child: IconButton(
             padding: EdgeInsets.zero,
-            icon: const AppIcon(AppIconName.back, size: 15, color: AppColors.inkDim),
+            icon: AppIcon(AppIconName.back, size: 15, color: AppColors.inkDim),
             onPressed: onBack ?? () => Navigator.of(context).maybePop(),
           ),
         ),
@@ -138,11 +138,11 @@ class PremiumHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(title,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: AppText.headline, fontWeight: FontWeight.w600, color: AppColors.ink)),
               if (subtitle != null) ...[
                 const SizedBox(height: 2),
-                Text(subtitle!, style: const TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),
+                Text(subtitle!, style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),
               ],
             ],
           ),
@@ -265,10 +265,10 @@ class PremiumListTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: const TextStyle(fontSize: AppText.body, color: AppColors.ink)),
+                Text(label, style: TextStyle(fontSize: AppText.body, color: AppColors.ink)),
                 if (sublabel != null) ...[
                   const SizedBox(height: 2),
-                  Text(sublabel!, style: const TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),
+                  Text(sublabel!, style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),
                 ],
               ],
             ),
@@ -287,5 +287,5 @@ class PremiumListTile extends StatelessWidget {
 class PremiumDivider extends StatelessWidget {
   const PremiumDivider({super.key});
   @override
-  Widget build(BuildContext context) => const Divider(height: 1, color: AppColors.stroke);
+  Widget build(BuildContext context) => Divider(height: 1, color: AppColors.stroke);
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme/tokens.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 /// The app's single icon system: the Solar Bold set, shipped as tinted
@@ -77,7 +78,7 @@ class AppIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final effective = color ?? Theme.of(context).iconTheme.color ?? const Color(0xFFF5F5F4);
+    final effective = color ?? Theme.of(context).iconTheme.color ?? AppColors.ink;
     // NOTE: these SVGs are the app's OWN assets — no `package:` prefix.
     // Package-prefixed asset keys only resolve for dependency packages;
     // for the root app they 404 and flutter_svg fails every screen.

@@ -65,7 +65,7 @@ class _ParentalScreenState extends ConsumerState<ParentalScreen> with WidgetsBin
                 ),
                 child: IconButton(
                   padding: EdgeInsets.zero,
-                  icon: const AppIcon(AppIconName.back, size: 14, color: AppColors.inkDim),
+                  icon: AppIcon(AppIconName.back, size: 14, color: AppColors.inkDim),
                   onPressed: () => Navigator.of(context).maybePop(),
                 ),
               ),
@@ -105,7 +105,7 @@ class _ParentalScreenState extends ConsumerState<ParentalScreen> with WidgetsBin
                   loading: () => const _DeviceAdminRow(active: false, loading: true),
                   error: (_, __) => const _DeviceAdminRow(active: false),
                 ),
-                const Divider(height: 1, color: AppColors.stroke),
+                Divider(height: 1, color: AppColors.stroke),
                 _ToggleRow(
                   label: 'Require biometric to edit',
                   sublabel: biometricAvailable
@@ -118,7 +118,7 @@ class _ParentalScreenState extends ConsumerState<ParentalScreen> with WidgetsBin
             ),
           ),
           const SizedBox(height: 12),
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(horizontal: 4),
             child: Text(
               'Invincible Mode is not about making the phone impossible to '
@@ -156,12 +156,8 @@ class _StatusCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 16),
       decoration: BoxDecoration(
+        color: AppColors.surface2,
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppColors.surface2, AppColors.surface],
-        ),
       ),
       child: Column(
         children: [
@@ -224,7 +220,7 @@ class _DeviceAdminRow extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(AppRadius.pill)),
-              child: const Text('✓ On',
+              child: Text('✓ On',
                   style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.bg)),
             )
           else
@@ -233,7 +229,7 @@ class _DeviceAdminRow extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                 decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(AppRadius.pill)),
-                child: const Text('Enable',
+                child: Text('Enable',
                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.bg)),
               ),
             ),

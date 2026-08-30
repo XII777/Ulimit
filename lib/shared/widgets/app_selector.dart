@@ -121,10 +121,10 @@ class _AppSelectorSheetState extends ConsumerState<_AppSelectorSheet> {
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
           child: TextField(
             onChanged: (v) => setState(() => _query = v),
-            style: const TextStyle(color: AppColors.ink, fontSize: 14),
+            style: TextStyle(color: AppColors.ink, fontSize: 14),
             decoration: InputDecoration(
               hintText: 'Search applications…',
-              hintStyle: const TextStyle(color: AppColors.inkFaint, fontSize: 13.5),
+              hintStyle: TextStyle(color: AppColors.inkFaint, fontSize: 13.5),
               prefixIcon: Padding(
                 padding: const EdgeInsets.all(12),
                 child: AppIcon(AppIconName.search, size: 18, color: AppColors.inkFaint),
@@ -148,7 +148,7 @@ class _AppSelectorSheetState extends ConsumerState<_AppSelectorSheet> {
               child: Text(
                 'Could not load applications.\nCheck that Ulimit has query access.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.inkFaint, fontSize: 12.5),
+                style: TextStyle(color: AppColors.inkFaint, fontSize: 12.5),
               ),
             ),
             data: (data) {
@@ -156,7 +156,7 @@ class _AppSelectorSheetState extends ConsumerState<_AppSelectorSheet> {
                   .where((a) => a.displayName.toLowerCase().contains(_query.toLowerCase()))
                   .toList();
               if (apps.isEmpty) {
-                return const Center(
+                return Center(
                   child: Text('No applications found',
                       style: TextStyle(color: AppColors.inkFaint, fontSize: 12.5)),
                 );
@@ -198,7 +198,7 @@ class _AppSelectorSheetState extends ConsumerState<_AppSelectorSheet> {
                 Expanded(
                   child: Text(
                     '${_selected.length} selected',
-                    style: const TextStyle(color: AppColors.inkDim, fontSize: 12.5),
+                    style: TextStyle(color: AppColors.inkDim, fontSize: 12.5),
                   ),
                 ),
                 TextButton(
@@ -258,11 +258,11 @@ class _AppRow extends StatelessWidget {
                   Text(app.displayName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 14, color: AppColors.ink)),
+                      style: TextStyle(fontSize: 14, color: AppColors.ink)),
                   if (usageText != null) ...[
                     const SizedBox(height: 1),
                     Text('Used $usageText today',
-                        style: const TextStyle(fontSize: 11, color: AppColors.inkFaint)),
+                        style: TextStyle(fontSize: 11, color: AppColors.inkFaint)),
                   ],
                 ],
               ),
@@ -291,7 +291,7 @@ class _CheckDot extends StatelessWidget {
         border: Border.all(color: active ? AppColors.ink : AppColors.inkFaint, width: 1.4),
       ),
       child: active
-          ? const Icon(Icons.check_rounded, size: 13, color: AppColors.bg)
+          ? Icon(Icons.check_rounded, size: 13, color: AppColors.bg)
           : const SizedBox.shrink(),
     );
   }
@@ -351,7 +351,7 @@ Future<DateTime?> showDurationSelector(BuildContext context, String appLabel) as
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
               child: Text(choice.label,
-                  style: const TextStyle(fontSize: 14, color: AppColors.ink)),
+                  style: TextStyle(fontSize: 14, color: AppColors.ink)),
             ),
           ),
       ],

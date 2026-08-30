@@ -294,7 +294,25 @@ class EnforcementSync {
     final internet = ref.read(internetBlocksProvider).valueOrNull ?? const [];
     final now = DateTime.now();
 
+    // The engine's own verdict, shipped to native as a flat fast path:
+    // the AccessibilityService applies these first, so what the UI
+    // shows as "blocked" and what Android enforces can never diverge.
+    // Structural evaluation (limits accrued offline, expiry math)
+    // remains as the fallback for state that changes while Ulimit is
+    // closed.
+    final decisions = ref.read(restrictionDecisionsProvider);
+
     final snapshot = <String, dynamic>{
+      'pushedAtMillis': now.millisecondsSinceEpoch,
+      'blockedNow': [
+        for (final e in decisions.entries)
+          if (e.value.appBlocked)
+            {
+              'package': e.key,
+              'reason': e.value.reason?.label ?? 'Blocked',
+              'untilMillis': e.value.until?.millisecondsSinceEpoch ?? 0,
+            },
+      ],
       'pushedAtMillis': now.millisecondsSinceEpoch,
       'manual': [
         for (final r in manual)

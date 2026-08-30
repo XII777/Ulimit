@@ -7,13 +7,13 @@ import '../../core/theme/tokens.dart';
 /// 7-14 points on a card. Keeps the app's dependency footprint small,
 /// per the "don't make it too large" requirement.
 class TrendAreaChart extends StatelessWidget {
-  const TrendAreaChart({
+  TrendAreaChart({
     super.key,
     required this.values,
     this.height = 84,
-    this.color = AppColors.accent,
+    Color? color,
     this.showAverageLine = true,
-  });
+  }) : color = color ?? AppColors.accent;
 
   /// Normalized or raw values — only relative shape matters, the
   /// painter rescales internally to fit [height].
@@ -21,6 +21,8 @@ class TrendAreaChart extends StatelessWidget {
   final double height;
   final Color color;
   final bool showAverageLine;
+
+  Color get effectiveColor => color ?? AppColors.accent;
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +40,7 @@ class TrendAreaChart extends StatelessWidget {
           painter: _AreaChartPainter(
             values: values,
             progress: t,
-            color: color,
+            color: effectiveColor,
             showAverageLine: showAverageLine,
           ),
         ),
@@ -112,12 +114,7 @@ class _AreaChartPainter extends CustomPainter {
       ..lineTo(points.last.dx, size.height)
       ..lineTo(points.first.dx, size.height)
       ..close();
-    final fillPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [color.withOpacity(0.32), color.withOpacity(0.0)],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    final fillPaint = Paint()..color = color.withValues(alpha: 0.10);
     canvas.drawPath(fillPath, fillPaint);
 
     // Endpoint dot — hollow ring, matches the mockup's highlighted
@@ -144,12 +141,12 @@ class _AreaChartPainter extends CustomPainter {
 /// Compact single-line sparkline for the small stat cards (Focus time,
 /// Pickups) — no fill, no average line, minimal footprint.
 class Sparkline extends StatelessWidget {
-  const Sparkline({
+  Sparkline({
     super.key,
     required this.values,
     this.height = 36,
-    this.color = AppColors.accent,
-  });
+    Color? color,
+  }) : color = color ?? AppColors.accent;
 
   final List<double> values;
   final double height;
