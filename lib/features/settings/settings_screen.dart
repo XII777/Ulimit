@@ -53,7 +53,6 @@ class SettingsScreen extends ConsumerWidget {
                   trailing: AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
                   onTap: () => _pickAppearance(context, ref),
                 ),
-                const PremiumDivider(),
                 PremiumListTile(
                   label: 'Haptics',
                   sublabel: 'Tactile feedback on key actions',
@@ -101,7 +100,6 @@ class SettingsScreen extends ConsumerWidget {
                     granted: p.granted,
                     loading: p.loading,
                   ),
-                  if (p != permissions.last) const PremiumDivider(),
                 ],
               ],
             ),

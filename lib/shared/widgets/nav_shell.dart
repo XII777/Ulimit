@@ -44,13 +44,24 @@ class _NavShellState extends State<NavShell> {
   // owns them, and the go_router location only STEERS the controller.
   // The shell's routed `child` is intentionally not mounted — mounting
   // it inside a swiping PageView would duplicate the active screen.
-  static const _screens = [
-    HomeScreen(),
-    FocusScreen(),
-    LimitsScreen(),
-    BedtimeScreen(),
-    SettingsScreen(),
-  ];
+  //
+  // Fresh instances on every shell build via _screen(): a const list
+  // would freeze each page with the palette colors captured at its
+  // first build, so a theme change would never repaint those screens.
+  Widget _screen(int index) {
+    switch (index) {
+      case 0:
+        return HomeScreen();
+      case 1:
+        return FocusScreen();
+      case 2:
+        return LimitsScreen();
+      case 3:
+        return BedtimeScreen();
+      default:
+        return SettingsScreen();
+    }
+  }
 
   late final PageController _pageController;
   bool _navVisible = true;
@@ -130,7 +141,7 @@ class _NavShellState extends State<NavShell> {
                 context.go(_tabs[page].$1);
               }
             },
-            itemBuilder: (context, i) => _TabKeepAlive(child: _screens[i]),
+            itemBuilder: (context, i) => _TabKeepAlive(child: _screen(i)),
           ),
         ),
       ),
