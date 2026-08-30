@@ -13,7 +13,7 @@ import android.os.IBinder
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
-import io.flutter.embedding.engine.dart.DartEntrypoint
+import io.flutter.embedding.engine.dart.DartExecutor
 
 
 /**
@@ -70,8 +70,11 @@ class FocusIndicatorService : Service() {
             val engine = FlutterEngine(context)
             val bundlePath = FlutterInjector.instance().flutterLoader().findAppBundlePath()
             engine.dartExecutor.executeDartEntrypoint(
-                DartEntrypoint(bundlePath, "backgroundMain")
+                DartExecutor.DartEntrypoint(bundlePath, "backgroundMain")
             )
+            // Kotlin-side handlers for the headless engine (the Dart side
+            // registers its focusAction handler in backgroundMain itself).
+            UlimitChannels.registerCommon(context, engine.dartExecutor.binaryMessenger)
             FlutterEngineCache.getInstance().put(BG_ENGINE_ID, engine)
             backgroundEngine = engine
             return engine
