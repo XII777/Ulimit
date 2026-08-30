@@ -34,6 +34,12 @@ class UlimitAccessibilityService : AccessibilityService() {
     private var overlayView: View? = null
     private var overlayPackageName: String? = null
 
+    // Services expose WindowManager through getSystemService, not a
+    // `windowManager` property (that's an Activity API).
+    private val windowManagerService: WindowManager by lazy {
+        getSystemService(WINDOW_SERVICE) as WindowManager
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
@@ -176,7 +182,7 @@ class UlimitAccessibilityService : AccessibilityService() {
         )
 
         try {
-            windowManager.addView(root, params)
+            windowManagerService.addView(root, params)
             overlayView = root
             overlayPackageName = packageName
         } catch (_: Exception) {
@@ -188,7 +194,7 @@ class UlimitAccessibilityService : AccessibilityService() {
     private fun hideOverlay() {
         val view = overlayView ?: return
         try {
-            windowManager.removeView(view)
+            windowManagerService.removeView(view)
         } catch (_: Exception) {
         }
         overlayView = null

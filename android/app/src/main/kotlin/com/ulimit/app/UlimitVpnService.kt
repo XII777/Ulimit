@@ -12,6 +12,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.io.Closeable
 import java.io.FileInputStream
+import java.io.File
 import java.io.FileOutputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -343,7 +344,7 @@ class UlimitVpnService : VpnService() {
             (query[2].toInt() or 0x80).toByte(), // QR=1, keep RD
             0x81,                          // RA=1
             0, 1,                          // QDCOUNT=1
-            (if (withARecord) 0 else 0), (if (withARecord) 1 else 0), // ANCOUNT
+            ((if (withARecord) 0 else 0)).toByte(), ((if (withARecord) 1 else 0)).toByte(), // ANCOUNT
             0, 0, 0, 0                     // NSCOUNT / ARCOUNT
         )
         // Echo the question section verbatim (starts at 12, ends at first

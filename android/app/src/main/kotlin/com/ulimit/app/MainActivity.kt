@@ -363,7 +363,7 @@ class MainActivity : FlutterFragmentActivity() {
     // Installed-app catalog for the in-app pickers
     // ------------------------------------------------------------------
 
-    private fun installedAppsJson(): List<Map<String, Any>> {
+    private fun installedAppsJson(): List<Map<String, Any?>> {
         val pm = packageManager
         val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val activities = pm.queryIntentActivities(launcherIntent, 0)
