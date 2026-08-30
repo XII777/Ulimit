@@ -109,6 +109,43 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
+/// On-screen state probe: shows what every Home data source reports.
+/// Temporary — remove once the blank-Home issue is confirmed fixed.
+class _DiagnosticsBanner extends ConsumerWidget {
+  const _DiagnosticsBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settingsAsync = ref.watch(ulimitSettingsProvider);
+    final screenTime = ref.watch(liveScreenTimeSecondsProvider);
+    final catalog = ref.watch(appsCatalogProvider);
+    final focusSeconds = ref.watch(liveFocusSecondsTodayProvider);
+
+    String state(AsyncValue a) => a.when(
+          data: (v) => 'ok',
+          loading: () => 'loading',
+          error: (e, _) => 'ERR: ${e.toString().split('\n').first}',
+        );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.stroke),
+      ),
+      child: Text(
+        'settings: ${state(settingsAsync)} · screenTime: '
+        '${state(screenTime)} (${screenTime.valueOrNull ?? 0}s) · '
+        'focus: ${focusSeconds.valueOrNull ?? 0}s · '
+        'apps: ${catalog.valueOrNull?.apps.length ?? 0}',
+        style: TextStyle(fontSize: 10, color: AppColors.inkFaint, height: 1.4),
+      ),
+    );
+  }
+}
+
 class _Header extends StatelessWidget {
    _Header();
 
