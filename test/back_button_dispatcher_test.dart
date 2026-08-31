@@ -61,4 +61,50 @@ void main() {
 
     router.dispose();
   });
+
+  testWidgets('shell-route config: swallowed before mount, forwarded after settle',
+      (tester) async {
+    // ShellRoute INSIDE the router: go_router's _findCurrentNavigator
+    // walks ShellRouteMatch(es) and null-crashes on any missing shell
+    // navigator — the remaining cold-start race. The guard must walk
+    // the same chain and only forward once every shell navigator has
+    // state. (A widget test's single pump mounts the whole tree
+    // atomically, so the mid-frame partial state isn't reproducible —
+    // the before/after mount contract is what we assert here.)
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        ShellRoute(
+          builder: (context, state, child) => Scaffold(
+            body: child ?? const SizedBox.shrink(),
+          ),
+          routes: [
+            GoRoute(
+              path: '/',
+              builder: (context, state) => const Text('home'),
+            ),
+          ],
+        ),
+      ],
+    );
+
+    final dispatcher = UlimitBackButtonDispatcher(router);
+
+    // Nothing mounted: swallow.
+    expect(await dispatcher.didPopRoute(), isTrue);
+
+    await tester.pumpWidget(
+      MaterialApp.router(
+        routerDelegate: router.routerDelegate,
+        routeInformationProvider: router.routeInformationProvider,
+        routeInformationParser: router.routeInformationParser,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Fully settled: shell walk passes — forwards.
+    expect(await dispatcher.didPopRoute(), isFalse);
+
+    router.dispose();
+  });
 }
