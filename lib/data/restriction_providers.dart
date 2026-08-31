@@ -303,7 +303,7 @@ class EnforcementSync {
     final decisions = ref.read(restrictionDecisionsProvider);
 
     final snapshot = <String, dynamic>{
-      'pushedAtMillis': now.millisecondsSinceEpoch,
+      'blockedSnapshotAtMillis': now.millisecondsSinceEpoch,
       'blockedNow': [
         for (final e in decisions.entries)
           if (e.value.appBlocked)

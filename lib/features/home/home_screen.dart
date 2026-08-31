@@ -44,7 +44,6 @@ class HomeScreen extends ConsumerWidget {
         const SizedBox(height: 22),
 
         Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(child: _ScreenTimeCard()),
             const SizedBox(width: 10),
@@ -67,7 +66,6 @@ class HomeScreen extends ConsumerWidget {
         _WeeklyTrendCard(weeklyHours: weeklyUsage, delta: screenTimeDelta),
         const SizedBox(height: 10),
         Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
               child: _MiniTrendCard(
