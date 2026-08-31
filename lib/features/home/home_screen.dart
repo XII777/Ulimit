@@ -132,7 +132,7 @@ class _DiagnosticsBanner extends ConsumerWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: AppColors.ink,
         borderRadius: BorderRadius.circular(AppRadius.md),
         border: Border.all(color: AppColors.stroke),
       ),
@@ -141,7 +141,7 @@ class _DiagnosticsBanner extends ConsumerWidget {
         '${state(screenTime)} (${screenTime.valueOrNull ?? 0}s) · '
         'focus: ${focusSeconds.valueOrNull ?? 0}s · '
         'apps: ${catalog.valueOrNull?.apps.length ?? 0} · build: $buildLabel',
-        style: TextStyle(fontSize: 10, color: AppColors.inkFaint, height: 1.4),
+        style: TextStyle(fontSize: 11, color: AppColors.bg, height: 1.4, fontWeight: FontWeight.w600),
       ),
     );
   }
