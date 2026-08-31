@@ -30,7 +30,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.connect(super.e);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   // Migrations are explicit (rather than "just delete and recreate")
   // because this is local user data — wiping someone's focus history on
@@ -92,6 +92,17 @@ class AppDatabase extends _$AppDatabase {
                 m, focusSessions, focusSessions.accumulatedPausedSeconds, 'accumulated_paused_seconds');
             await _addColumnIfMissing(m, ulimitSettings, ulimitSettings.focusIndicatorEnabled, 'focus_indicator_enabled');
           }
+          if (from < 5) {
+            // v4 → v5: permissions-onboarding-completed flag. Existing
+            // installs are treated as already onboarded — they only own
+            // a "re-enable after update" screen, not the full wizard.
+            await _addColumnIfMissing(m, ulimitSettings, ulimitSettings.permissionsOnboardingCompleted, 'permissions_onboarding_completed');
+            await customUpdate(
+              'UPDATE ulimit_settings SET permissions_onboarding_completed = ?1',
+              variables: [Variable.withBool(true)],
+              updates: {ulimitSettings},
+            );
+          }
         },
         beforeOpen: (details) async {
           final m = createMigrator();
@@ -107,6 +118,10 @@ class AppDatabase extends _$AppDatabase {
           await _addColumnIfMissing(m, ulimitSettings, ulimitSettings.themeMode, 'theme_mode');
           await _addColumnIfMissing(
               m, ulimitSettings, ulimitSettings.focusIndicatorEnabled, 'focus_indicator_enabled');
+          await _addColumnIfMissing(
+              m, ulimitSettings,
+              ulimitSettings.permissionsOnboardingCompleted,
+              'permissions_onboarding_completed');
 
           // Ensure the singleton settings row exists so every reader
           // gets real values instead of "null until first write".

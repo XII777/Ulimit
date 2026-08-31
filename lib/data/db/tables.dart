@@ -180,6 +180,13 @@ class UlimitSettings extends Table {
   // Android system-level Focus Session indicator (foreground service +
   // ongoing notification with live timer and Pause/End controls).
   BoolColumn get focusIndicatorEnabled => boolean().withDefault(const Constant(true))();
+
+  // True once the user completed the permissions onboarding step. Lets
+  // the cold-start gate tell a first launch from a post-update reset:
+  // Android re-claims accessibility/notification-listener access after
+  // every app update, so existing users get a compact re-enable screen
+  // instead of the full onboarding wizard again.
+  BoolColumn get permissionsOnboardingCompleted => boolean().withDefault(const Constant(false))();
 }
 
 /// One row per day. Incremented every time the AccessibilityService

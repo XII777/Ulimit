@@ -13,6 +13,7 @@ import 'data/permissions_providers.dart';
 import 'data/providers.dart';
 import 'data/restriction_providers.dart';
 import 'data/usage_tracker.dart';
+import 'features/onboarding/permissions_recovery_screen.dart';
 import 'features/onboarding/permissions_screen.dart';
 
 void main() {
@@ -116,7 +117,19 @@ class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserv
   Widget build(BuildContext context) {
     _tracker ??= UsageTracker(ref.read(databaseProvider))..start();
 
+    // Persist "onboarding completed" as soon as every required
+    // permission is granted — covers both the Continue-tap path and the
+    // user granting everything and letting the watch below flip the
+    // gate without ever touching Continue.
+    ref.listen(requiredPermissionsGrantedProvider, (previous, next) {
+      if (next && !(previous ?? false)) {
+        ref.read(settingsControllerProvider).setPermissionsOnboardingCompleted(true);
+      }
+    });
+
     final permissionsGranted = ref.watch(requiredPermissionsGrantedProvider);
+    final onboardingCompleted =
+        ref.watch(permissionsOnboardingCompletedProvider).valueOrNull ?? false;
     final themeMode = _resolveThemeMode(ref.watch(themeModeProvider).valueOrNull ?? 'system');
 
     // Sync the static palette (CustomPainters, the accessibility-driven
@@ -132,6 +145,12 @@ class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserv
     // doing. Two distinct MaterialApp branches (rather than swapping
     // `home` on one instance) keeps go_router's own Navigator fully
     // out of the picture until it's actually needed.
+    //
+    // Users who completed onboarding before (flag persisted in the DB)
+    // get the compact re-enable screen instead of the full wizard:
+    // Android resets accessibility / notification-listener grants on
+    // EVERY app update, so a repeat of the 5-card onboarding every time
+    // a new APK lands is not a "first launch".
     if (!permissionsGranted) {
       return MaterialApp(
         title: 'Ulimit',
@@ -139,11 +158,18 @@ class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserv
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
         themeMode: themeMode,
-        home: PermissionsScreen(
-          onAllGranted: () {}, // no-op — the provider watch above
-          // handles the transition the instant permissionsGranted flips
-          // true; see requiredPermissionsGrantedProvider's doc comment.
-        ),
+        home: onboardingCompleted
+            ? PermissionsRecoveryScreen(onReEnabled: () {
+                // no-op — the provider watch above handles the transition
+                // the instant permissionsGranted flips true.
+              })
+            : PermissionsScreen(
+                onAllGranted: () {
+                  // Persist completion so future updates use the
+                  // recovery screen rather than this wizard again.
+                  ref.read(settingsControllerProvider).setPermissionsOnboardingCompleted(true);
+                },
+              ),
       );
     }
 

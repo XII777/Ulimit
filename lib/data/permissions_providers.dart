@@ -1,11 +1,23 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/native/permissions_channel.dart';
+import 'providers.dart';
 
 /// Bumped to force every permission provider to re-check native state —
 /// call `ref.invalidate` via this after returning from system Settings
 /// (Android gives no callback for "user came back from Settings", so
 /// polling on resume is the standard, correct pattern here).
 final permissionsRefreshTickProvider = StateProvider<int>((ref) => 0);
+
+/// True once the user has completed the permissions onboarding step.
+/// Existing installs get this set during the v5 database migration, so
+/// an app update that resets Android's privileged-access grants
+/// (accessibility / notification listener — Android re-claims these on
+/// every package update by design) shows a compact re-enable screen
+/// instead of the full first-launch wizard.
+final permissionsOnboardingCompletedProvider = StreamProvider<bool>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.select(db.ulimitSettings).watchSingle().map((s) => s.permissionsOnboardingCompleted);
+});
 
 final accessibilityEnabledProvider = FutureProvider<bool>((ref) {
   ref.watch(permissionsRefreshTickProvider);

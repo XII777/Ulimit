@@ -57,6 +57,13 @@ class SettingsController {
   Future<void> setFocusIndicatorEnabled(bool v) =>
       _update(UlimitSettingsCompanion(focusIndicatorEnabled: Value(v)));
 
+  /// Marks the permissions onboarding as completed — the cold-start gate
+  /// uses this to show a compact "re-enable after update" screen rather
+  /// than the full onboarding wizard when Android resets privileged
+  /// access after an app update.
+  Future<void> setPermissionsOnboardingCompleted(bool v) =>
+      _update(UlimitSettingsCompanion(permissionsOnboardingCompleted: Value(v)));
+
   Future<void> _update(UlimitSettingsCompanion c) async {
     await _ensureRow();
     await (_db.update(_db.ulimitSettings)..where((t) => t.id.equals(1))).write(c);
