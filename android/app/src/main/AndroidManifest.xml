@@ -9,6 +9,9 @@
          specialUse (DNS-level filtering is its exact purpose). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Required for the call-style Focus Session notification (the
+         status-bar duration chip) on several Android versions. -->
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
 
     <!-- Bedtime alarms. USE_EXACT_ALARM is auto-granted; the
          SCHEDULE_EXACT_ALARM fallback keeps 12/12L devices working via
@@ -116,6 +119,18 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Focus session timer indicator" />
         </service>
+
+        <!-- Chip tap target: the translucent spring-bouncy popup that
+             drops from the status-bar Focus Session chip. Special launch
+             mode so tapping the chip can't clear the app task. -->
+        <activity
+            android:name=".FocusSessionPopupActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:launchMode="singleInstance"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- System-notification actions (Pause/Resume/End) for the focus
              indicator, routed into the Dart FocusController. -->

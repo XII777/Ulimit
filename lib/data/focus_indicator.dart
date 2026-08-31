@@ -58,10 +58,13 @@ class FocusIndicatorSync {
     switch (action) {
       case 'pause':
         await controller.pause();
+        break;
       case 'resume':
         await controller.resume();
+        break;
       case 'end':
         await controller.endEarly();
+        break;
       default:
         return;
     }
