@@ -18,20 +18,24 @@ import android.widget.LinearLayout.LayoutParams
 /**
  * Damped-spring [TimeInterpolator] (no androidx dependency): maps a
  * 0..1 progress to an over/undershoot curve so the popup visibly
- * springs into place instead of easing. [stiffness] ~ tension,
- * [damping] ~ mass friction; overshoot is inherent to the math.
+ * springs into place instead of easing. [dampingRatio] is the
+ * @(zeta) of the oscillator, tuned iOS-popover-style: ~0.72 gives one
+ * clean overshoot and a quick settle — visible bounce, zero wobble
+ * (the old 0.57 oscillated 2+ times, which read as jitter).
  */
 class SpringBounceInterpolator(
-    private val stiffness: Float = 440f,
-    private val damping: Float = 24f,
+    private val dpi: Float = 96f,
+    private val dampingRatio: Float = 0.72f,
 ) : TimeInterpolator {
     override fun getInterpolation(input: Float): Float {
         // Underdamped harmonic oscillator closed form:
         // x(t) = 1 - e^(-ζωn t) · (cos(ωd t) + (ζωn/ωd)·sin(ωd t))
-        val omegaN = Math.sqrt(stiffness.toDouble())
-        // Clamp ζ < 1 so ωd stays real (no NaN); 0.995 keeps a hair of
-        // overshoot for the bounce at the extreme.
-        val zeta = (damping / (2 * Math.sqrt(stiffness.toDouble()))).coerceAtMost(0.995)
+        // ω_n (angular frequency) is derived from the elastic dpi scale:
+        // 96*12 ≈ stiffness 470 => ω_n ≈ 21.7 rad/s, a snappy but
+        // controlled iOS-sheet feel.
+        val omegaN = Math.sqrt(dpi * 12.0)
+        // Clamp ζ < 1 so ωd stays real (no NaN).
+        val zeta = dampingRatio.coerceAtMost(0.995)
         val t = input.toDouble()
         val omegaD = omegaN * Math.sqrt(1 - zeta * zeta)
         val decay = Math.exp(-zeta * omegaN * t)

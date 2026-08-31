@@ -30,8 +30,10 @@ class _PressableScaleState extends State<PressableScale>
       duration: const Duration(milliseconds: 150),
       vsync: this,
     );
+    // Press-down: quick, decisive easeOut (the iOS thumbnail press
+    // feel — compress fast, no mushy middle). Release returns gently.
     _scaleAnimation = Tween<double>(begin: 1.0, end: widget.scale).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
     );
   }
 

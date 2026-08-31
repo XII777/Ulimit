@@ -94,7 +94,7 @@ GoRoute _detailRoute(String path, Widget child) {
         final curved = CurvedAnimation(
           parent: animation,
           curve: Curves.easeOutCubic,
-          reverseCurve: Curves.easeInCubic,
+          reverseCurve: Curves.easeOutCubic,
         );
         return FadeTransition(
           opacity: curved,

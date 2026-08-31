@@ -20,7 +20,7 @@ class MorphPage<T> extends PageRouteBuilder<T> {
             final curved = CurvedAnimation(
               parent: animation,
               curve: Curves.easeOutCubic,
-              reverseCurve: Curves.easeInCubic,
+              reverseCurve: Curves.easeOutCubic,
             );
             return FadeTransition(
               opacity: curved,
@@ -47,7 +47,7 @@ Widget tabSlide(Widget child, Animation<double> animation, double direction) {
   final curved = CurvedAnimation(
     parent: animation,
     curve: Curves.easeOutCubic,
-    reverseCurve: Curves.easeInCubic,
+    reverseCurve: Curves.easeOutCubic,
   );
   return SlideTransition(
     position: Tween<Offset>(

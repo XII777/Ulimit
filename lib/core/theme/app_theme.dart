@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -96,6 +97,28 @@ final class AppTheme {
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
         ),
+      ),
+      // iOS-fidelity motion: Cupertino slide + parallax on push/pop
+      // (300ms easeOutCubic, swipe-back gesture), with the fade-up
+      // replacement on Android dialogs/context menus. One theme set for
+      // both light and dark so transitions never change mid-navigation.
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.linux: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.windows: CupertinoPageTransitionsBuilder(),
+        },
+      ),
+      // iOS scroll feel everywhere defaults: bounce at the edges, and
+      // the slower-than-Android deceleration that makes lists glide
+      // rather than snap. Scrollables that opt into springScrollPhysics
+      // still override this per-widget.
+      scrollbarTheme: ScrollbarThemeData(
+        thickness: WidgetStatePropertyAll(3.0),
+        radius: const Radius.circular(999),
+        thumbColor: WidgetStatePropertyAll(c.inkFaint.withValues(alpha: 0.4)),
       ),
       dividerColor: c.stroke,
       cardColor: c.surface,
