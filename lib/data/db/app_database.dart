@@ -39,30 +39,30 @@ class AppDatabase extends _$AppDatabase {
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) async => m.createAll(),
         onUpgrade: (m, from, to) async {
+          // Every step is existence-guarded: devices can arrive from any
+          // prior version AND from partial migrations aborted midway by
+          // an earlier bug (a release once shipped schemaVersion=4
+          // without its ALTER steps, leaving devices permanently stuck
+          // with a duplicate-column error on every launch). PRAGMA
+          // table_info is the ground truth, never the version pragma.
           if (from < 2) {
-            // v1 → v2:
-            //  - new tables: app_limits, app_restrictions, internet_blocks,
-            //    website_rules, block_list_categories, ulimit_settings
-            //  - focus_sessions gains the per-session policy columns
-            //  - bedtime_schedule gains enabled + block_internet + selected_apps
-            //  - gamification remnants dropped (score_log, emergency_unlocks)
-            //  - blocked_apps (schedule-string blocks) → app_restrictions
             await m.createAll();
 
-            await m.addColumn(focusSessions, focusSessions.blockedPackages);
-            await m.addColumn(focusSessions, focusSessions.pauseNotifications);
-            await m.addColumn(focusSessions, focusSessions.blockInternet);
-            await m.addColumn(focusSessions, focusSessions.blockWebsites);
+            await _addColumnIfMissing(m, focusSessions, focusSessions.blockedPackages, 'blocked_packages');
+            await _addColumnIfMissing(m, focusSessions, focusSessions.pauseNotifications, 'pause_notifications');
+            await _addColumnIfMissing(m, focusSessions, focusSessions.blockInternet, 'block_internet');
+            await _addColumnIfMissing(m, focusSessions, focusSessions.blockWebsites, 'block_websites');
 
-            await m.addColumn(bedtimeSchedule, bedtimeSchedule.enabled);
-            await m.addColumn(bedtimeSchedule, bedtimeSchedule.blockInternet);
-            await m.addColumn(bedtimeSchedule, bedtimeSchedule.selectedApps);
+            await _addColumnIfMissing(m, bedtimeSchedule, bedtimeSchedule.enabled, 'enabled');
+            await _addColumnIfMissing(m, bedtimeSchedule, bedtimeSchedule.blockInternet, 'block_internet');
+            await _addColumnIfMissing(m, bedtimeSchedule, bedtimeSchedule.selectedApps, 'selected_apps');
 
             // Carry all-day v1 blocks over as permanent restrictions.
             // Scheduled (HH:mm-window) blocks have no v2 equivalent —
             // the restriction engine composes windows from bedtime and
             // limits instead — so they intentionally do not migrate.
-            await customStatement('''
+            if (await _tableExists('blocked_apps')) {
+              await customStatement('''
               INSERT INTO app_restrictions (id, package_name, created_at, expires_at, permanent, invincible, enabled)
               SELECT COALESCE((SELECT MAX(id) FROM app_restrictions), 0) + ROWID,
                      package_name,
@@ -72,19 +72,25 @@ class AppDatabase extends _$AppDatabase {
               WHERE enabled = 1 AND schedule_start IS NULL AND schedule_end IS NULL
             ''');
 
-            await m.deleteTable('blocked_apps');
-            await m.deleteTable('score_log');
-            await m.deleteTable('emergency_unlocks');
+              await m.deleteTable('blocked_apps');
+            }
+            if (await _tableExists('score_log')) {
+              await m.deleteTable('score_log');
+            }
+            if (await _tableExists('emergency_unlocks')) {
+              await m.deleteTable('emergency_unlocks');
+            }
           }
           if (from < 3) {
             // v2 → v3: Tile Appearance setting.
-            await m.addColumn(ulimitSettings, ulimitSettings.themeMode);
+            await _addColumnIfMissing(m, ulimitSettings, ulimitSettings.themeMode, 'theme_mode');
           }
           if (from < 4) {
             // v3 → v4: focus pause support + system indicator setting.
-            await m.addColumn(focusSessions, focusSessions.pausedAt);
-            await m.addColumn(focusSessions, focusSessions.accumulatedPausedSeconds);
-            await m.addColumn(ulimitSettings, ulimitSettings.focusIndicatorEnabled);
+            await _addColumnIfMissing(m, focusSessions, focusSessions.pausedAt, 'paused_at');
+            await _addColumnIfMissing(
+                m, focusSessions, focusSessions.accumulatedPausedSeconds, 'accumulated_paused_seconds');
+            await _addColumnIfMissing(m, ulimitSettings, ulimitSettings.focusIndicatorEnabled, 'focus_indicator_enabled');
           }
         },
         beforeOpen: (details) async {
@@ -110,6 +116,15 @@ class AppDatabase extends _$AppDatabase {
           }
         },
       );
+
+  /// True when the database currently has a table named [name].
+  Future<bool> _tableExists(String name) async {
+    final rows = await customSelect(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+      variables: [Variable.withString(name)],
+    ).get();
+    return rows.isNotEmpty;
+  }
 
   /// Adds [column] to [table] only when a column named [name] does not
   /// exist yet. PRAGMA table_info is the ground truth — never trust the
