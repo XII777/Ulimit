@@ -3,10 +3,10 @@ import 'package:flutter/material.dart';
 /// A number/string display where only the characters that actually
 /// changed between updates animate — "475" → "476" rolls just the "5".
 ///
-/// Uses AnimatedSwitcher's default single-child-swap behavior: the
-/// previous child is evicted as soon as its transition finishes, so
-/// overlapping ghosts can never accumulate. Each character slot has a
-/// fixed height so the odometer slide can never grow the row vertically.
+/// Each character slot sizes to the actual rendered line height of the
+/// text (measured via TextPainter) so the ClipRect never clips the
+/// glyphs — the old fontSize * 1.5 heuristic was too short for the
+/// Inter font at 16px bold, cutting off the tops and bottoms of digits.
 class RollingNumber extends StatefulWidget {
   const RollingNumber({
     super.key,
@@ -38,6 +38,24 @@ class _RollingNumberState extends State<RollingNumber> {
     final previous = _previousText;
     final sameLength = previous != null && previous.length == current.length;
 
+    // Measure the actual rendered line height of one glyph in the
+    // given style (Inter bold 16px + tabularFigures, etc.). The old
+    // fontSize * 1.5 heuristic was too short for Inter's metrics,
+    // causing ClipRect to cut off the top and bottom of digits.
+    //
+    // The style must be merged with the ambient DefaultTextStyle —
+    // exactly like the Text widget does at render time — so the
+    // measurement reflects the real font (Inter from the app theme),
+    // not just the explicit fontSize/weight passed in.
+    final textScaler = MediaQuery.textScalerOf(context);
+    final effectiveStyle = DefaultTextStyle.of(context).style.merge(widget.style);
+    final painter = TextPainter(
+      text: TextSpan(text: '0', style: effectiveStyle),
+      textDirection: TextDirection.ltr,
+      textScaler: textScaler,
+    )..layout();
+    final slotHeight = painter.height;
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(current.length, (i) {
@@ -45,7 +63,7 @@ class _RollingNumberState extends State<RollingNumber> {
         final changed = !sameLength || previous[i] != char;
 
         return SizedBox(
-          height: (widget.style.fontSize ?? 14) * 1.5,
+          height: slotHeight,
           child: ClipRect(
             child: AnimatedSwitcher(
               duration: widget.duration,
