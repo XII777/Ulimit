@@ -191,7 +191,7 @@ class _ScreenTimeCard extends ConsumerWidget {
     final budget = ref.watch(dailyBudgetProvider).valueOrNull ?? 240;
     final ratio = budget > 0 ? (seconds / (budget * 60)).clamp(0.0, 1.0) : 0.0;
 
-    return PremiumCard(
+    return RepaintBoundary(child: PremiumCard(
       padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -230,6 +230,7 @@ class _ScreenTimeCard extends ConsumerWidget {
           ),
         ],
       ),
+      ),
     );
   }
 }
@@ -243,7 +244,7 @@ class _FocusTimeCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final seconds = ref.watch(liveFocusSecondsTodayProvider).valueOrNull ?? 0;
 
-    return PressableScale(
+    return RepaintBoundary(child: PressableScale(
       onTap: () => context.push('/focus-history'),
       child: PremiumCard(
         padding: const EdgeInsets.all(14),
@@ -278,6 +279,7 @@ class _FocusTimeCard extends ConsumerWidget {
             ),
           ],
         ),
+        ),
       ),
     );
   }
@@ -294,7 +296,7 @@ class _AverageDailyCard extends ConsumerWidget {
     final days = week.isEmpty ? 1 : week.length;
     final avg = Duration(seconds: (totalSeconds / days).round());
 
-    return PremiumCard(
+    return RepaintBoundary(child: PremiumCard(
       padding: const EdgeInsets.all(16),
       child: Row(
         children: [
@@ -331,6 +333,7 @@ class _AverageDailyCard extends ConsumerWidget {
             ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -434,7 +437,7 @@ class _WeeklyTrendCard extends StatelessWidget {
     final hasData = values != null && values.any((v) => v > 0);
     final avg = hasData ? values.reduce((a, b) => a + b) / values.length : 0.0;
 
-    return PremiumCard(
+    return RepaintBoundary(child: PremiumCard(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -476,6 +479,7 @@ class _WeeklyTrendCard extends StatelessWidget {
             ],
           ),
         ],
+        ),
       ),
     );
   }
@@ -519,7 +523,7 @@ class _MiniTrendCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PremiumCard(
+    return RepaintBoundary(child: PremiumCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -538,6 +542,7 @@ class _MiniTrendCard extends StatelessWidget {
             _DeltaLabel(delta: delta),
           ],
         ],
+        ),
       ),
     );
   }
