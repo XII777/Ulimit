@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.animation.TimeInterpolator
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
@@ -12,8 +13,33 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.view.animation.SpringInterpolator
 import android.widget.LinearLayout.LayoutParams
+
+/**
+ * Damped-spring [TimeInterpolator] (no androidx dependency): maps a
+ * 0..1 progress to an over/undershoot curve so the popup visibly
+ * springs into place instead of easing. [stiffness] ~ tension,
+ * [damping] ~ mass friction; overshoot is inherent to the math.
+ */
+class SpringBounceInterpolator(
+    private val stiffness: Float = 440f,
+    private val damping: Float = 24f,
+) : TimeInterpolator {
+    override fun getInterpolation(input: Float): Float {
+        // Underdamped harmonic oscillator closed form:
+        // x(t) = 1 - e^(-ζωn t) · (cos(ωd t) + (ζωn/ωd)·sin(ωd t))
+        val omegaN = Math.sqrt(stiffness.toDouble())
+        // Clamp ζ < 1 so ωd stays real (no NaN); 0.995 keeps a hair of
+        // overshoot for the bounce at the extreme.
+        val zeta = (damping / (2 * Math.sqrt(stiffness.toDouble()))).coerceAtMost(0.995)
+        val t = input.toDouble()
+        val omegaD = omegaN * Math.sqrt(1 - zeta * zeta)
+        val decay = Math.exp(-zeta * omegaN * t)
+        val phase = omegaD * t
+        val value = 1 - decay * (Math.cos(phase) + (zeta * omegaN / omegaD) * Math.sin(phase))
+        return value.toFloat()
+    }
+}
 
 /**
  * The chip tap target. On API 31+ the ongoing call-style chip opens this
@@ -133,7 +159,7 @@ class FocusSessionPopupActivity : Activity() {
                 .scaleY(1f)
                 .translationY(0f)
                 .setDuration(420L)
-                .setInterpolator(SpringInterpolator(0.62f))
+                .setInterpolator(SpringBounceInterpolator(440f, 26f))
                 .start()
         }
     }
