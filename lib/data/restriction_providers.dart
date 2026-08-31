@@ -184,7 +184,11 @@ final restrictionDecisionsProvider = Provider<Map<String, AppDecision>>((ref) {
       ? null
       : FocusState(
           blockedPackages: focus.blockedPackages,
-          endsAt: focus.startedAt.add(Duration(seconds: focus.plannedSeconds)),
+          endsAt: focus.startedAt.add(
+            FocusClock.isUntimed(focus)
+                ? const Duration(days: 3650)
+                : Duration(seconds: focus.plannedSeconds),
+          ),
           blockInternet: focus.blockInternet,
         );
 
@@ -337,7 +341,9 @@ class EnforcementSync {
           ? null
           : {
               'untilMillis': focus.startedAt
-                  .add(Duration(seconds: focus.plannedSeconds))
+                  .add(FocusClock.isUntimed(focus)
+                      ? const Duration(days: 3650)
+                      : Duration(seconds: focus.plannedSeconds))
                   .millisecondsSinceEpoch,
               'packages': focus.blockedPackages,
               'pauseNotifications': focus.pauseNotifications,

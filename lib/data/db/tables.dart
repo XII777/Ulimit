@@ -43,6 +43,18 @@ class FocusSessions extends Table {
   IntColumn get accumulatedPausedSeconds => integer().withDefault(const Constant(0))();
 }
 
+/// User-created focus session tags ("Deep Work", "Study", ...). The
+/// Focus screen shows the built-in labels plus these rows; each tag has
+/// a color so a session reads as a colored chip everywhere it appears.
+class FocusTags extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get name => text()();
+  // ARGB color value (0xFFRRGGBB) — stored so the chip color survives
+  // across theme changes without a lookup table.
+  IntColumn get colorValue => integer()();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
 /// One row per tracked package per day. Aggregated in-memory for
 /// weekly/monthly views rather than maintaining separate rollup tables —
 /// at this data volume (a few hundred rows/month/device) a SUM query is
@@ -187,6 +199,10 @@ class UlimitSettings extends Table {
   // every app update, so existing users get a compact re-enable screen
   // instead of the full onboarding wizard again.
   BoolColumn get permissionsOnboardingCompleted => boolean().withDefault(const Constant(false))();
+
+  // When true, focus session tags render with their own color; when
+  // false, the design system's monochrome chips are used everywhere.
+  BoolColumn get coloredSessionTags => boolean().withDefault(const Constant(false))();
 }
 
 /// One row per day. Incremented every time the AccessibilityService

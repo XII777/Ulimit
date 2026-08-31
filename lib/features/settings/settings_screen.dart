@@ -14,11 +14,14 @@ import '../../core/theme/premium_components.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/db/app_database.dart';
 import '../../data/focus_indicator.dart';
+import '../../data/focus_tags_provider.dart';
 import '../../data/permissions_providers.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_sheet.dart';
+import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/spring_scroll.dart';
+import '../../shared/widgets/session_tag_editor.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -53,6 +56,12 @@ class SettingsScreen extends ConsumerWidget {
                   sublabel: _appearanceLabel(themeMode),
                   trailing: AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
                   onTap: () => _pickAppearance(context, ref),
+                ),
+                PremiumListTile(
+                  label: 'Session Tags',
+                  sublabel: _sessionTagsLabel(context, ref),
+                  trailing: AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
+                  onTap: () => _manageSessionTags(context, ref),
                 ),
                 PremiumListTile(
                   label: 'Haptics',
@@ -207,6 +216,36 @@ class SettingsScreen extends ConsumerWidget {
     if (selected != null && selected != themeMode) {
       await ref.read(settingsControllerProvider).setThemeMode(selected);
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // Session tags (Appearance)
+  // ---------------------------------------------------------------------
+
+  String _sessionTagsLabel(BuildContext context, WidgetRef ref) {
+    final count = ref.watch(focusTagsProvider).valueOrNull?.length ?? 0;
+    final colored = ref.watch(coloredSessionTagsProvider).valueOrNull ?? false;
+    if (count == 0) return 'Create tags for focus sessions';
+    return '$count tag${count == 1 ? '' : 's'} · ${colored ? 'colored' : 'monochrome'}';
+  }
+
+  Future<void> _manageSessionTags(BuildContext context, WidgetRef ref) async {
+    final colored = ref.watch(coloredSessionTagsProvider).valueOrNull ?? false;
+
+    await showAppSheet<void>(
+      context: context,
+      title: 'Session Tags',
+      subtitle: 'Manage the tags shown on the Focus screen',
+      trailing: Switch(
+        value: colored,
+        onChanged: (v) =>
+            ref.read(settingsControllerProvider).setColoredSessionTags(v),
+      ),
+      builder: (sheetContext, scrollController) => _SessionTagsManager(
+        controller: ref.read(focusTagsControllerProvider),
+        scrollController: scrollController,
+      ),
+    );
   }
 
   Future<void> _exportData(BuildContext context, WidgetRef ref) async {
@@ -610,5 +649,121 @@ class _CrashLogsContentState extends State<_CrashLogsContent> {
   String _formatSize(int bytes) {
     if (bytes < 1024) return '$bytes B';
     return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  }
+}
+
+/// In-sheet tag manager used from Settings → Session Tags. Lists every
+/// tag with its color dot (honoring the colored toggle), plus a New
+/// button. Tapping a row opens the shared tag editor (rename, recolor,
+/// delete) — the same editor the Focus screen's hold-to-edit opens.
+class _SessionTagsManager extends ConsumerWidget {
+  const _SessionTagsManager({
+    required this.controller,
+    required this.scrollController,
+  });
+
+  final FocusTagsController controller;
+  final ScrollController scrollController;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tags = ref.watch(focusTagsProvider).valueOrNull ?? const <FocusTag>[];
+
+    return ListView(
+      controller: scrollController,
+      physics: springScrollPhysics,
+      shrinkWrap: true,
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      children: [
+        PressableScale(
+          onTap: () => _create(context),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 13),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: AppColors.stroke),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AppIcon(AppIconName.add, size: 14, color: AppColors.inkDim),
+                const SizedBox(width: 8),
+                Text('New tag',
+                    style: TextStyle(
+                        fontSize: AppText.body, fontWeight: FontWeight.w600, color: AppColors.ink)),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        if (tags.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Text(
+              'No session tags yet. Create one to label your focus sessions.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12.5, color: AppColors.inkFaint),
+            ),
+          )
+        else
+          for (final tag in tags)
+            GestureDetector(
+              onTap: () => _edit(context, tag),
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  border: Border.all(color: AppColors.stroke),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: Color(tag.colorValue),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(tag.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: AppText.body, color: AppColors.ink)),
+                    ),
+                    AppIcon(AppIconName.edit, size: 13, color: AppColors.inkFaint),
+                  ],
+                ),
+              ),
+            ),
+      ],
+    );
+  }
+
+  Future<void> _create(BuildContext context) async {
+    await showTagEditor(
+      context,
+      onSave: (name, color) =>
+          controller.createTag(name: name, color: color),
+    );
+  }
+
+  Future<void> _edit(BuildContext context, FocusTag tag) async {
+    await showTagEditor(
+      context,
+      tagId: tag.id,
+      initialName: tag.name,
+      initialColor: Color(tag.colorValue),
+      onSave: (name, color) async {
+        await controller.renameTag(tag.id, name);
+        await controller.recolorTag(tag.id, color);
+      },
+      onDelete: () => controller.deleteTag(tag.id),
+    );
   }
 }

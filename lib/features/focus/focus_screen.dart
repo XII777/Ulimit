@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -10,6 +11,7 @@ import '../../core/theme/tokens.dart';
 import '../../data/apps_repository.dart';
 import '../../data/db/app_database.dart';
 import '../../data/focus_providers.dart';
+import '../../data/focus_tags_provider.dart';
 import '../../data/permissions_providers.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
@@ -17,6 +19,7 @@ import '../../shared/widgets/app_selector.dart';
 import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/limit_ring.dart';
 import '../../shared/widgets/pressable_scale.dart';
+import '../../shared/widgets/session_tag_editor.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
 class FocusScreen extends ConsumerWidget {
@@ -47,17 +50,23 @@ class _IdleFocusView extends ConsumerStatefulWidget {
 }
 
 class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
-  static const _labels = ['Deep Work', 'Study', 'Reading', 'Writing', 'Custom'];
+  static const _labels = ['Deep Work', 'Study', 'Reading', 'Writing'];
   static const _durations = [15, 25, 45, 60, 90, 120];
 
-  String _label = 'Deep Work';
   int _minutes = 25;
+  // null = timed session; -1 = "until I turn it off" (untimed).
+  bool _untimed = false;
   List<String> _blockedApps = const [];
   bool _pauseNotifications = true;
   bool _blockInternet = false;
   bool _blockWebsites = false;
   bool _invincible = false;
   bool _starting = false;
+
+  // Selected custom tag (name + color) or null for built-in labels.
+  FocusTag? _selectedTag;
+  // Which built-in label is selected when no custom tag is.
+  String _selectedBuiltIn = 'Deep Work';
 
   @override
   void initState() {
@@ -83,6 +92,9 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
 
   @override
   Widget build(BuildContext context) {
+    final customTags = ref.watch(focusTagsProvider).valueOrNull ?? const <FocusTag>[];
+    final colored = ref.watch(coloredSessionTagsProvider).valueOrNull ?? false;
+
     return ListView(
       physics: springScrollPhysics,
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 110),
@@ -99,12 +111,27 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
           spacing: 8,
           runSpacing: 8,
           children: [
+            // Built-in labels — plain tap selects, no editor.
             for (final label in _labels)
-              _Chip(
+              HoldToEditChip(
                 label: label,
-                selected: _label == label,
-                onTap: () => setState(() => _label = label),
+                selected: _selectedTag == null && _selectedBuiltIn == label,
+                onTapped: () => setState(() {
+                  _selectedBuiltIn = label;
+                  _selectedTag = null;
+                }),
               ),
+            // User-created tags — tap selects; hold 3s opens the editor.
+            for (final tag in customTags)
+              HoldToEditChip(
+                label: tag.name,
+                selected: _selectedTag?.id == tag.id,
+                color: colored ? Color(tag.colorValue) : null,
+                onTapped: () => setState(() => _selectedTag = tag),
+                onHold: () => _editTag(context, tag),
+              ),
+            // The "+ New" chip — always at the end of the row.
+            _NewTagChip(onTap: () => _createTag(context)),
           ],
         ),
         const SizedBox(height: 22),
@@ -117,11 +144,24 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
           runSpacing: 8,
           children: [
             for (final m in _durations)
-              _Chip(
+              HoldToEditChip(
                 label: '$m min',
-                selected: _minutes == m,
-                onTap: () => setState(() => _minutes = m),
+                selected: !_untimed && _minutes == m,
+                onTapped: () => setState(() {
+                  _minutes = m;
+                  _untimed = false;
+                }),
               ),
+            _CustomDurationChip(
+              label: _customLabel(),
+              selected: !_untimed && _customMinutes != null,
+              onTap: _pickCustomDuration,
+            ),
+            HoldToEditChip(
+              label: 'Until I turn it off',
+              selected: _untimed,
+              onTapped: () => setState(() => _untimed = true),
+            ),
           ],
         ),
         const SizedBox(height: 22),
@@ -200,7 +240,9 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
                       AppIcon(AppIconName.play, size: 20, color: AppColors.bg),
                       const SizedBox(width: 10),
                       Text(
-                        'Start focus · $_minutes min',
+                        _untimed
+                            ? 'Start focus · untimed'
+                            : 'Start focus · $_minutes min',
                         style: TextStyle(
                             fontSize: AppText.body, fontWeight: FontWeight.w600, color: AppColors.bg),
                       ),
@@ -266,6 +308,82 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Custom tags
+  // ---------------------------------------------------------------------
+
+  int? get _selectedTagId => _selectedTag?.id;
+
+  Future<void> _createTag(BuildContext context) async {
+    await showTagEditor(
+      context,
+      onSave: (name, color) async {
+        final id = await ref.read(focusTagsControllerProvider).createTag(name: name, color: color);
+        // Select the freshly created tag so the user sees the flow.
+        if (mounted) {
+          setState(() {
+            _selectedTag = FocusTag(
+              id: id,
+              name: name,
+              colorValue: color.toARGB32(),
+              createdAt: DateTime.now(),
+            );
+          });
+        }
+      },
+    );
+  }
+
+  Future<void> _editTag(BuildContext context, FocusTag tag) async {
+    final controller = ref.read(focusTagsControllerProvider);
+    await showTagEditor(
+      context,
+      tagId: tag.id,
+      initialName: tag.name,
+      initialColor: Color(tag.colorValue),
+      onSave: (name, color) async {
+        await controller.renameTag(tag.id, name);
+        await controller.recolorTag(tag.id, color);
+      },
+      onDelete: () async {
+        await controller.deleteTag(tag.id);
+        if (mounted && _selectedTag?.id == tag.id) {
+          setState(() => _selectedTag = null);
+        }
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Custom duration
+  // ---------------------------------------------------------------------
+
+  // Extra minutes for the "custom" chip (may differ from the presets).
+  int? _customMinutes;
+
+  String _customLabel() =>
+      _customMinutes == null ? 'Custom' : '${_customMinutes!} min';
+
+  Future<void> _pickCustomDuration() async {
+    await showAppSheet<int>(
+      context: context,
+      title: 'Custom duration',
+      subtitle: 'Set any length for this session',
+      initialSize: 0.65,
+      builder: (sheetContext, scrollController) => _CustomDurationSheet(
+        initialMinutes: _customMinutes ?? 30,
+        onDone: (minutes) {
+          setState(() {
+            _customMinutes = minutes;
+            _minutes = minutes;
+            _untimed = false;
+          });
+          Navigator.of(sheetContext).pop();
+        },
+      ),
+    );
+  }
+
   Future<void> _start() async {
     setState(() => _starting = true);
     try {
@@ -279,9 +397,13 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
           return;
         }
       }
+      // Resolve the label: a selected custom tag wins; otherwise the
+      // built-in label that is currently selected.
+      final label = _selectedTag?.name ?? _selectedBuiltIn;
+      final duration = _untimed ? null : Duration(minutes: _minutes);
       await ref.read(focusControllerProvider).startSession(
-            label: _label,
-            duration: Duration(minutes: _minutes),
+            label: label,
+            duration: duration,
             blockedPackages: _blockedApps,
             pauseNotifications: _pauseNotifications,
             blockInternet: _blockInternet,
@@ -306,8 +428,11 @@ class _RunningFocusView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final remaining = ref.watch(focusRemainingProvider).valueOrNull ?? Duration.zero;
+    final untimed = FocusClock.isUntimed(session);
     final planned = Duration(seconds: session.plannedSeconds);
-    final progress = planned.inSeconds <= 0 ? 0.0 : 1 - (remaining.inSeconds / planned.inSeconds).clamp(0.0, 1.0);
+    final progress = untimed || planned.inSeconds <= 0
+        ? 0.0
+        : 1 - (remaining.inSeconds / planned.inSeconds).clamp(0.0, 1.0);
     final paused = session.pausedAt != null;
 
     return Column(
@@ -325,9 +450,9 @@ class _RunningFocusView extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  formatClock(remaining),
+                  untimed ? 'UNTIMED' : formatClock(remaining),
                   style: GoogleFonts.spaceGrotesk(
-                    fontSize: 40,
+                    fontSize: untimed ? 30 : 40,
                     fontWeight: FontWeight.w600,
                     color: AppColors.ink,
                     fontFeatures: const [FontFeature.tabularFigures()],
@@ -335,7 +460,11 @@ class _RunningFocusView extends ConsumerWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  paused ? '${session.label} · PAUSED' : '${session.label} · remaining',
+                  paused
+                      ? '${session.label} · PAUSED'
+                      : untimed
+                          ? '${session.label} · until you turn it off'
+                          : '${session.label} · remaining',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
@@ -586,6 +715,216 @@ class _Chip extends StatelessWidget {
             color: selected ? AppColors.bg : AppColors.inkDim,
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The trailing "+ New" chip in the SESSION row. Opens the tag editor.
+class _NewTagChip extends StatelessWidget {
+  const _NewTagChip({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return PressableScale(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: Border.all(color: AppColors.stroke),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppIcon(AppIconName.add, size: 13, color: AppColors.inkDim),
+            const SizedBox(width: 6),
+            Text(
+              'New',
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: AppColors.inkDim,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The "Custom" duration chip — shows the user's own minutes once set.
+class _CustomDurationChip extends StatelessWidget {
+  const _CustomDurationChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return PressableScale(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.ink : AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: selected ? null : Border.all(color: AppColors.stroke),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: selected ? AppColors.bg : AppColors.inkDim,
+              ),
+            ),
+            const SizedBox(width: 5),
+            AppIcon(AppIconName.edit, size: 11, color: selected ? AppColors.bg : AppColors.inkFaint),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Time-entry sheet for the custom duration chip: a minute stepper plus
+/// a text field for exact values (5–720 minutes).
+class _CustomDurationSheet extends StatefulWidget {
+  const _CustomDurationSheet({
+    required this.initialMinutes,
+    required this.onDone,
+  });
+
+  final int initialMinutes;
+  final ValueChanged<int> onDone;
+
+  @override
+  State<_CustomDurationSheet> createState() => _CustomDurationSheetState();
+}
+
+class _CustomDurationSheetState extends State<_CustomDurationSheet> {
+  late final TextEditingController _controller =
+      TextEditingController(text: '${widget.initialMinutes}');
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  int _parseMinutes() {
+    final value = int.tryParse(_controller.text.trim());
+    if (value == null) return -1;
+    return value.clamp(5, 720);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final minutes = _parseMinutes();
+    final valid = minutes > 0;
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            valid
+                ? formatDurationShort(Duration(minutes: minutes))
+                : 'Enter 5–720 minutes',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600, color: AppColors.ink),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              // Minutes text field
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  style: TextStyle(color: AppColors.ink, fontSize: 14),
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    labelText: 'Minutes',
+                    labelStyle: TextStyle(color: AppColors.inkFaint, fontSize: 12),
+                    filled: true,
+                    fillColor: AppColors.surface,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Quick stepper
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: IconButton(
+                        onPressed: minutes > 5
+                            ? () => _controller.text = '${minutes - 5}'
+                            : null,
+                        icon: Text(
+                          '−',
+                          style: TextStyle(
+                            fontSize: 20,
+                            color: AppColors.inkDim,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: IconButton(
+                        onPressed: minutes < 720 ? () => _controller.text = '${minutes + 5}' : null,
+                        icon: Text(
+                          '+',
+                          style: TextStyle(
+                            fontSize: 20,
+                            color: AppColors.inkDim,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton(
+            onPressed: valid ? () => widget.onDone(minutes) : null,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.ink,
+              foregroundColor: AppColors.bg,
+              padding: const EdgeInsets.all(13),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+            ),
+            child: const Text('Set duration', style: TextStyle(fontWeight: FontWeight.w600)),
+          ),
+        ],
       ),
     );
   }

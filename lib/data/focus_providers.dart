@@ -34,6 +34,9 @@ final focusHistoryProvider = StreamProvider<List<FocusSession>>((ref) {
 class FocusClock {
   static bool isPaused(FocusSession s) => s.pausedAt != null;
 
+  /// True for untimed sessions ("until I turn it off", plannedSeconds = -1).
+  static bool isUntimed(FocusSession s) => s.plannedSeconds < 0;
+
   /// Elapsed RUNNING time in seconds (paused time excluded, frozen
   /// while paused).
   static int elapsedSeconds(FocusSession s, DateTime now) {
@@ -44,14 +47,21 @@ class FocusClock {
   }
 
   /// Remaining seconds of the planned duration (frozen while paused).
-  static int remainingSeconds(FocusSession s, DateTime now) {
+  /// Untimed sessions always report the intent to keep running: null.
+  static int? remainingSeconds(FocusSession s, DateTime now) {
+    if (isUntimed(s)) return null;
     final remaining = s.plannedSeconds - elapsedSeconds(s, now);
     return remaining < 0 ? 0 : remaining;
   }
 
   /// When the session would naturally complete, accounting for pauses.
-  static DateTime plannedEnd(FocusSession s) =>
-      s.startedAt.add(Duration(seconds: s.plannedSeconds + s.accumulatedPausedSeconds));
+  /// Untimed sessions report a far-future instant — the engine's
+  /// "until" fields need a concrete DateTime and this is that: the
+  /// session is effectively indefinite.
+  static DateTime plannedEnd(FocusSession s) {
+    if (isUntimed(s)) return s.startedAt.add(const Duration(days: 3650));
+    return s.startedAt.add(Duration(seconds: s.plannedSeconds + s.accumulatedPausedSeconds));
+  }
 }
 
 class FocusController {
@@ -61,7 +71,7 @@ class FocusController {
 
   Future<void> startSession({
     required String label,
-    required Duration duration,
+    Duration? duration,
     required List<String> blockedPackages,
     bool pauseNotifications = true,
     bool blockInternet = false,
@@ -72,10 +82,15 @@ class FocusController {
     // (e.g. after a crash) before starting the new one.
     await _finalizeStaleSessions();
 
+    // A null duration means "until I turn it off" — an untimed session.
+    // Sentinel -1 marks it so every reader (timer, engine, history)
+    // knows it never auto-completes.
+    final plannedSeconds = duration?.inSeconds ?? -1;
+
     await _db.into(_db.focusSessions).insert(FocusSessionsCompanion.insert(
           label: label,
           startedAt: DateTime.now(),
-          plannedSeconds: duration.inSeconds,
+          plannedSeconds: plannedSeconds,
           blockedPackages: Value(blockedPackages),
           pauseNotifications: Value(pauseNotifications),
           blockInternet: Value(blockInternet),
@@ -121,11 +136,13 @@ class FocusController {
   /// Marks any running (and not paused) session whose planned end has
   /// passed as completed. Called from the evaluation tick so completion
   /// happens even if the timer UI was never open — the timestamp in the
-  /// row is the authority. Paused sessions never auto-complete.
+  /// row is the authority. Paused sessions never auto-complete, and
+  /// untimed sessions ("until I turn it off") never auto-complete at all.
   Future<void> finalizeIfDue() async {
     final session = await _runningRow();
     if (session == null) return;
     if (session.pausedAt != null) return;
+    if (FocusClock.isUntimed(session)) return;
     final plannedEnd = FocusClock.plannedEnd(session);
     if (DateTime.now().isBefore(plannedEnd)) return;
     await (_db.update(_db.focusSessions)..where((t) => t.id.equals(session.id))).write(
@@ -146,6 +163,7 @@ class FocusController {
     if (running.isEmpty) return;
     final now = DateTime.now();
     for (final session in running) {
+      if (FocusClock.isUntimed(session)) continue;
       final plannedEnd = FocusClock.plannedEnd(session);
       final ended = now.isBefore(plannedEnd) ? now : plannedEnd;
       await (_db.update(_db.focusSessions)..where((t) => t.id.equals(session.id))).write(
@@ -178,8 +196,11 @@ final focusRemainingProvider = StreamProvider<Duration>((ref) {
 });
 
 Stream<Duration> _remainingStream(FocusSession session) async* {
-  Duration remaining() =>
-      Duration(seconds: FocusClock.remainingSeconds(session, DateTime.now()));
+  Duration remaining() {
+    final seconds = FocusClock.remainingSeconds(session, DateTime.now());
+    return Duration(seconds: seconds ?? 0);
+  }
+
   yield remaining();
   await for (final _ in Stream<void>.periodic(const Duration(seconds: 1))) {
     yield remaining();

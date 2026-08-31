@@ -64,6 +64,11 @@ class SettingsController {
   Future<void> setPermissionsOnboardingCompleted(bool v) =>
       _update(UlimitSettingsCompanion(permissionsOnboardingCompleted: Value(v)));
 
+  /// When true, focus session tags render in their own color; when
+  /// false, the monochrome chip style is used everywhere.
+  Future<void> setColoredSessionTags(bool v) =>
+      _update(UlimitSettingsCompanion(coloredSessionTags: Value(v)));
+
   Future<void> _update(UlimitSettingsCompanion c) async {
     await _ensureRow();
     await (_db.update(_db.ulimitSettings)..where((t) => t.id.equals(1))).write(c);
@@ -195,7 +200,11 @@ final weeklyFocusTimeProvider = StreamProvider<List<Duration>>((ref) {
 
   return query.watch().map((rows) {
     final entries = rows.map((r) {
-      final seconds = r.endedAt != null ? r.endedAt!.difference(r.startedAt).inSeconds : r.plannedSeconds;
+      // Untimed sessions (plannedSeconds = -1) measure actual elapsed
+      // time; a completed timed session measures start → end.
+      final seconds = r.endedAt != null
+          ? r.endedAt!.difference(r.startedAt).inSeconds
+          : (r.plannedSeconds > 0 ? r.plannedSeconds : 0);
       return (r.startedAt, seconds);
     });
     return bucketByDay(entries, start);
