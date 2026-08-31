@@ -217,6 +217,13 @@ class AppCardColor {
   final Color background;
   final Color text;
 
+  /// A shade of [background] slightly darker than the card top — the
+  /// card's gradient bottom. Keeps the hue; only lightness drops a
+  /// touch so the card never fades to black.
+  Color get bottom => HSLColor.fromColor(background)
+      .withLightness((HSLColor.fromColor(background).lightness * 0.9).clamp(0.0, 1.0))
+      .toColor();
+
   /// Neutral mono treatment for icons with no usable color (missing,
   /// monochrome, transparent, too dark, too light).
   factory AppCardColor.fallback() {
