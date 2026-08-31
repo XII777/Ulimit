@@ -50,10 +50,12 @@ class UlimitVpnService : VpnService() {
         const val ACTION_RELOAD = "com.ulimit.app.VPN_RELOAD"
         const val CHANNEL_ID = "ulimit_vpn"
 
-        // The virtual DNS server = the TUN interface address. Only a
-        // /32 host route for this address enters the TUN, so DNS from
-        // every app is capturable while their other traffic stays on
-        // the real network.
+        // The virtual DNS server. Deliberately NOT the TUN interface
+        // address (10.111.0.2): filter-only mode routes a /32 host
+        // route to it, which requires the target to be distinct from
+        // the interface address (a route to your own address is
+        // degenerate and Android reverts to the default route — the
+        // all-internet-blocked bug).
         val DNS_SERVER: InetAddress = InetAddress.getByName("10.111.0.1")
 
         @Volatile
@@ -176,30 +178,48 @@ class UlimitVpnService : VpnService() {
             return
         }
 
-        // Unified capture model:
-        //  - The virtual DNS server IS the TUN interface address, and
-        //    a /32 host route is added for it — so ONLY DNS traffic
-        //    enters the TUN. Every other packet stays on the real
-        //    network (no default-route capture; Android would otherwise
-        //    install 0.0.0.0/0 and the filter loop would drop all TCP,
-        //    killing the whole internet).
-        //  - Internet-blocked apps are allowlisted into the TUN in
-        //    addition, so ALL their packets (DNS + TCP) are captured
-        //    and discarded → they lose connectivity entirely while
-        //    everyone else keeps it.
+        // Capture model (routes decide which destinations enter the
+        // TUN; addAllowedApplication decides which apps; BOTH apply).
+        //
+        //  - FIREWALL apps exist → 0.0.0.0/0 default route plus an
+        //    app ALLOWLIST containing exactly the firewall apps, and
+        //    NO VPN DNS server. Only the allowlisted apps' packets can
+        //    enter the TUN (they're discarded); every other app uses
+        //    its regular network + real DNS untouched, so the whole
+        //    internet can never be captured by accident. (A VPN DNS
+        //    server would break this: 10.111.0.1 is reachable ONLY via
+        //    the TUN, and the allowlist keeps non-blocked apps out of
+        //    it, so every app would lose DNS → all internet dead.)
+        //  - FILTER-only (no firewall apps) → the virtual DNS server
+        //    (10.111.0.1) + a /32 host route to it, with NO default
+        //    route. Only DNS enters the TUN; all other traffic stays
+        //    on the real network. The DNS server is distinct from the
+        //    interface (10.111.0.2): a route to your own interface
+        //    address is degenerate and Android reverts to the default
+        //    route, which was the all-internet-blocked bug.
+        //  - COMBINED → follow the FIREWALL path: the allowlist is the
+        //    binding constraint and site filtering applies to the DNS
+        //    of allowlisted apps only (their DNS is still parsed and
+        //    dropped along with everything else).
         val builder = Builder()
             .setSession("Ulimit")
             .setMtu(32767)
-            .addAddress("10.111.0.1", 32)
-            .addDnsServer("10.111.0.1")
-            .addRoute("10.111.0.1", 32)
+            .addAddress("10.111.0.2", 32)
 
-        for (pkg in firewallApps.distinct()) {
-            try {
-                builder.addAllowedApplication(pkg)
-            } catch (e: Exception) {
-                // Uninstalled package — skip it.
+        if (firewallApps.isNotEmpty()) {
+            builder.addRoute("0.0.0.0", 0)
+            for (pkg in firewallApps.distinct()) {
+                try {
+                    builder.addAllowedApplication(pkg)
+                } catch (e: Exception) {
+                    // Uninstalled package — skip it.
+                }
             }
+        } else {
+            // Filter-only mode needs the virtual resolver reachable.
+            builder
+                .addDnsServer("10.111.0.1")
+                .addRoute("10.111.0.1", 32)
         }
 
         val newTun = try {
