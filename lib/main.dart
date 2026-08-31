@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/crash/crash_collector.dart';
 import 'core/native/enforcement_channel.dart';
 import 'core/router/app_router.dart';
+import 'core/router/back_button_dispatcher.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/tokens.dart';
 import 'data/focus_indicator.dart';
@@ -163,7 +164,13 @@ class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserv
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: themeMode,
-      routerConfig: appRouter,
+      // Delegate wiring (not routerConfig) so our guarded
+      // backButtonDispatcher sits between the system back press and
+      // go_router, preventing the cold-start navigator null crash.
+      routerDelegate: appRouter.routerDelegate,
+      routeInformationProvider: appRouter.routeInformationProvider,
+      routeInformationParser: appRouter.routeInformationParser,
+      backButtonDispatcher: UlimitBackButtonDispatcher(appRouter),
     );
   }
 
