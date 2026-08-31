@@ -50,6 +50,12 @@ class UlimitVpnService : VpnService() {
         const val ACTION_RELOAD = "com.ulimit.app.VPN_RELOAD"
         const val CHANNEL_ID = "ulimit_vpn"
 
+        // The virtual DNS server = the TUN interface address. Only a
+        // /32 host route for this address enters the TUN, so DNS from
+        // every app is capturable while their other traffic stays on
+        // the real network.
+        val DNS_SERVER: InetAddress = InetAddress.getByName("10.111.0.1")
+
         @Volatile
         var isRunning: Boolean = false
             private set
@@ -163,34 +169,38 @@ class UlimitVpnService : VpnService() {
 
         val wantFiltering = hasFilterEntries()
 
-        val builder = Builder()
-            .setSession("Ulimit")
-            .setMtu(32767)
-            .addAddress("10.111.0.2", 32)
-            .addDnsServer("10.111.0.1")
-
-        if (firewallApps.isNotEmpty()) {
-            // Firewall mode: route ONLY blocked apps into the TUN and
-            // discard their packets. Nobody else's traffic is touched.
-            for (pkg in firewallApps.distinct()) {
-                try {
-                    builder.addAllowedApplication(pkg)
-                } catch (e: Exception) {
-                    // Uninstalled package — skip it.
-                }
-            }
-            // Explicitly *disallow* everything else is not needed: any
-            // addAllowedApplication call switches the VPN to allowlist
-            // semantics for the whole session.
-        } else if (!wantFiltering) {
-            // Nothing to enforce on the network layer — don't occupy the
-            // VPN slot doing nothing.
+        // Nothing to enforce on the network layer — don't occupy the
+        // VPN slot doing nothing.
+        if (firewallApps.isEmpty() && !wantFiltering) {
             isRunning = true
             return
         }
-        // Filter mode: no routes are added on purpose. Only traffic to
-        // the virtual DNS server enters the TUN; all other traffic flows
-        // through the real network untouched.
+
+        // Unified capture model:
+        //  - The virtual DNS server IS the TUN interface address, and
+        //    a /32 host route is added for it — so ONLY DNS traffic
+        //    enters the TUN. Every other packet stays on the real
+        //    network (no default-route capture; Android would otherwise
+        //    install 0.0.0.0/0 and the filter loop would drop all TCP,
+        //    killing the whole internet).
+        //  - Internet-blocked apps are allowlisted into the TUN in
+        //    addition, so ALL their packets (DNS + TCP) are captured
+        //    and discarded → they lose connectivity entirely while
+        //    everyone else keeps it.
+        val builder = Builder()
+            .setSession("Ulimit")
+            .setMtu(32767)
+            .addAddress("10.111.0.1", 32)
+            .addDnsServer("10.111.0.1")
+            .addRoute("10.111.0.1", 32)
+
+        for (pkg in firewallApps.distinct()) {
+            try {
+                builder.addAllowedApplication(pkg)
+            } catch (e: Exception) {
+                // Uninstalled package — skip it.
+            }
+        }
 
         val newTun = try {
             builder.establish()
@@ -210,10 +220,16 @@ class UlimitVpnService : VpnService() {
         val output = FileOutputStream(newTun.fileDescriptor)
         worker = Thread {
             try {
-                if (firewallApps.isNotEmpty()) {
-                    drainAndDiscard(input)
-                } else {
+                if (wantFiltering) {
+                    // Filter loop serves two purposes at once: DNS from
+                    // every app is checked against the blocked-domain
+                    // set, and any other packet (i.e. everything a
+                    // firewall app sends) is dropped because it is never
+                    // written back out.
                     dnsFilterLoop(input, output)
+                } else {
+                    // Firewall-only mode: discard everything routed in.
+                    drainAndDiscard(input)
                 }
             } catch (_: Exception) {
                 // Tunnel torn down — expected on stop.
@@ -282,7 +298,6 @@ class UlimitVpnService : VpnService() {
             if (protocol != 17) continue // UDP only; TCP DNS is rare and retried over UDP
 
             val srcAddr = InetAddress.getByAddress(buffer.copyOfRange(12, 16))
-            val dstAddr = InetAddress.getByAddress(buffer.copyOfRange(16, 20))
             val udpStart = ihl
             val srcPort = ((buffer[udpStart].toInt() and 0xFF) shl 8) or (buffer[udpStart + 1].toInt() and 0xFF)
             val dstPort = ((buffer[udpStart + 2].toInt() and 0xFF) shl 8) or (buffer[udpStart + 3].toInt() and 0xFF)
@@ -304,7 +319,7 @@ class UlimitVpnService : VpnService() {
                 // Authoritative "no such host": respond with 0.0.0.0 for
                 // A queries and an empty answer for everything else.
                 val reply = buildBlockedReply(dnsPacket, qtype == 1)
-                writeUdp(output, dstAddr, 53, srcAddr, srcPort, reply)
+                writeUdp(output, DNS_SERVER, 53, srcAddr, srcPort, reply)
             } else {
                 forwardQuery(output, srcAddr, srcPort, dnsPacket, upstreamDns)
             }
@@ -405,8 +420,9 @@ class UlimitVpnService : VpnService() {
 
                         // Rewrite the ID is unnecessary (query id is
                         // preserved by the resolver); wrap as UDP from
-                        // the virtual DNS server.
-                        writeUdp(output, addr, 53, clientAddr, clientPort, reply.data.copyOf(reply.length))
+                        // the virtual DNS server — clients drop replies
+                        // that appear to come from any other address.
+                        writeUdp(output, DNS_SERVER, 53, clientAddr, clientPort, reply.data.copyOf(reply.length))
                         return@Thread
                     } catch (_: Exception) {
                         continue
