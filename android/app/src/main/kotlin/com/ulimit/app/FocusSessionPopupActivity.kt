@@ -33,14 +33,14 @@ class SpringBounceInterpolator(
         // ω_n (angular frequency) is derived from the elastic dpi scale:
         // 96*12 ≈ stiffness 470 => ω_n ≈ 21.7 rad/s, a snappy but
         // controlled iOS-sheet feel.
-        val omegaN = Math.sqrt(dpi * 12.0)
+        val omegaN = Math.sqrt(dpi.toDouble() * 12.0)
         // Clamp ζ < 1 so ωd stays real (no NaN).
-        val zeta = dampingRatio.coerceAtMost(0.995)
+        val zeta = dampingRatio.toDouble().coerceAtMost(0.995)
         val t = input.toDouble()
-        val omegaD = omegaN * Math.sqrt(1 - zeta * zeta)
+        val omegaD = omegaN * Math.sqrt(1.0 - zeta * zeta)
         val decay = Math.exp(-zeta * omegaN * t)
         val phase = omegaD * t
-        val value = 1 - decay * (Math.cos(phase) + (zeta * omegaN / omegaD) * Math.sin(phase))
+        val value = 1.0 - decay * (Math.cos(phase) + (zeta * omegaN / omegaD) * Math.sin(phase))
         return value.toFloat()
     }
 }
