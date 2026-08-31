@@ -56,4 +56,47 @@ void main() {
     expect(find.text('m'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('RollingNumber settles every character at center (no static-digit clip)',
+      (tester) async {
+    const style = TextStyle(
+        fontSize: 16, fontWeight: FontWeight.w700, fontFeatures: [FontFeature.tabularFigures()]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(child: RollingNumber(text: '1h 05m 09s', style: style)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Move to a value that leaves most characters unchanged ("static"
+    // keyed) — the regression: static digits used to finish the
+    // AnimatedSwitcher's end tween at Offset(0, -0.6), shoving them
+    // 60% up out of the ClipRect slot.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(child: RollingNumber(text: '1h 05m 10s', style: style)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Every slide transition must rest at the center (Offset.zero) —
+    // none may remain displaced up/down where the slot clips them.
+    final slides = tester
+        .widgetList<SlideTransition>(find.byType(SlideTransition))
+        .toList();
+    expect(slides, isNotEmpty);
+    for (final s in slides) {
+      expect(
+        s.position.value,
+        Offset.zero,
+        reason: 'character rested displaced from the slot center',
+      );
+    }
+    expect(tester.takeException(), isNull);
+  });
 }

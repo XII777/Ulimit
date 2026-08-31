@@ -203,13 +203,15 @@ class _ScreenTimeCard extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 8),
-          RollingNumber(
-            text: formatDurationHMS(Duration(seconds: seconds)),
-            style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: AppColors.ink,
-                fontFeatures: const [FontFeature.tabularFigures()]),
+          Center(
+            child: RollingNumber(
+              text: formatDurationHMS(Duration(seconds: seconds)),
+              style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.ink,
+                  fontFeatures: const [FontFeature.tabularFigures()]),
+            ),
           ),
           const SizedBox(height: 8),
           ClipRRect(
@@ -262,13 +264,15 @@ class _FocusTimeCard extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 8),
-            RollingNumber(
-              text: formatDurationHMS(Duration(seconds: seconds)),
-              style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.ink,
-                  fontFeatures: const [FontFeature.tabularFigures()]),
+            Center(
+              child: RollingNumber(
+                text: formatDurationHMS(Duration(seconds: seconds)),
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.ink,
+                    fontFeatures: const [FontFeature.tabularFigures()]),
+              ),
             ),
             const SizedBox(height: 12),
             Text(

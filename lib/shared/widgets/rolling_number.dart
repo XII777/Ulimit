@@ -71,10 +71,24 @@ class _RollingNumberState extends State<RollingNumber> {
               switchOutCurve: Curves.easeInCubic,
               transitionBuilder: (child, animation) {
                 final isNew = child.key == ValueKey('$char-$i-new');
-                final slide = Tween<Offset>(
-                  begin: isNew ? const Offset(0, 0.6) : Offset.zero,
-                  end: isNew ? Offset.zero : const Offset(0, -0.6),
-                ).animate(animation);
+                final isStatic = child.key == ValueKey('static-$i-$char');
+                // New rolling digit: slide in from below and settle at
+                // center. Outgoing digit (neither key): roll up and out.
+                // Static digit: identity tween — its entry is created
+                // when the key flips from *-new to static-*, and a
+                // non-identity end (0, -0.6) would leave it permanently
+                // shifted up out of the slot (the fixed-digit clipping).
+                final begin = isNew
+                    ? const Offset(0, 0.6)
+                    : isStatic
+                        ? Offset.zero
+                        : Offset.zero;
+                final end = isNew
+                    ? Offset.zero
+                    : isStatic
+                        ? Offset.zero
+                        : const Offset(0, -0.6);
+                final slide = Tween<Offset>(begin: begin, end: end).animate(animation);
                 return SlideTransition(
                   position: slide,
                   child: FadeTransition(opacity: animation, child: child),
