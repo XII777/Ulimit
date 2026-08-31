@@ -12,7 +12,7 @@ class RollingNumber extends StatefulWidget {
     super.key,
     required this.text,
     required this.style,
-    this.duration = const Duration(milliseconds: 320),
+    this.duration = const Duration(milliseconds: 180),
   });
 
   final String text;
@@ -72,14 +72,15 @@ class _RollingNumberState extends State<RollingNumber> {
               transitionBuilder: (child, animation) {
                 final isNew = child.key == ValueKey('$char-$i-new');
                 final isStatic = child.key == ValueKey('static-$i-$char');
-                // New rolling digit: slide in from below and settle at
-                // center. Outgoing digit (neither key): roll up and out.
-                // Static digit: identity tween — its entry is created
-                // when the key flips from *-new to static-*, and a
-                // non-identity end (0, -0.6) would leave it permanently
-                // shifted up out of the slot (the fixed-digit clipping).
+                // Roll distance in FRACTION OF SLOT HEIGHT. The old
+                // 0.6 sent a digit 60% of its line box up/down on every
+                // tick — a huge jump for a step from 9→0, reading as
+                // vibration on 16px text. 0.12 (≈2.5px at 16px) is a
+                // subtle odometer scroll that reads as motion, not
+                // jitter, and settles visibly.
+                const roll = 0.12;
                 final begin = isNew
-                    ? const Offset(0, 0.6)
+                    ? const Offset(0, roll)
                     : isStatic
                         ? Offset.zero
                         : Offset.zero;
@@ -87,7 +88,7 @@ class _RollingNumberState extends State<RollingNumber> {
                     ? Offset.zero
                     : isStatic
                         ? Offset.zero
-                        : const Offset(0, -0.6);
+                        : const Offset(0, -roll);
                 final slide = Tween<Offset>(begin: begin, end: end).animate(animation);
                 return SlideTransition(
                   position: slide,

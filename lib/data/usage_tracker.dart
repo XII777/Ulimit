@@ -47,7 +47,12 @@ class UsageTracker {
     final now = event.timestampMillis;
 
     if (_pendingPackage != null && _pendingTimestampMillis != null) {
-      final elapsedSeconds = ((now - _pendingTimestampMillis!) / 1000).round();
+      // floor(), matching the live counter: the DB row becomes the
+      // authoritative total only for whole elapsed seconds, and the
+      // live "pending" display shows the same fraction. round() here
+      // would hand the DB a second the live view already showed,
+      // double-counting it on the next switch.
+      final elapsedSeconds = ((now - _pendingTimestampMillis!) / 1000).floor();
       if (elapsedSeconds > 0 && elapsedSeconds < 6 * 3600) {
         // Discard >6h gaps — almost certainly a phone-asleep period the
         // OS didn't cleanly signal, not real foreground time.
@@ -58,7 +63,10 @@ class UsageTracker {
       if (_pendingPackage != event.packageName) {
         await _incrementPickup(now);
       }
-    } else {
+    } else if (_pendingPackage == null) {
+      // Very first event of the session: nothing to attribute yet, and
+      // no prior app to switch FROM — picking up the phone from the
+      // launcher is a pickup, but a cold start into an app is not.
       await _incrementPickup(now);
     }
 

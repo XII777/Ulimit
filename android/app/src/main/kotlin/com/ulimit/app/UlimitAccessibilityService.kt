@@ -48,12 +48,22 @@ class UlimitAccessibilityService : AccessibilityService() {
         val packageName = event.packageName?.toString() ?: return
         val now = System.currentTimeMillis()
 
-        // The system UI and this app itself aren't real "the user picked
-        // a different app" transitions worth tracking. Note: the overlay
-        // is still hidden here, and lastPackageName is intentionally NOT
-        // updated — returning to the same app must re-run enforcement
-        // because the policy may have changed in between.
-        if (packageName == this.packageName || packageName.startsWith("com.android.systemui")) {
+        // The system UI and this app itself aren't "the user picked a
+        // different app" transitions worth ENFORCING, but they ARE real
+        // usage boundaries: opening Ulimit while scrolling Instagram
+        // means Instagram stops being foreground at that instant. Emit
+        // the switch BEFORE the early return so Dart closes the pending
+        // window and time inside Ulimit is never attributed to the app
+        // it left behind. Note: the overlay is still hidden here, and
+        // lastPackageName is intentionally NOT updated for systemui -
+        // returning to the same app must re-run enforcement because the
+        // policy may have changed in between.
+        if (packageName == this.packageName) {
+            UsageEventBridge.emit(packageName, now)
+            hideOverlay()
+            return
+        }
+        if (packageName.startsWith("com.android.systemui")) {
             hideOverlay()
             return
         }

@@ -222,13 +222,22 @@ class _FloatingNavContainer extends StatelessWidget {
             child: AnimatedBuilder(
               animation: pageController,
               builder: (context, _) {
-                // Selection follows the swipe gesture: the nearest page
-                // while dragging, the settled page when idle.
-                final page = pageController.hasClients ? (pageController.page ?? 0.0) : routeIndex.toDouble();
+                // Selection follows the swipe gesture CONTINUOUSLY (like
+                // iOS tab bars): nearest tab during/drag settles at the
+                // page boundary. The old page.round() held each tab
+                // until the swipe crossed 50% then jumped to the next —
+                // the jump is what made horizontal swipes feel stuttery.
+                final page = pageController.hasClients
+                    ? (pageController.page ?? routeIndex.toDouble())
+                    : routeIndex.toDouble();
                 final activeIndex = page.round().clamp(0, tabs.length - 1);
+                // Fractional 0..1 "flow" toward the next tab drives the
+                // pill's position so it glides in sync with the finger.
+                final flow = (page - activeIndex).clamp(-0.5, 0.5);
                 return _FloatingNavBar(
                   tabs: tabs,
                   activeIndex: activeIndex,
+                  flow: flow,
                   onTap: onTap,
                 );
               },
@@ -244,11 +253,17 @@ class _FloatingNavBar extends StatelessWidget {
   const _FloatingNavBar({
     required this.tabs,
     required this.activeIndex,
+    this.flow = 0,
     required this.onTap,
   });
 
   final List<(String, AppIconName, String)> tabs;
   final int activeIndex;
+
+  /// Fractional progress (0..0.5) beyond [activeIndex]: during a swipe,
+  /// the outgoing pill eases slightly toward the incoming tab position
+  /// so the pill tracks the finger instead of jumping at 50%.
+  final double flow;
   final ValueChanged<int> onTap;
 
   @override
@@ -267,19 +282,24 @@ class _FloatingNavBar extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: List.generate(tabs.length, (i) {
-          final isActive = i == activeIndex;
-          final (_, icon, label) = tabs[i];
-          return _NavItem(
-            icon: icon,
-            label: label,
-            isActive: isActive,
-            onTap: () => onTap(i),
-          );
-        }),
+      child: Transform.translate(
+        // The pill group itself shifts a few px toward the next tab
+        // during a swipe — subtle, finger-tracking, settles to 0.
+        offset: Offset(28 * flow, 0),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: List.generate(tabs.length, (i) {
+            final isActive = i == activeIndex;
+            final (_, icon, label) = tabs[i];
+            return _NavItem(
+              icon: icon,
+              label: label,
+              isActive: isActive,
+              onTap: () => onTap(i),
+            );
+          }),
+        ),
       ),
     );
   }

@@ -109,10 +109,14 @@ final liveScreenTimeSecondsProvider = StreamProvider<int>((ref) {
   int compute() {
     final base = ref.read(todayScreenTimeProvider).valueOrNull?.inSeconds ?? 0;
     final foreground = UsageTracker.liveForeground.value;
-    if (foreground == null) return base;
+    // Ulimit's own foreground is not screen time (see
+    // todayScreenTimeProvider); the pending window only counts while a
+    // real app is in front.
+    if (foreground == null || foreground.package == 'com.ulimit.app') return base;
     final pending = ((DateTime.now().millisecondsSinceEpoch - foreground.sinceMillis) / 1000)
         .floor()
-        .clamp(0, 6 * 3600);
+        .clamp(0, 6 * 3600)
+        .toInt();
     return base + pending;
   }
 
@@ -149,7 +153,8 @@ Future<void> setDailyBudget(AppDatabase db, int minutes) async {
 /// Today's total foreground time across all tracked apps, as a live
 /// stream — Drift's .watch() pushes updates only when the underlying
 /// rows change, so the ring on Home updates in real time without
-/// polling.
+/// polling. Ulimit's own foreground is excluded (like Digital
+/// Wellbeing): time spent configuring the app is not "screen time".
 final todayScreenTimeProvider = StreamProvider<Duration>((ref) {
   final db = ref.watch(databaseProvider);
   final startOfDay_ = startOfDay(DateTime.now());
@@ -157,19 +162,27 @@ final todayScreenTimeProvider = StreamProvider<Duration>((ref) {
   final query = db.select(db.appUsage)..where((t) => t.day.equals(startOfDay_));
 
   return query.watch().map(
-        (rows) => Duration(seconds: rows.fold(0, (sum, r) => sum + r.foregroundSeconds)),
+        (rows) => Duration(
+          seconds: rows
+              .where((r) => r.packageName != 'com.ulimit.app')
+              .fold(0, (sum, r) => sum + r.foregroundSeconds),
+        ),
       );
 });
 
 /// Today's per-package usage — the input the restriction engine and the
 /// Limits screen share, so a bar and the enforcement decision can never
-/// disagree about "used".
+/// disagree about "used". Ulimit's own foreground is excluded (its limit
+/// is not part of the wellbeing budget).
 final todayUsageByPackageProvider = StreamProvider<Map<String, int>>((ref) {
   final db = ref.watch(databaseProvider);
   final today = startOfDay(DateTime.now());
   final query = db.select(db.appUsage)..where((t) => t.day.equals(today));
   return query.watch().map(
-        (rows) => {for (final r in rows) r.packageName: r.foregroundSeconds},
+        (rows) => {
+          for (final r in rows)
+            if (r.packageName != 'com.ulimit.app') r.packageName: r.foregroundSeconds,
+        },
       );
 });
 
