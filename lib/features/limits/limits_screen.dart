@@ -301,7 +301,7 @@ class _AppLimitRow extends ConsumerWidget {
       builder: (sheetContext, scrollController) => ListView(
         controller: scrollController,
         physics: springScrollPhysics,
-        shrinkWrap: false,
+        shrinkWrap: true,
         padding: const EdgeInsets.only(bottom: 8),
         children: [
           ListTile(

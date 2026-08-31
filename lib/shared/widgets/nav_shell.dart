@@ -126,6 +126,11 @@ class _NavShellState extends State<NavShell> {
     }
 
     return Scaffold(
+      // Let the page background and scrolling content extend behind the
+      // floating-pill strip: the nav strip's own area is transparent (see
+      // _FloatingNavContainer) so the main page shows through it, while
+      // the pill itself keeps its opaque surface.
+      extendBody: true,
       body: NotificationListener<ScrollNotification>(
         onNotification: _onScroll,
         child: Padding(

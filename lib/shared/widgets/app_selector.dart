@@ -164,6 +164,7 @@ class _AppSelectorSheetState extends ConsumerState<_AppSelectorSheet> {
               return ListView.builder(
                 controller: widget.scrollController,
                 physics: springScrollPhysics,
+                shrinkWrap: true,
                 padding: const EdgeInsets.only(bottom: 24),
                 itemCount: apps.length,
                 itemBuilder: (context, i) {

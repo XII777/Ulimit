@@ -509,6 +509,7 @@ class _CrashLogsContentState extends State<_CrashLogsContent> {
         return ListView.separated(
           controller: widget.scrollController,
           physics: springScrollPhysics,
+          shrinkWrap: true,
           padding: const EdgeInsets.symmetric(vertical: 8),
           itemCount: files.length,
           separatorBuilder: (_, __) => Divider(height: 1, color: AppColors.stroke),
