@@ -261,6 +261,10 @@ class MainActivity : FlutterFragmentActivity() {
             contentResolver,
             "enabled_notification_listeners"
         ) ?: return false
+        android.util.Log.d(
+            "UlimitBlock",
+            "enabled_notification_listeners=$enabledListeners pkg=$packageName match=${enabledListeners.contains(packageName)}"
+        )
         return enabledListeners.contains(packageName)
     }
 

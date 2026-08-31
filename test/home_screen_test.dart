@@ -28,7 +28,7 @@ void main() {
     expect(find.text('Screen Time'), findsOneWidget);
     expect(find.text('Focus Time'), findsWidgets);
     expect(find.text("TODAY'S OVERVIEW"), findsOneWidget);
-    expect(find.text('Average daily screen time'), findsOneWidget);
+    expect(find.text('Avg. daily screen time'), findsOneWidget);
     expect(find.text('CONTROLS'), findsOneWidget);
     expect(find.text('Focus'), findsWidgets);
 
