@@ -11,6 +11,7 @@ import '../../features/internet/internet_sites_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
 import '../../features/bedtime/bedtime_screen.dart';
 import '../../features/settings/settings_screen.dart';
+import '../../features/stats/app_stats_screen.dart';
 import '../../features/stats/screen_time_screen.dart';
 import '../../features/parental/parental_screen.dart';
 import 'morph_transition.dart';
@@ -29,6 +30,7 @@ abstract final class Routes {
   static const parental = '/parental';
   static const focusHistory = '/focus-history';
   static const screenTime = '/screen-time';
+  static const appStats = '/app-stats';
 
   // Tab-navigation direction state for the swipe transition. NavShell
   // writes these on every tab change; _tabRoute's transition reads them.
@@ -61,6 +63,7 @@ final appRouter = GoRouter(
     _detailRoute(Routes.restrictions,  RestrictionsScreen()),
     _detailRoute(Routes.focusHistory,  FocusHistoryScreen()),
     _detailRoute(Routes.screenTime,  ScreenTimeScreen()),
+    _detailRouteWithPackage(Routes.appStats, (pkg) => AppStatsScreen(packageName: pkg)),
     _detailRoute(Routes.internet,  InternetSitesScreen()),
     _detailRoute(Routes.notifications,  NotificationsScreen()),
     _detailRoute(Routes.parental,  ParentalScreen()),
@@ -93,6 +96,35 @@ GoRoute _detailRoute(String path, Widget child) {
       // duplicated inline rather than reused because MorphPage is a
       // PageRouteBuilder for imperative Navigator.push, not a go_router
       // Page; CustomTransitionPage is go_router's equivalent shape.
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeOutCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween(begin: 0.97, end: 1.0).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    ),
+  );
+}
+
+/// [Routes.appStats]-style detail route whose widget needs the package
+/// name from the `?pkg=` query param. The builder receives the package
+/// (or '' when absent).
+GoRoute _detailRouteWithPackage(String path, Widget Function(String pkg) builder) {
+  return GoRoute(
+    path: path,
+    pageBuilder: (context, state) => CustomTransitionPage(
+      key: state.pageKey,
+      child: builder(state.uri.queryParameters['pkg'] ?? ''),
+      transitionDuration: const Duration(milliseconds: 260),
+      reverseTransitionDuration: const Duration(milliseconds: 200),
       transitionsBuilder: (context, animation, secondaryAnimation, child) {
         final curved = CurvedAnimation(
           parent: animation,

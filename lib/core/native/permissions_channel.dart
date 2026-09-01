@@ -76,6 +76,19 @@ class NativePermissions {
     }
   }
 
+  /// Today's 24 per-hour foreground-second buckets for [packageName]
+  /// (index 0 = 00:00–00:59 … 23 = 23:00–23:59), from UsageEvents.
+  static Future<List<int>> fetchAppHourlyUsage(String packageName) async {
+    try {
+      final raw = await _channel.invokeMethod<String>('fetchAppHourlyUsage', packageName);
+      if (raw == null || raw.isEmpty) return List.filled(24, 0);
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return decoded.map((e) => (e as num).toInt()).toList();
+    } on PlatformException {
+      return List.filled(24, 0);
+    }
+  }
+
   /// Shows the system BiometricPrompt (or device credential fallback)
   /// and resolves true only on success. Used by Invincible Mode before
   /// restriction changes and by early-ending an invincible session.

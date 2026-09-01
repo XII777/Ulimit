@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/icons/app_icons.dart';
+import '../../core/router/app_router.dart';
 import '../../core/theme/premium_components.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/apps_repository.dart';
@@ -168,30 +170,33 @@ class _AppUsageList extends ConsumerWidget {
                 fontSize: AppText.overline, color: AppColors.inkFaint, letterSpacing: 0.6)),
         const SizedBox(height: 8),
         for (final entry in entries)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 9),
-            child: Row(
-              children: [
-                _PackageIcon(packageName: entry.key, catalog: catalog),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    catalog?.nameFor(entry.key) ?? entry.key,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 13.5, color: AppColors.ink),
+          GestureDetector(
+            onTap: () => context.push('${Routes.appStats}?pkg=${entry.key}'),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 9),
+              child: Row(
+                children: [
+                  _PackageIcon(packageName: entry.key, catalog: catalog),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      catalog?.nameFor(entry.key) ?? entry.key,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 13.5, color: AppColors.ink),
+                    ),
                   ),
-                ),
-                Text(
-                  _formatSeconds(entry.value),
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.inkDim,
-                    fontFeatures: const [FontFeature.tabularFigures()],
+                  Text(
+                    _formatSeconds(entry.value),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.inkDim,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
       ],

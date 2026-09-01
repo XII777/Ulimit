@@ -112,6 +112,9 @@ class MainActivity : FlutterFragmentActivity() {
                     "fetchDeviceUsageForDays" -> result.success(
                         fetchDeviceUsageForDays(call.arguments as? Int ?: 7)
                     )
+                    "fetchAppHourlyUsage" -> result.success(
+                        fetchAppHourlyUsage(call.arguments as? String ?: "")
+                    )
                     "exportData" -> result.success(exportData(call.arguments as? String ?: "{}"))
                     "importData" -> pendingImportResult = result
                     else -> result.notImplemented()
@@ -310,6 +313,61 @@ class MainActivity : FlutterFragmentActivity() {
             mode == android.app.AppOpsManager.MODE_ALLOWED
         } catch (_: Exception) {
             false
+        }
+    }
+
+    /**
+     * Today's per-hour foreground time for one app, as a JSON array of
+     * 24 hour-buckets (index 0 = 00:00–00:59 … 23 = 23:00–23:59) with
+     * each value in seconds. Uses UsageEvents (the raw event stream —
+     * the authoritative per-app foreground attribution) when granted.
+     */
+    private fun fetchAppHourlyUsage(packageName: String): String {
+        if (!isUsageAccessGranted() || packageName.isBlank()) return "[]"
+        return try {
+            val usm = getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
+            val now = java.util.Calendar.getInstance()
+            val dayStart = (now.clone() as java.util.Calendar).apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
+
+            val hourly = LongArray(24)
+            var lastEventAt: Long = 0
+            var lastEventWasTarget = false
+
+            val events = usm.queryEvents(dayStart, System.currentTimeMillis())
+            val event = android.app.usage.UsageEvents.Event()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                if (event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED ||
+                    event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED
+                ) {
+                    if (lastEventWasTarget && lastEventAt > 0) {
+                        val duration = (event.timeStamp - lastEventAt).coerceAtLeast(0)
+                        val hourIdx = (lastEventAt - dayStart) / (3600 * 1000L)
+                        if (hourIdx in 0..23) hourly[hourIdx.toInt()] += duration
+                    }
+                    lastEventAt = event.timeStamp
+                    lastEventWasTarget = event.packageName == packageName
+                }
+            }
+            // The app is still in the foreground right now: count it up
+            // to the current minute.
+            if (lastEventWasTarget && lastEventAt > 0) {
+                val idx = (lastEventAt - dayStart) / (3600 * 1000L)
+                if (idx in 0..23) {
+                    hourly[idx.toInt()] += (System.currentTimeMillis() - lastEventAt).coerceAtLeast(0)
+                }
+            }
+
+            val out = org.json.JSONArray()
+            for (h in 0 until 24) out.put(hourly[h] / 1000)
+            out.toString()
+        } catch (_: Exception) {
+            "[]"
         }
     }
 

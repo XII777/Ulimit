@@ -124,7 +124,7 @@ class LimitsScreen extends ConsumerWidget {
       subtitle: appName,
       initialSize: 0.75,
       builder: (_, scrollController) =>
-          _LimitEditorSheet(appName: appName, initialSeconds: initialSeconds, scrollController: scrollController),
+          LimitEditorSheet(appName: appName, initialSeconds: initialSeconds, scrollController: scrollController),
     );
     if (result == null || result <= 0) return;
     await ref.read(databaseProvider).setAppLimit(packageName, Duration(seconds: result));
@@ -328,7 +328,7 @@ class _AppLimitRow extends ConsumerWidget {
         title: 'Daily limit',
         subtitle: appName,
         initialSize: 0.75,
-        builder: (_, scrollController) => _LimitEditorSheet(
+        builder: (_, scrollController) => LimitEditorSheet(
             appName: appName, initialSeconds: view.limitSeconds, scrollController: scrollController),
       );
       if (seconds != null && seconds > 0) {
@@ -338,8 +338,8 @@ class _AppLimitRow extends ConsumerWidget {
   }
 }
 
-class _LimitEditorSheet extends StatefulWidget {
-  const _LimitEditorSheet({
+class LimitEditorSheet extends StatefulWidget {
+  const LimitEditorSheet({
     required this.appName,
     required this.initialSeconds,
     required this.scrollController,
@@ -349,10 +349,10 @@ class _LimitEditorSheet extends StatefulWidget {
   final ScrollController scrollController;
 
   @override
-  State<_LimitEditorSheet> createState() => _LimitEditorSheetState();
+  State<LimitEditorSheet> createState() => _LimitEditorSheetState();
 }
 
-class _LimitEditorSheetState extends State<_LimitEditorSheet> {
+class _LimitEditorSheetState extends State<LimitEditorSheet> {
   late double _minutes = widget.initialSeconds / 60.0;
 
   static const _presets = [15, 30, 45, 60, 90, 120, 180];
@@ -571,4 +571,40 @@ Future<int?> _promptGroupLimit(BuildContext context) {
       ),
     ),
   );
+}
+
+/// Public daily-limit editor (used from Limits and the per-app stats
+/// screen). Opens the limit sheet, then persists the chosen limit for
+/// [packageName] via setAppLimit.
+Future<void> showAppLimitEditor(
+  BuildContext context,
+  WidgetRef ref, {
+  required String packageName,
+  String appName = '',
+}) async {
+  final catalog = ref.read(appsCatalogProvider).valueOrNull;
+  final resolvedName = appName.isNotEmpty ? appName : (catalog?.nameFor(packageName) ?? packageName);
+  // Seed with the current limit so the slider starts there.
+  final current = ref.read(appLimitsProvider).valueOrNull
+      ?.firstWhere((l) => l.packageName == packageName, orElse: () => AppLimitView(
+            packageName: packageName,
+            limitSeconds: 0,
+            usedSeconds: 0,
+            enabled: false,
+          ));
+  final initial = (current?.enabled ?? false) ? (current?.limitSeconds ?? 0) : 30 * 60;
+
+  final result = await showAppSheet<int>(
+    context: context,
+    title: 'Daily limit',
+    subtitle: resolvedName,
+    initialSize: 0.75,
+    builder: (_, scrollController) => LimitEditorSheet(
+      appName: resolvedName,
+      initialSeconds: initial,
+      scrollController: scrollController,
+    ),
+  );
+  if (result == null || result <= 0) return;
+  await ref.read(databaseProvider).setAppLimit(packageName, Duration(seconds: result));
 }

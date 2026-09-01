@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/native/permissions_channel.dart';
 import 'db/app_database.dart';
 import 'db/tables.dart';
+import 'permissions_providers.dart';
 import 'usage_tracker.dart';
 
 /// Single DB instance for the app's lifetime. `keepAlive` so switching
@@ -325,6 +327,66 @@ final windowUsageByPackageProvider = StreamProvider<Map<String, int>>((ref) {
             if (r.packageName != 'com.ulimit.app') r.packageName: r.foregroundSeconds,
         },
       );
+});
+
+/// One app's per-day foreground seconds over the last 7 days,
+/// oldest→newest (len-7, day 0 = 6 days ago … day 6 = today). Feeds the
+/// per-app weekly usage chart.
+final appWeeklyUsageProvider =
+    StreamProvider.family<List<int>, String>((ref, packageName) {
+  final db = ref.watch(databaseProvider);
+  final today = startOfDay(DateTime.now());
+  final start = today.subtract(const Duration(days: 6));
+
+  final query = db.select(db.appUsage)
+    ..where((t) =>
+        t.day.isBiggerOrEqualValue(start) & t.packageName.equals(packageName));
+
+  return query.watch().map((rows) {
+    final byDay = {for (final r in rows) r.day: r.foregroundSeconds};
+    return List.generate(7, (i) {
+      final day = start.add(Duration(days: i));
+      return byDay[day] ?? 0;
+    });
+  });
+});
+
+/// One app's total seconds across the prior week (days 13→7 ago) —
+/// the "vs last week" delta baseline for the per-app weekly card.
+final appPreviousWeekUsageProvider =
+    StreamProvider.family<int, String>((ref, packageName) {
+  final db = ref.watch(databaseProvider);
+  final start = startOfDay(DateTime.now()).subtract(const Duration(days: 13));
+  final end = startOfDay(DateTime.now()).subtract(const Duration(days: 6));
+
+  final query = db.select(db.appUsage)
+    ..where((t) =>
+        t.day.isBiggerOrEqualValue(start) &
+        t.day.isSmallerThanValue(end) &
+        t.packageName.equals(packageName));
+
+  return query.watch().map(
+        (rows) => rows.fold(0, (sum, r) => sum + r.foregroundSeconds),
+      );
+});
+
+/// Today's per-app seconds for one package (excludes Ulimit).
+final appTodayUsageProvider = StreamProvider.family<int, String>((ref, packageName) {
+  final db = ref.watch(databaseProvider);
+  final today = startOfDay(DateTime.now());
+  final query = db.select(db.appUsage)
+    ..where((t) => t.day.equals(today) & t.packageName.equals(packageName));
+  return query.watch().map(
+        (rows) => rows.fold(0, (sum, r) => sum + r.foregroundSeconds),
+      );
+});
+
+/// Today's 24 per-hour foreground-second buckets for one app (native
+/// UsageEvents attribution). Index 0 = 00:00–00:59 … 23 = 23:00–23:59.
+final hourlyUsageProvider =
+    FutureProvider.family<List<int>, String>((ref, packageName) async {
+  ref.watch(permissionsRefreshTickProvider);
+  return NativePermissions.fetchAppHourlyUsage(packageName);
 });
 
 /// Last 7 days of completed-focus-session time, oldest first. Falls
