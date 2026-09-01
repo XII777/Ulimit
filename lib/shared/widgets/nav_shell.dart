@@ -96,6 +96,15 @@ class _NavShellState extends ConsumerState<NavShell> {
     return false;
   }
 
+  // True when the current location change was requested by a NAV-ITEM
+  // TAP rather than a swipe. Taps must JUMP to the target page directly
+  // — animateToPage slides through every intermediate tab, building and
+  // laying out each keep-alive screen's heavy subtree along the way
+  // (charts, 18 providers, collapsibles…), which is the multi-second
+  // freeze when crossing e.g. Home → Settings. Swipes keep the natural
+  // page-by-page behavior.
+  bool _jumpOnNextRouteChange = false;
+
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.path;
@@ -115,16 +124,27 @@ class _NavShellState extends ConsumerState<NavShell> {
       });
     } else if (routeIndex != _lastRouteIndex &&
         (!_pageController.hasClients || _pageController.page?.round() != routeIndex)) {
-      _pageController.animateToPage(
-        routeIndex,
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeOutCubic,
-      );
+      if (_jumpOnNextRouteChange) {
+        // Nav-item tap: direct jump — the page change is instant and no
+        // intermediate screen is ever built or laid out.
+        _pageController.jumpToPage(routeIndex);
+      } else {
+        // Swipe/route-driven: slide through pages naturally.
+        _pageController.animateToPage(
+          routeIndex,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOutCubic,
+        );
+      }
     }
+    _jumpOnNextRouteChange = false;
     _lastRouteIndex = routeIndex;
 
     void goToTab(int index) {
       if (index < 0 || index >= _tabs.length || index == routeIndex) return;
+      // Nav-item tap: mark the next route change as a JUMP so
+      // build() skips the slide-through-intermediates animation.
+      _jumpOnNextRouteChange = true;
       context.go(_tabs[index].$1);
     }
 

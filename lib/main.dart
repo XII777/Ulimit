@@ -14,6 +14,7 @@ import 'data/permissions_providers.dart';
 import 'data/providers.dart';
 import 'data/restriction_providers.dart';
 import 'data/usage_tracker.dart';
+import 'data/website_providers.dart';
 import 'features/onboarding/permissions_recovery_screen.dart';
 import 'features/onboarding/permissions_screen.dart';
 
@@ -105,6 +106,17 @@ class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserv
       ref.read(restrictionDecisionsProvider);
       ref.read(permissionsOnboardingCompletedProvider);
       ref.read(focusIndicatorEnabledProvider);
+      // Limits-tab data sources: the app_usage JOIN and the group
+      // queries are resolved at boot so the first Limits visit never
+      // pays their cold-start cost.
+      ref.read(appLimitsProvider);
+      ref.read(restrictionGroupsProvider);
+      // Manual/internet/website rule sets feed Restrictions, Internet
+      // and Notifications detail screens — warmed so those pushes are
+      // instant too.
+      ref.read(manualRestrictionsProvider);
+      ref.read(internetBlocksProvider);
+      ref.read(customWebsiteRulesProvider);
     });
   }
 
