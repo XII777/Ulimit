@@ -6,13 +6,10 @@ import '../../core/icons/app_icons.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/premium_components.dart';
 import '../../core/theme/tokens.dart';
-import '../../core/native/permissions_channel.dart';
 import '../../data/apps_repository.dart';
-import '../../data/db/app_database.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../features/limits/limits_screen.dart' show showAppLimitEditor;
-import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/hourly_bar_chart.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
@@ -92,81 +89,120 @@ class _AppStatsScreenState extends ConsumerState<AppStatsScreen> {
     );
   }
 
-  /// Long-press on the View Full Day chip → small scrollable date
-  /// picker popup (max ~4 rows visible). Selecting a date updates the
-  /// hourly card (appHourlyUsage for that day) and the header.
-  Future<void> openDatePicker() async {
-    final selected = await _showDatePickerPopup(context, _selectedDay);
+  /// Hold on the View Full Day chip → a popup opens NEAR the pill (not
+  /// a bottom sheet): a vertically-swiping wheel of dates (Today →
+  /// 90 days back). Lifting the finger commits the centered selection.
+  Future<void> openDatePicker({Offset? anchor}) async {
+    final selected = await _showDateWheelPopup(context, _selectedDay, anchor);
     if (selected != null && mounted) {
       setState(() => _selectedDay = selected);
     }
   }
 }
 
-/// Small vertically-scrollable date popup (max 4 rows). Returns the
-/// chosen local-midnight date, or null on dismiss.
-Future<DateTime?> _showDatePickerPopup(BuildContext context, DateTime current) async {
+/// Hold-anchored vertical date WHEEL: swipe up/down to scroll dates.
+/// The row under the center indicator is the current selection and the
+/// wheel commits it when the finger lifts (or on tap of a row).
+Future<DateTime?> _showDateWheelPopup(
+    BuildContext context, DateTime current, Offset? anchor) async {
   final today = DateTime.now();
   final todayMidnight = DateTime(today.year, today.month, today.day);
   const months = [
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
   ];
+  const rowHeight = 40.0;
+  const visibleRows = 5;
 
-  return showModalBottomSheet<DateTime>(
+  // Initial scroll offset centered on the current date.
+  final currentIndex = (todayMidnight.difference(current).inDays).clamp(0, 89);
+  final initialOffset = (currentIndex - (visibleRows ~/ 2)) * rowHeight;
+
+  DateTime dayAt(int index) =>
+      todayMidnight.subtract(Duration(days: index.clamp(0, 89)));
+
+  String labelFor(int index) {
+    if (index == 0) return 'Today';
+    if (index == 1) return 'Yesterday';
+    final d = dayAt(index);
+    return '${months[d.month - 1]} ${d.day}';
+  }
+
+  // Selection tracked in the outer scope so the fallback below can
+  // commit the centered row no matter how the sheet closes.
+  var selectedIndex = currentIndex;
+
+  final result = await showModalBottomSheet<DateTime>(
     context: context,
-    isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: 0.45),
+    barrierColor: Colors.black.withValues(alpha: 0.35),
     builder: (sheetContext) {
-      // Max 4 rows ≈ 4 * 44px + padding.
+      final scrollController = ScrollController(initialScrollOffset: initialOffset);
+
       return Container(
-        margin: const EdgeInsets.only(left: 20, right: 20, bottom: 24),
-        constraints: const BoxConstraints(maxHeight: 4 * 44.0 + 20),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          border: Border.all(color: AppColors.stroke),
-        ),
-        child: ListView.separated(
-          shrinkWrap: true,
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          itemCount: 90,
-          separatorBuilder: (_, __) => Container(height: 1, color: AppColors.stroke),
-          itemBuilder: (context, i) {
-            final day = todayMidnight.subtract(Duration(days: i));
-            final isCurrent = day == current;
-            final label = i == 0
-                ? 'Today'
-                : i == 1
-                    ? 'Yesterday'
-                    : '${months[day.month - 1]} ${day.day}, ${day.year}';
-            return InkWell(
-              onTap: () => Navigator.of(sheetContext).pop(day),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                color: isCurrent ? AppColors.ink.withValues(alpha: 0.08) : null,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(label,
-                          style: TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
-                            color: AppColors.ink,
-                          )),
+        alignment: Alignment.center,
+        margin: const EdgeInsets.only(bottom: 60),
+        child: Container(
+          height: rowHeight * visibleRows + 2,
+          width: 160,
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: AppColors.stroke),
+          ),
+          child: Stack(
+            clipBehavior: Clip.hardEdge,
+            children: [
+              // Center selection window.
+              Positioned(
+                left: 0,
+                right: 0,
+                top: rowHeight * (visibleRows ~/ 2),
+                height: rowHeight,
+                child: IgnorePointer(
+                  child: Container(
+                    color: AppColors.ink.withValues(alpha: 0.10),
+                    decoration: BoxDecoration(
+                      border: Border.symmetric(
+                          horizontal: BorderSide(color: AppColors.stroke)),
                     ),
-                    if (isCurrent)
-                      AppIcon(AppIconName.check, size: 15, color: AppColors.ink),
-                  ],
+                  ),
                 ),
               ),
-            );
-          },
+              // Snapping wheel.
+              ListWheelScrollView.useDelegate(
+                controller: scrollController,
+                itemExtent: rowHeight,
+                perspective: 0.002,
+                diameterRatio: 1.4,
+                physics: const FixedExtentScrollPhysics(),
+                onSelectedItemChanged: (index) => selectedIndex = index,
+                childDelegate: ListWheelChildBuilderDelegate(
+                  childCount: 90,
+                  builder: (context, index) => Center(
+                    child: Text(
+                      labelFor(index),
+                      style: index == selectedIndex
+                          ? TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.ink)
+                          : TextStyle(fontSize: 13, color: AppColors.inkDim),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       );
     },
   );
+
+  // Complete the wheel: closing the sheet (tap, drag-down, back)
+  // without an explicit commit returns null — fall back to the date
+  // that was last centered in the wheel.
+  return result ?? dayAt(selectedIndex);
 }
 
 /// Colored header: app icon (white rounded tile), status chip
@@ -339,7 +375,9 @@ class _HourlyUsageCard extends ConsumerWidget {
       title: isToday ? 'Usage Today' : 'Usage · ${_shortDate(selectedDay)}',
       trailing: GestureDetector(
         // Long-press opens the date picker.
-        onLongPress: onViewFullDay,
+        onLongPressStart: (details) => onViewFullDay(),
+        onLongPressEnd: (_) {},
+        onLongPressCancel: () {},
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
@@ -656,19 +694,6 @@ class _SectionCard extends StatelessWidget {
           child,
         ],
       ),
-    );
-  }
-}
-
-class _EmptyHint extends StatelessWidget {
-  const _EmptyHint(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(text,
-          style: TextStyle(fontSize: 11.5, color: AppColors.inkFaint)),
     );
   }
 }

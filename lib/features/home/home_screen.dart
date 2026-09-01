@@ -1,9 +1,7 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/constants/build_info.dart';
 import '../../core/engine/restriction_engine.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/router/app_router.dart';
@@ -16,7 +14,7 @@ import '../../data/permissions_providers.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_selector.dart';
-import '../../shared/widgets/app_sheet.dart';
+
 import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/rolling_number.dart';
 import '../../shared/widgets/spring_scroll.dart';
@@ -27,11 +25,9 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final weeklyUsage = ref.watch(weeklyScreenTimeHoursProvider);
     final weeklyFocusSeconds = ref.watch(weeklyFocusSecondsProvider);
     final weeklyFocusHours = ref.watch(weeklyFocusHoursByDayProvider);
     final weeklyPickups = ref.watch(weeklyPickupsProvider);
-    final screenTimeDelta = ref.watch(screenTimeDeltaProvider);
     final focusDelta = ref.watch(focusTimeDeltaProvider);
     final pickupsDelta = ref.watch(pickupsDeltaProvider);
     final decisions = ref.watch(restrictionDecisionsProvider);
@@ -64,8 +60,6 @@ class HomeScreen extends ConsumerWidget {
          PremiumSectionLabel('WEEKLY OVERVIEW'),
         const SizedBox(height: 10),
         _WeeklyTrendCard(
-          weeklyHours: weeklyUsage,
-          delta: screenTimeDelta,
           onTap: () => context.push(Routes.screenTime),
         ),
         const SizedBox(height: 10),
@@ -345,20 +339,27 @@ class _RestrictionLine extends StatelessWidget {
 
 class _WeeklyTrendCard extends ConsumerWidget {
   const _WeeklyTrendCard({
-    required this.weeklyHours,
-    required this.delta,
     this.onTap,
   });
 
-  final AsyncValue<List<double>> weeklyHours;
-  final TrendDelta delta;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final values = weeklyHours.valueOrNull;
-    final hasData = values != null && values.any((v) => v > 0);
-    final avg = hasData ? values.reduce((a, b) => a + b) / values.length : 0.0;
+    // TODAY's screen time (live): DB total + pending foreground window,
+    // plus the today's hourly buckets drawn as a LINE graph (not bars).
+    final todaySeconds = ref.watch(liveScreenTimeSecondsProvider).valueOrNull ?? 0;
+    final hourly = ref.watch(deviceHourlyUsageProvider).valueOrNull ?? const <int>[];
+    // The TrendAreaChart wants a series — feed it today's cumulative
+    // hourly values so the line rises through the day, peaking at the
+    // latest usage (0 → today's total).
+    final cumulative = <double>[];
+    var run = 0;
+    for (final h in hourly) {
+      run += h;
+      cumulative.add(run.toDouble());
+    }
+    final hasData = todaySeconds > 0 && cumulative.any((v) => v > 0);
     // Gate text reflects the actual state: data present → chart; no
     // data but tracking on → "will appear as you use the phone";
     // tracking off → the enable prompt.
@@ -376,22 +377,24 @@ class _WeeklyTrendCard extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Avg. daily screen time',
+              Text('Screen time today',
                   style: TextStyle(
                       fontSize: AppText.caption, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
-              if (delta.hasData) _DeltaLabel(delta: delta),
+              if (hasData) Text('Live',
+                  style: TextStyle(fontSize: 10.5, color: AppColors.inkFaint)),
             ],
           ),
           const SizedBox(height: 4),
           RollingNumber(
-            text: hasData
-                ? formatDurationShort(Duration(minutes: (avg * 60).round()))
+            text: hasData || todaySeconds > 0
+                ? formatDurationHMS(Duration(seconds: todaySeconds))
                 : 'No data yet',
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
           ),
           const SizedBox(height: 8),
           if (hasData)
-            TrendAreaChart(values: values, color: AppColors.ink, showAverageLine: false)
+            TrendAreaChart(
+                values: cumulative, color: AppColors.ink, showAverageLine: false, height: 84)
           else
             SizedBox(
               height: 84,
@@ -406,28 +409,17 @@ class _WeeklyTrendCard extends ConsumerWidget {
               ),
             ),
           const SizedBox(height: 4),
-          Row(
+          const Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              for (final l in _weekDayLabels()) _DayLabel(l),
+              _DayLabel('12 AM'), _DayLabel('4 AM'), _DayLabel('8 AM'), _DayLabel('12 PM'),
+              _DayLabel('4 PM'), _DayLabel('8 PM'), _DayLabel('12 AM'),
             ],
           ),
         ],
         ),
       ),
     ));
-  }
-
-  /// The 7-day window (today-6 … today) as weekday letters, derived
-  /// from the real dates so the rightmost label is always the present
-  /// day and follows the clock automatically.
-  static List<String> _weekDayLabels() {
-    final now = DateTime.now();
-    final start = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
-    const letters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-    return [
-      for (var i = 0; i < 7; i++) letters[start.add(Duration(days: i)).weekday - 1],
-    ];
   }
 }
 
