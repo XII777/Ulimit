@@ -46,13 +46,15 @@ class _PermissionsScreenState extends ConsumerState<PermissionsScreen>
   Widget build(BuildContext context) {
     final permissions = ref.watch(allPermissionsProvider);
 
-    // Biometric and Usage Access are optional (see design) — required
-    // count excludes them.
-    const notRequired = {
-      PermissionKind.biometric,
-      PermissionKind.deviceAdmin,
-      PermissionKind.usageAccess,
-    };
+    // Biometric and Device Admin are optional (see design) — required
+    // count excludes them. Usage Access is required: it feeds the exact
+    // per-app screen time the dashboard charts need.
+    const notRequired = {PermissionKind.biometric, PermissionKind.deviceAdmin};
+    // Onboarding shows only these — Biometrics + VPN & Network are
+    // managed from Settings (user request).
+    const hiddenInOnboarding = {PermissionKind.biometric, PermissionKind.vpn};
+    final shownPermissions =
+        permissions.where((p) => !hiddenInOnboarding.contains(p.kind)).toList();
     final required = permissions.where((p) => !notRequired.contains(p.kind));
     final grantedCount = required.where((p) => p.granted).length;
     final requiredTotal = required.length;
@@ -91,9 +93,13 @@ class _PermissionsScreenState extends ConsumerState<PermissionsScreen>
               const SizedBox(height: 20),
               Expanded(
                 child: ListView.separated(
-                  itemCount: permissions.length,
+                  // Biometrics and VPN & Network are not shown during
+                  // onboarding (user request): their cards belong in
+                  // Settings instead. Onboarding shows Accessibility,
+                  // Device Admin, Notification access, Usage access.
+                  itemCount: shownPermissions.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, i) => _PermissionCard(status: permissions[i]),
+                  itemBuilder: (context, i) => _PermissionCard(status: shownPermissions[i]),
                 ),
               ),
               const SizedBox(height: 12),

@@ -12,6 +12,7 @@ import '../../core/theme/premium_components.dart';
 import '../../data/apps_repository.dart';
 import '../../data/focus_providers.dart';
 import '../../data/home_data_providers.dart';
+import '../../data/permissions_providers.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_selector.dart';
@@ -62,16 +63,18 @@ class HomeScreen extends ConsumerWidget {
 
          PremiumSectionLabel("TODAY'S OVERVIEW"),
         const SizedBox(height: 10),
-        _AverageDailyCard(),
-        const SizedBox(height: 10),
-        _WeeklyTrendCard(weeklyHours: weeklyUsage, delta: screenTimeDelta),
+        _WeeklyTrendCard(
+          weeklyHours: weeklyUsage,
+          delta: screenTimeDelta,
+          onTap: () => context.push(Routes.screenTime),
+        ),
         const SizedBox(height: 10),
         Row(
           children: [
             Expanded(
               child: _MiniTrendCard(
                 label: 'Focus Time',
-                valueText: _formatFocusTotal(weeklyFocusSeconds.valueOrNull),
+                valueText: _formatFocusAvg(weeklyFocusSeconds.valueOrNull),
                 values: weeklyFocusHours.valueOrNull ?? const [0, 0, 0, 0, 0, 0, 0],
                 delta: focusDelta,
               ),
@@ -98,9 +101,11 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  String _formatFocusTotal(int? seconds) {
+  String _formatFocusAvg(int? seconds) {
     if (seconds == null || seconds == 0) return '0m';
-    return formatDurationHMS(Duration(seconds: seconds));
+    // Weekly average: total ÷ 7 days (matching the "Avg. daily" card).
+    final avgSeconds = (seconds / 7).round();
+    return formatDurationHMS(Duration(seconds: avgSeconds));
   }
 
   String _formatPickupsAvg(List<int>? days) {
@@ -251,60 +256,6 @@ class _FocusTimeCard extends ConsumerWidget {
   }
 }
 
-/// Average daily screen time = total across the 7-day window ÷ days.
-class _AverageDailyCard extends ConsumerWidget {
-   _AverageDailyCard();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final week = ref.watch(weeklyScreenTimeProvider).valueOrNull ?? const [];
-    final totalSeconds = week.fold<int>(0, (sum, d) => sum + d.inSeconds);
-    final days = week.isEmpty ? 1 : week.length;
-    final avg = Duration(seconds: (totalSeconds / days).round());
-
-    return RepaintBoundary(child: PremiumCard(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AppColors.surface2,
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-            ),
-            child: AppIcon(AppIconName.chart, size: 17, color: AppColors.ink),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Average daily screen time',
-                    style: TextStyle(
-                        fontSize: AppText.caption,
-                        color: AppColors.inkDim,
-                        fontWeight: FontWeight.w600)),
-                const SizedBox(height: 2),
-                RollingNumber(
-                  text: formatDurationHMS(avg),
-                  style: TextStyle(
-                      fontSize: 19,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.ink,
-                      fontFeatures: const [FontFeature.tabularFigures()]),
-                ),
-              ],
-            ),
-          ),
-        ],
-        ),
-      ),
-    );
-  }
-}
-
 /// Compact list of what's actually blocked right now, with the honest
 /// "until" from the engine (null → permanent).
 class _ActiveRestrictions extends ConsumerWidget {
@@ -392,18 +343,32 @@ class _RestrictionLine extends StatelessWidget {
   }
 }
 
-class _WeeklyTrendCard extends StatelessWidget {
-  const _WeeklyTrendCard({required this.weeklyHours, required this.delta});
+class _WeeklyTrendCard extends ConsumerWidget {
+  const _WeeklyTrendCard({
+    required this.weeklyHours,
+    required this.delta,
+    this.onTap,
+  });
+
   final AsyncValue<List<double>> weeklyHours;
   final TrendDelta delta;
+  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final values = weeklyHours.valueOrNull;
     final hasData = values != null && values.any((v) => v > 0);
     final avg = hasData ? values.reduce((a, b) => a + b) / values.length : 0.0;
+    // Gate text reflects the actual state: data present → chart; no
+    // data but tracking on → "will appear as you use the phone";
+    // tracking off → the enable prompt.
+    final accessibilityOn =
+        ref.watch(accessibilityEnabledProvider).valueOrNull ?? false;
+    final usageOn = ref.watch(usageAccessGrantedProvider).valueOrNull ?? false;
 
-    return RepaintBoundary(child: PremiumCard(
+    return RepaintBoundary(child: PressableScale(
+      onTap: onTap,
+      child: PremiumCard(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -430,7 +395,9 @@ class _WeeklyTrendCard extends StatelessWidget {
               height: 84,
               child: Center(
                 child: Text(
-                  'Enable Accessibility access to start tracking',
+                  (accessibilityOn || usageOn)
+                      ? 'Charts appear as your usage builds up'
+                      : 'Enable Accessibility access to start tracking',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: AppText.caption, color: AppColors.inkFaint),
                 ),
@@ -447,7 +414,7 @@ class _WeeklyTrendCard extends StatelessWidget {
         ],
         ),
       ),
-    );
+    ));
   }
 }
 

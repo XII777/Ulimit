@@ -308,6 +308,25 @@ final weeklyScreenTimeProvider = StreamProvider<List<Duration>>((ref) {
       );
 });
 
+/// Per-package usage aggregated across the last 7 days (today + 6
+/// back) — the Screen Time detail page's "Last 7 days" window. Mirrors
+/// todayUsageByPackageProvider's shape so the same row widgets consume
+/// either window.
+final windowUsageByPackageProvider = StreamProvider<Map<String, int>>((ref) {
+  final db = ref.watch(databaseProvider);
+  final today = startOfDay(DateTime.now());
+  final start = today.subtract(const Duration(days: 6));
+
+  final query = db.select(db.appUsage)..where((t) => t.day.isBiggerOrEqualValue(start));
+
+  return query.watch().map(
+        (rows) => {
+          for (final r in rows)
+            if (r.packageName != 'com.ulimit.app') r.packageName: r.foregroundSeconds,
+        },
+      );
+});
+
 /// Last 7 days of completed-focus-session time, oldest first. Falls
 /// back to `plannedSeconds` for a session with no `endedAt` yet (in
 /// progress) so an active session doesn't read as zero minutes.

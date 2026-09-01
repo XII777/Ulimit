@@ -57,7 +57,6 @@ class _PermissionsRecoveryScreenState extends ConsumerState<PermissionsRecoveryS
     const notRequired = {
       PermissionKind.biometric,
       PermissionKind.deviceAdmin,
-      PermissionKind.usageAccess,
     };
     final missing = permissions
         .where((p) => !notRequired.contains(p.kind) && !p.granted)

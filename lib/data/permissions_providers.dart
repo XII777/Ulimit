@@ -119,10 +119,10 @@ final allPermissionsProvider = Provider<List<PermissionStatus>>((ref) {
 /// It's offered again, properly, from Parental & Lock.
 final requiredPermissionsGrantedProvider = Provider<bool>((ref) {
   final all = ref.watch(allPermissionsProvider);
-  const notRequired = {
-    PermissionKind.biometric,
-    PermissionKind.deviceAdmin,
-    PermissionKind.usageAccess,
-  };
+  // Biometrics is genuinely optional; Device Admin is offered (not
+  // required) so onboarding never blocks on a device-admin prompt.
+  // Usage access is REQUIRED now — it feeds the exact per-app screen
+  // time the dashboard graphs need.
+  const notRequired = {PermissionKind.biometric, PermissionKind.deviceAdmin};
   return all.where((p) => !notRequired.contains(p.kind)).every((p) => p.granted);
 });
