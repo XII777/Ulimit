@@ -215,14 +215,18 @@ final liveFocusSecondsTodayProvider = StreamProvider<int>((ref) {
   final db = ref.watch(databaseProvider);
   final start = startOfDay(DateTime.now());
 
-  Future<int> compute() async {
+  // One-shot query: total focus time for all COMPLETED/aged sessions
+  // today. Runs ONCE per session change, not once per second — the
+  // per-second part below is pure arithmetic on the running row.
+  Future<int> totalFromDb() async {
     try {
       final sessions = await (db.select(db.focusSessions)
             ..where((t) => t.startedAt.isBiggerOrEqualValue(start)))
           .get();
-      final now = DateTime.now();
       var total = 0;
+      final now = DateTime.now();
       for (final s in sessions) {
+        if (FocusClock.isUntimed(s) && s.endedAt == null) continue;
         total += FocusClock.elapsedSeconds(s, s.endedAt ?? now);
       }
       return total;
@@ -231,18 +235,26 @@ final liveFocusSecondsTodayProvider = StreamProvider<int>((ref) {
     }
   }
 
-  // While a session runs: tick every second. Without one: a static
-  // value that still refreshes on session changes (the watch above
-  // rebuilds this provider on start/end).
+  // While a session runs: query the settled total ONCE, then tick with
+  // pure arithmetic (row elapsed + wall clock) instead of a DB query
+  // per second. Without a session: a static value that still refreshes
+  // on session changes (the watch above rebuilds on start/end).
   if (session == null) {
-    return Stream.fromFuture(compute());
+    return Stream.fromFuture(totalFromDb());
   }
-  return _liveFocusStream(compute);
+  return _liveFocusStream(session, totalFromDb);
 });
 
-Stream<int> _liveFocusStream(Future<int> Function() compute) async* {
-  yield await compute();
+/// Live focus ticker: settled-total (one DB read) + running-session
+/// elapsed time computed per tick. The DB is never touched per second.
+Stream<int> _liveFocusStream(FocusSession session, Future<int> Function() settledTotal) async* {
+  final settled = await settledTotal();
+  // Subtract the running row's *settled* contribution so it's not
+  // double-counted: elapsedSeconds(row, now) is computed fresh below.
+  final rowElapsedAtQuery = FocusClock.elapsedSeconds(session, DateTime.now());
+  final base = (settled - rowElapsedAtQuery).clamp(0, 1 << 30);
+  yield base + rowElapsedAtQuery;
   await for (final _ in Stream<void>.periodic(const Duration(seconds: 1))) {
-    yield await compute();
+    yield base + FocusClock.elapsedSeconds(session, DateTime.now());
   }
 }

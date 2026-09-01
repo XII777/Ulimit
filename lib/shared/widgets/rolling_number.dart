@@ -26,10 +26,41 @@ class RollingNumber extends StatefulWidget {
 class _RollingNumberState extends State<RollingNumber> {
   String? _previousText;
 
+  // Cache the slot-height measurement: TextPainter.layout() costs a font
+  // resolution pass and this widget rebuilds every SECOND on live
+  // counters. The style (and its merged DefaultTextStyle) only changes
+  // on theme/text-scale changes, so measure once and reuse.
+  double? _cachedSlotHeight;
+  TextStyle? _measuredStyle;
+  TextScaler? _measuredScaler;
+
   @override
   void didUpdateWidget(RollingNumber old) {
     super.didUpdateWidget(old);
     if (old.text != widget.text) _previousText = old.text;
+    if (old.style != widget.style) _cachedSlotHeight = null;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Any inherited change (DefaultTextStyle, text scaler) invalidates.
+    _cachedSlotHeight = null;
+  }
+
+  double _slotHeight(BuildContext context, TextScaler textScaler) {
+    final cached = _cachedSlotHeight;
+    if (cached != null && textScaler == _measuredScaler) return cached;
+
+    final effectiveStyle = DefaultTextStyle.of(context).style.merge(widget.style);
+    final painter = TextPainter(
+      text: TextSpan(text: '0', style: effectiveStyle),
+      textDirection: TextDirection.ltr,
+      textScaler: textScaler,
+    )..layout();
+    _cachedSlotHeight = painter.height;
+    _measuredScaler = textScaler;
+    return painter.height;
   }
 
   @override
@@ -37,24 +68,8 @@ class _RollingNumberState extends State<RollingNumber> {
     final current = widget.text;
     final previous = _previousText;
     final sameLength = previous != null && previous.length == current.length;
-
-    // Measure the actual rendered line height of one glyph in the
-    // given style (Inter bold 16px + tabularFigures, etc.). The old
-    // fontSize * 1.5 heuristic was too short for Inter's metrics,
-    // causing ClipRect to cut off the top and bottom of digits.
-    //
-    // The style must be merged with the ambient DefaultTextStyle —
-    // exactly like the Text widget does at render time — so the
-    // measurement reflects the real font (Inter from the app theme),
-    // not just the explicit fontSize/weight passed in.
     final textScaler = MediaQuery.textScalerOf(context);
-    final effectiveStyle = DefaultTextStyle.of(context).style.merge(widget.style);
-    final painter = TextPainter(
-      text: TextSpan(text: '0', style: effectiveStyle),
-      textDirection: TextDirection.ltr,
-      textScaler: textScaler,
-    )..layout();
-    final slotHeight = painter.height;
+    final slotHeight = _slotHeight(context, textScaler);
 
     return Row(
       mainAxisSize: MainAxisSize.min,

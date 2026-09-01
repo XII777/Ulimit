@@ -203,6 +203,54 @@ final todayUsageByPackageProvider = StreamProvider<Map<String, int>>((ref) {
       );
 });
 
+/// Debounced mirror of [todayUsageByPackageProvider] for UI consumers.
+///
+/// The raw usage stream emits on every tracked app switch (each
+/// foreground upsert) — cheap for a number, but the restriction engine
+/// re-evaluates ALL policy state in response, and on low-end hardware
+/// that per-switch burst is the stutter. A limit crossing is
+/// minute-granularity logic; 2s of coalescing is invisible: a burst of
+/// 10 switches → ONE engine evaluation, not 10. The first emission
+/// passes through immediately (cold start never waits), every later one
+/// is coalesced.
+final todayUsageByPackageDebouncedProvider =
+    StreamProvider<Map<String, int>>((ref) {
+  final raw = ref.watch(todayUsageByPackageProvider.stream);
+  late final StreamController<Map<String, int>> controller;
+  Timer? debounce;
+  Map<String, int>? latest;
+  var first = true;
+
+  controller = StreamController<Map<String, int>>(
+    onListen: () {
+      final sub = raw.listen((usage) {
+        latest = usage;
+        if (first) {
+          // Leading edge: the app must show truth immediately.
+          first = false;
+          debounce?.cancel();
+          controller.add(usage);
+          return;
+        }
+        // Trailing coalesce: restart the 2s quiet-window timer; emit
+        // only when the stream has been still for 2 seconds.
+        debounce?.cancel();
+        debounce = Timer(const Duration(seconds: 2), () {
+          if (!controller.isClosed && latest != null) controller.add(latest!);
+        });
+      });
+      sub.onError((_) {});
+      sub.onDone(() => controller.close());
+      ref.onDispose(() {
+        debounce?.cancel();
+        controller.close();
+      });
+    },
+    onCancel: () => debounce?.cancel(),
+  );
+  return controller.stream;
+});
+
 /// Last 7 days of total foreground time, oldest first — feeds Home's
 /// weekly trend chart. One bucket pass instead of 7 separate day lookups.
 final weeklyScreenTimeProvider = StreamProvider<List<Duration>>((ref) {

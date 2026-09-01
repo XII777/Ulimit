@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/engine/restriction_engine.dart';
 import '../core/native/enforcement_channel.dart';
 import 'db/app_database.dart';
-import 'db/tables.dart';
 import 'focus_providers.dart';
 import 'providers.dart';
 import 'website_providers.dart';
@@ -162,7 +161,7 @@ final restrictionDecisionsProvider = Provider<Map<String, AppDecision>>((ref) {
   ref.watch(evaluationTickProvider);
 
   final manual = ref.watch(manualRestrictionsProvider).valueOrNull ?? const [];
-  final usage = ref.watch(todayUsageByPackageProvider).valueOrNull ?? const {};
+  final usage = ref.watch(todayUsageByPackageDebouncedProvider).valueOrNull ?? const {};
   final limits = ref.watch(appLimitsProvider).valueOrNull ?? const [];
   final groups = ref.watch(restrictionGroupsProvider).valueOrNull ?? const [];
   final focus = ref.watch(activeFocusSessionProvider).valueOrNull;
