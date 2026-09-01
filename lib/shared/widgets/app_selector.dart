@@ -6,12 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/icons/app_icons.dart';
 import '../../core/theme/tokens.dart';
-import 'app_card_palette.dart';
 import 'app_sheet.dart';
 import '../../core/native/enforcement_channel.dart' show InstalledApp;
 import '../../data/apps_repository.dart';
 import '../../data/providers.dart';
-import 'pressable_scale.dart';
 import 'spring_scroll.dart';
 
 /// Cached app icon: decodes the native PNG bytes once per package. A
@@ -164,29 +162,21 @@ class _AppSelectorSheetState extends ConsumerState<_AppSelectorSheet> {
                       style: TextStyle(color: AppColors.inkFaint, fontSize: 12.5)),
                 );
               }
-              return GridView.builder(
+              return ListView.builder(
                 controller: widget.scrollController,
                 physics: springScrollPhysics,
                 shrinkWrap: true,
-                // 2 columns on normal phone widths; the sheet's width
-                // is the screen width, so maxExtent keeps 2 per row
-                // across common Android sizes.
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 220,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 0.78,
-                ),
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                padding: const EdgeInsets.only(bottom: 24),
                 itemCount: apps.length,
                 itemBuilder: (context, i) {
                   final app = apps[i];
                   final isSelected = _selected.contains(app.packageName);
                   final used = usage[app.packageName] ?? 0;
-                  return _AppCard(
+                  return _AppRow(
                     app: app,
                     usageText: used > 0 ? _formatMinutes(used ~/ 60) : null,
                     selected: widget.multiSelect && isSelected,
+                    trailing: widget.multiSelect ? _CheckDot(active: isSelected) : null,
                     onTap: () {
                       if (!widget.multiSelect) {
                         Navigator.of(context).pop(app.packageName);
@@ -238,201 +228,73 @@ String _formatMinutes(int minutes) {
   return h > 0 ? '${h}h ${m}m' : '${m}m';
 }
 
-/// Premium app tile: the icon's dominant color expanded into a solid,
-/// rounded card. Icon near the top, name below, usage as supporting
-/// line, selected state as a corner check. Matte (no border), no
-/// gradient, minimal shadow — the color IS the identity.
-class _AppCard extends ConsumerWidget {
-  const _AppCard({
+class _AppRow extends StatelessWidget {
+  const _AppRow({
     required this.app,
     required this.selected,
     this.usageText,
+    this.trailing,
     this.onTap,
   });
 
   final InstalledApp app;
-  final bool selected;
   final String? usageText;
+  final bool selected;
+  final Widget? trailing;
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final icon = ref.watch(appIconProvider(app.packageName));
-
-    // Color extraction is cached per package; only the first card build
-    // pays the decode cost. The card renders in the fallback mono tone
-    // while the extraction is in flight so there's never a white flash.
-    final paletteFuture = AppCardPalette.colorFor(app.packageName, app.iconBytes);
-
-    return PressableScale(
+  Widget build(BuildContext context) {
+    return InkWell(
       onTap: onTap,
-      child: FutureBuilder<AppCardColor>(
-        future: paletteFuture,
-        builder: (context, snapshot) {
-          final palette = snapshot.data ?? AppCardColor.fallback();
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              // Icon size scales with card width: ~38% of card width,
-              // clamped to a comfortable 52–72px band.
-              final iconSize = (constraints.maxWidth * 0.38).clamp(52.0, 72.0);
-              return Container(
-                decoration: BoxDecoration(
-                  // Dominant color at the top, shading gently darker at
-                  // the bottom — a depth cue, never a different hue.
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [palette.background, palette.bottom],
-                  ),
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                  boxShadow: [
-                    // Very subtle depth — the solid color is the
-                    // dominant element, never a floating card illusion.
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.10),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        child: Row(
+          children: [
+            AppIconView(packageName: app.packageName),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(app.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 14, color: AppColors.ink)),
+                  if (usageText != null) ...[
+                    const SizedBox(height: 1),
+                    Text('Used $usageText today',
+                        style: TextStyle(fontSize: 11, color: AppColors.inkFaint)),
                   ],
-                ),
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    if (selected)
-                      Positioned(
-                        top: 10,
-                        right: 10,
-                        child: Container(
-                          width: 22,
-                          height: 22,
-                          decoration: BoxDecoration(
-                            color: palette.text,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(Icons.check_rounded,
-                              size: 14, color: palette.background),
-                        ),
-                      ),
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(
-                            height: iconSize * 1.4,
-                            child: Center(
-                              child: Hero(
-                                tag: 'app-icon-${app.packageName}',
-                                child: _CardIcon(
-                                  packageName: app.packageName,
-                                  bytes: app.iconBytes,
-                                  icon: icon,
-                                  size: iconSize,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            app.displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: palette.text,
-                              letterSpacing: 0.1,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            usageText == null ? 'No usage yet' : '$usageText today',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              color: palette.text.withValues(alpha: 0.78),
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          );
-        },
+                ],
+              ),
+            ),
+            if (trailing != null) trailing!,
+          ],
+        ),
       ),
     );
   }
 }
 
-/// The card's icon: original artwork, never recolored, on a white
-/// rounded tile so it always stays legible against any card color.
-class _CardIcon extends StatelessWidget {
-  const _CardIcon({
-    required this.packageName,
-    required this.icon,
-    required this.size,
-    this.bytes,
-  });
-
-  final String packageName;
-  final AsyncValue<Uint8List?> icon;
-  final double size;
-  final Uint8List? bytes;
+class _CheckDot extends StatelessWidget {
+  const _CheckDot({required this.active});
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
-    final iconBytes = bytes ?? (icon.valueOrNull);
-    // The icon artwork itself in rounded corners — no tile, no border.
-    // A soft downward shadow separates it from the card background.
-    return Container(
-      width: size,
-      height: size,
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      width: 20,
+      height: 20,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(size * 0.22),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.28),
-            blurRadius: size * 0.22,
-            offset: Offset(0, size * 0.10),
-          ),
-        ],
+        color: active ? AppColors.ink : Colors.transparent,
+        shape: BoxShape.circle,
+        border: Border.all(color: active ? AppColors.ink : AppColors.inkFaint, width: 1.4),
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(size * 0.22),
-        child: SizedBox(
-          width: size,
-          height: size,
-          child: icon.when(
-            data: (b) {
-              final effective = b ?? iconBytes;
-              return effective == null
-                  ? _FallbackLetter(packageName: packageName, size: size)
-                  : Image.memory(
-                      effective,
-                      width: size,
-                      height: size,
-                      fit: BoxFit.cover,
-                      gaplessPlayback: true,
-                    );
-            },
-            loading: () => iconBytes == null
-                ? const SizedBox.shrink()
-                : Image.memory(
-                    iconBytes!,
-                    width: size,
-                    height: size,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                  ),
-            error: (_, __) => _FallbackLetter(packageName: packageName, size: size),
-          ),
-        ),
-      ),
+      child: active
+          ? Icon(Icons.check_rounded, size: 13, color: AppColors.bg)
+          : const SizedBox.shrink(),
     );
   }
 }
