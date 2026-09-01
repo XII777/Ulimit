@@ -396,6 +396,13 @@ final hourlyUsageProvider =
   return NativePermissions.fetchAppHourlyUsage(packageName);
 });
 
+/// Today's device-wide per-hour foreground buckets (all apps summed,
+/// Ulimit + launcher excluded) — the Screen Time "Today" hourly bars.
+final deviceHourlyUsageProvider = FutureProvider<List<int>>((ref) async {
+  ref.watch(permissionsRefreshTickProvider);
+  return NativePermissions.fetchDeviceHourlyUsage();
+});
+
 /// Last 7 days of completed-focus-session time, oldest first. Falls
 /// back to `plannedSeconds` for a session with no `endedAt` yet (in
 /// progress) so an active session doesn't read as zero minutes.

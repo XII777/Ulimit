@@ -115,6 +115,7 @@ class MainActivity : FlutterFragmentActivity() {
                     "fetchAppHourlyUsage" -> result.success(
                         fetchAppHourlyUsage(call.arguments as? String ?: "")
                     )
+                    "fetchDeviceHourlyUsage" -> result.success(fetchDeviceHourlyUsage())
                     "exportData" -> result.success(exportData(call.arguments as? String ?: "{}"))
                     "importData" -> pendingImportResult = result
                     else -> result.notImplemented()
@@ -357,6 +358,64 @@ class MainActivity : FlutterFragmentActivity() {
             // The app is still in the foreground right now: count it up
             // to the current minute.
             if (lastEventWasTarget && lastEventAt > 0) {
+                val idx = (lastEventAt - dayStart) / (3600 * 1000L)
+                if (idx in 0..23) {
+                    hourly[idx.toInt()] += (System.currentTimeMillis() - lastEventAt).coerceAtLeast(0)
+                }
+            }
+
+            val out = org.json.JSONArray()
+            for (h in 0 until 24) out.put(hourly[h] / 1000)
+            out.toString()
+        } catch (_: Exception) {
+            "[]"
+        }
+    }
+
+    /**
+     * Today's device-wide per-hour foreground time (all apps summed,
+     * excluding this app and the launcher), as int[24] in seconds.
+     * Same UsageEvents attribution as [fetchAppHourlyUsage] but without
+     * the package filter — feeds the Screen Time "Today" hourly bars.
+     */
+    private fun fetchDeviceHourlyUsage(): String {
+        if (!isUsageAccessGranted()) return "[]"
+        return try {
+            val usm = getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
+            val now = java.util.Calendar.getInstance()
+            val dayStart = (now.clone() as java.util.Calendar).apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
+
+            val hourly = LongArray(24)
+            var lastEventAt: Long = 0
+            var lastEventWasTracked = false
+
+            val events = usm.queryEvents(dayStart, System.currentTimeMillis())
+            val event = android.app.usage.UsageEvents.Event()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                if (event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED ||
+                    event.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED
+                ) {
+                    if (lastEventWasTracked && lastEventAt > 0) {
+                        val duration = (event.timeStamp - lastEventAt).coerceAtLeast(0)
+                        val hourIdx = (lastEventAt - dayStart) / (3600 * 1000L)
+                        if (hourIdx in 0..23) hourly[hourIdx.toInt()] += duration
+                    }
+                    lastEventAt = event.timeStamp
+                    // Skip Ulimit's own foreground (not "screen time")
+                    // and the launcher (system surface).
+                    lastEventWasTracked =
+                        event.packageName != packageName &&
+                        event.packageName != "com.android.launcher" &&
+                        event.packageName != "com.google.android.apps.nexuslauncher"
+                }
+            }
+            if (lastEventWasTracked && lastEventAt > 0) {
                 val idx = (lastEventAt - dayStart) / (3600 * 1000L)
                 if (idx in 0..23) {
                     hourly[idx.toInt()] += (System.currentTimeMillis() - lastEventAt).coerceAtLeast(0)

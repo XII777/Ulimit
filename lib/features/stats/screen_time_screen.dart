@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/icons/app_icons.dart';
+import '../../core/engine/restriction_engine.dart' show formatDurationHMS;
 import '../../core/router/app_router.dart';
 import '../../core/theme/premium_components.dart';
 import '../../core/theme/tokens.dart';
@@ -30,6 +31,18 @@ class _ScreenTimeScreenState extends ConsumerState<ScreenTimeScreen> {
   Widget build(BuildContext context) {
     final weekly = ref.watch(weeklyScreenTimeProvider);
     final weeklyHours = ref.watch(weeklyScreenTimeHoursProvider).valueOrNull ?? const [0, 0, 0, 0, 0, 0, 0];
+
+    // The window runs [today-6 … today]: the LAST column is always the
+    // present day, so the labels must reflect the actual dates.
+    final today = DateTime.now();
+    final windowStart = DateTime(today.year, today.month, today.day).subtract(const Duration(days: 6));
+    final dayLabels = List.generate(7, (i) {
+      final d = windowStart.add(Duration(days: i));
+      // Sunday → 'S', Monday → 'M' … single-letter, derived from the
+      // real weekday so the label track follows the data automatically.
+      const letters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+      return letters[d.weekday - 1];
+    });
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -60,35 +73,39 @@ class _ScreenTimeScreenState extends ConsumerState<ScreenTimeScreen> {
           ),
           const SizedBox(height: 18),
 
-          // Weekly trend graph
-          PremiumCard(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('7-day screen time',
-                    style: TextStyle(
-                        fontSize: AppText.caption,
-                        color: AppColors.inkDim,
-                        fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                Text(
-                  _weeklyTotalLabel(weekly.valueOrNull),
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
+          // Top card mirrors the filter: Today → today's total + hour
+          // bars; Last 7 days → the weekly trend + dynamic day labels.
+          _todayOnly
+              ? _TodayPanel()
+              : PremiumCard(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('7-day screen time',
+                          style: TextStyle(
+                              fontSize: AppText.caption,
+                              color: AppColors.inkDim,
+                              fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 4),
+                      Text(
+                        _weeklyTotalLabel(weekly.valueOrNull),
+                        style:
+                            TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
+                      ),
+                      const SizedBox(height: 8),
+                      TrendAreaChart(
+                          values: weeklyHours, color: AppColors.ink, showAverageLine: true),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          for (final l in dayLabels) _DayLabel(l),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 8),
-                TrendAreaChart(values: weeklyHours, color: AppColors.ink, showAverageLine: true),
-                const SizedBox(height: 4),
-                const Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _DayLabel('M'), _DayLabel('T'), _DayLabel('W'), _DayLabel('T'),
-                    _DayLabel('F'), _DayLabel('S'), _DayLabel('S'),
-                  ],
-                ),
-              ],
-            ),
-          ),
           const SizedBox(height: 18),
 
           // Per-app usage list for the selected window
@@ -247,5 +264,107 @@ class _DayLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(text,
         style: TextStyle(fontSize: 10, color: AppColors.inkFaint, fontWeight: FontWeight.w600));
+  }
+}
+
+/// "Today" filter top panel: today's total + device-wide hourly bars.
+class _TodayPanel extends ConsumerWidget {
+  const _TodayPanel();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final todaySeconds = ref.watch(todayScreenTimeProvider).valueOrNull?.inSeconds ?? 0;
+    final hourly = ref.watch(deviceHourlyUsageProvider).valueOrNull ?? const <int>[];
+    final anyData = hourly.any((v) => v > 0);
+
+    return PremiumCard(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Today',
+              style: TextStyle(
+                  fontSize: AppText.caption,
+                  color: AppColors.inkDim,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text(
+            todaySeconds > 0 ? formatDurationHMS(Duration(seconds: todaySeconds)) : '0m',
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 120,
+            child: anyData
+                ? _TodayHourlyBars(hourly: hourly)
+                : Center(
+                    child: Text('No usage today yet',
+                        style: TextStyle(fontSize: 11.5, color: AppColors.inkFaint)),
+                  ),
+          ),
+          const SizedBox(height: 4),
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _DayLabel('12 AM'), _DayLabel('4 AM'), _DayLabel('8 AM'), _DayLabel('12 PM'),
+              _DayLabel('4 PM'), _DayLabel('8 PM'), _DayLabel('12 AM'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 24 hourly bars with y-axis gridlines (like the per-app stats card).
+class _TodayHourlyBars extends StatelessWidget {
+  const _TodayHourlyBars({required this.hourly});
+  final List<int> hourly;
+
+  @override
+  Widget build(BuildContext context) {
+    final max = hourly.isEmpty ? 0 : hourly.reduce((a, b) => a > b ? a : b);
+    final yMax = max > 0 ? ((max / 3600).ceil() * 3600).clamp(900, 3600) : 3600;
+
+    return Column(
+      children: [
+        SizedBox(
+          height: 16,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              for (final label in ['${yMax ~/ 60}m', '${(yMax ~/ 2) ~/ 60}m', '0m'])
+                Text(label, style: TextStyle(fontSize: 9, color: AppColors.inkFaint)),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: List.generate(24, (h) {
+              final value = h < hourly.length ? hourly[h] : 0;
+              final normalized = yMax == 0 ? 0.0 : (value / yMax).clamp(0.0, 1.0);
+              return Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Container(
+                        height: 30 * normalized + 2,
+                        decoration: BoxDecoration(
+                          color: value > 0 ? AppColors.ink : AppColors.surface2,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ),
+        ),
+      ],
+    );
   }
 }

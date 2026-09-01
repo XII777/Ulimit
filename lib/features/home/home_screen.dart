@@ -404,17 +404,28 @@ class _WeeklyTrendCard extends ConsumerWidget {
               ),
             ),
           const SizedBox(height: 4),
-          const Row(
+          Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _DayLabel('M'), _DayLabel('T'), _DayLabel('W'), _DayLabel('T'),
-              _DayLabel('F'), _DayLabel('S'), _DayLabel('S'),
+              for (final l in _weekDayLabels()) _DayLabel(l),
             ],
           ),
         ],
         ),
       ),
     ));
+  }
+
+  /// The 7-day window (today-6 … today) as weekday letters, derived
+  /// from the real dates so the rightmost label is always the present
+  /// day and follows the clock automatically.
+  static List<String> _weekDayLabels() {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
+    const letters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    return [
+      for (var i = 0; i < 7; i++) letters[start.add(Duration(days: i)).weekday - 1],
+    ];
   }
 }
 
