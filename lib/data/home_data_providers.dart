@@ -48,7 +48,11 @@ final previousWeekScreenTimeHoursProvider = StreamProvider<List<double>>((ref) {
   return query.watch().map((rows) {
     final byDay = <DateTime, int>{};
     for (final r in rows) {
-      byDay.update(r.day, (v) => v + r.foregroundSeconds, ifAbsent: () => r.foregroundSeconds);
+      // Drift reads DateTimeColumn as UTC; convert to local before
+      // bucketing (see bucketByDay's note) so prior-week deltas match
+      // the user's calendar days.
+      byDay.update(startOfDay(r.day.toLocal()), (v) => v + r.foregroundSeconds,
+          ifAbsent: () => r.foregroundSeconds);
     }
     return List.generate(7, (i) {
       final day = _daysAgo(13 - i);

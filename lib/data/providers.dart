@@ -343,7 +343,14 @@ final appWeeklyUsageProvider =
         t.day.isBiggerOrEqualValue(start) & t.packageName.equals(packageName));
 
   return query.watch().map((rows) {
-    final byDay = {for (final r in rows) r.day: r.foregroundSeconds};
+    final byDay = <DateTime, int>{
+      for (var i = 0; i <= 6; i++)
+        startOfDay(start.add(Duration(days: i))): 0
+    };
+    for (final r in rows) {
+      final d = startOfDay(r.day.toLocal());
+      byDay[d] = (byDay[d] ?? 0) + r.foregroundSeconds;
+    }
     return List.generate(7, (i) {
       final day = start.add(Duration(days: i));
       return byDay[day] ?? 0;
@@ -366,7 +373,7 @@ final appPreviousWeekUsageProvider =
         t.packageName.equals(packageName));
 
   return query.watch().map(
-        (rows) => rows.fold(0, (sum, r) => sum + r.foregroundSeconds),
+        (rows) => rows.fold<int>(0, (sum, r) => sum + r.foregroundSeconds),
       );
 });
 
@@ -432,7 +439,12 @@ final todaysCompletedSessionsProvider = StreamProvider<int>((ref) {
 List<Duration> bucketByDay(Iterable<(DateTime, int)> entries, DateTime start) {
   final byDay = <DateTime, int>{for (var i = 0; i <= 6; i++) startOfDay(start.add(Duration(days: i))): 0};
   for (final (day, seconds) in entries) {
-    final d = startOfDay(day);
+    // Drift reads DateTimeColumn as a UTC DateTime (from unix seconds).
+    // The DB stores the LOCAL midnight's absolute instant, so to bucket
+    // by the user's calendar day we must convert back to local first —
+    // otherwise the map key (local midnight) never matches a UTC date
+    // and the weekly chart renders empty/sub-zero in every non-UTC zone.
+    final d = startOfDay(day.toLocal());
     byDay[d] = (byDay[d] ?? 0) + seconds;
   }
   final orderedDays = byDay.keys.toList()..sort();
