@@ -103,6 +103,76 @@ class PremiumSectionLabel extends StatelessWidget {
       );
 }
 
+/// A tappable section header that collapses/expands its child card.
+/// Used by Settings for the GENERAL / FOCUS / PERMISSIONS / DATA /
+/// ABOUT categories — the header is the section label plus a chevron,
+/// the card below animates its height (AnimatedSize) instead of
+/// popping in/out, and taps anywhere on the header toggle.
+class CollapsibleSection extends StatelessWidget {
+  const CollapsibleSection({
+    super.key,
+    required this.label,
+    required this.expanded,
+    required this.onToggle,
+    required this.child,
+  });
+
+  final String label;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Whole-row hit target — not just the chevron: a fat tap zone
+        // is easier on a phone and matches how every other tile works.
+        InkWell(
+          onTap: onToggle,
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(
+              children: [
+                Expanded(
+                  child: PremiumSectionLabel(label),
+                ),
+                // Chevron rotates 180° when open. CurvedRotationTransition
+                // animates the turn itself — same motion language as the
+                // nav pill and sheet handle, ~200ms easeOutCubic.
+                AnimatedRotation(
+                  turns: expanded ? 0.5 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOutCubic,
+                  child: AppIcon(
+                    AppIconName.chevronRight,
+                    size: 14,
+                    color: AppColors.inkFaint,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 8,
+        ),
+        // AnimatedSize smooths the height change; the enclosing Column
+        // is a ListView child so the whole list reflows continuously.
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: expanded ? child : const SizedBox(width: double.infinity),
+        ),
+      ],
+    );
+  }
+}
+
 /// Back-arrow + title (+ optional subtitle) header, used by every
 /// pushed detail screen. Consolidates what was a hand-rolled Row of a
 /// small IconButton-in-a-Container plus a title Column on each screen

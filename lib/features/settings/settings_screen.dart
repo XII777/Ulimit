@@ -23,11 +23,29 @@ import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/spring_scroll.dart';
 import '../../shared/widgets/session_tag_editor.dart';
 
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  // Section expand state (session-scoped — the list scroll position is
+  // preserved by the tab keep-alive, and nothing is lost on restart).
+  late final Map<String, bool> _expanded = {
+    'GENERAL': true,
+    'FOCUS': true,
+    'PERMISSIONS': false,
+    'DATA': false,
+    'ABOUT': false,
+  };
+
+  void _toggle(String section) =>
+      setState(() => _expanded[section] = !(_expanded[section] ?? false));
+
+  @override
+  Widget build(BuildContext context) {
     final permissions = ref.watch(allPermissionsProvider);
     final settings = ref.watch(ulimitSettingsProvider).valueOrNull;
     final themeMode = ref.watch(themeModeProvider).valueOrNull ?? 'system';
@@ -47,9 +65,11 @@ class SettingsScreen extends ConsumerWidget {
               style: TextStyle(fontSize: AppText.body, color: AppColors.inkDim)),
           const SizedBox(height: 20),
 
-           PremiumSectionLabel('GENERAL'),
-          const SizedBox(height: 8),
-          PremiumCard(
+           CollapsibleSection(
+            label: 'GENERAL',
+            expanded: _expanded['GENERAL'] ?? true,
+            onToggle: () => _toggle('GENERAL'),
+            child: PremiumCard(
             padding: EdgeInsets.zero,
             child: Column(
               children: [
@@ -84,11 +104,14 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
           ),
+          ),
           const SizedBox(height: 20),
 
-           PremiumSectionLabel('FOCUS'),
-          const SizedBox(height: 8),
-          PremiumCard(
+           CollapsibleSection(
+            label: 'FOCUS',
+            expanded: _expanded['FOCUS'] ?? true,
+            onToggle: () => _toggle('FOCUS'),
+            child: PremiumCard(
             padding: EdgeInsets.zero,
             child: Column(
               children: [
@@ -106,11 +129,14 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
           ),
+          ),
           const SizedBox(height: 20),
 
-           PremiumSectionLabel('PERMISSIONS'),
-          const SizedBox(height: 8),
-          PremiumCard(
+           CollapsibleSection(
+            label: 'PERMISSIONS',
+            expanded: _expanded['PERMISSIONS'] ?? false,
+            onToggle: () => _toggle('PERMISSIONS'),
+            child: PremiumCard(
             padding: EdgeInsets.zero,
             child: Column(
               children: [
@@ -124,11 +150,14 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
           ),
+          ),
           const SizedBox(height: 20),
 
-           PremiumSectionLabel('DATA'),
-          const SizedBox(height: 8),
-          PremiumCard(
+           CollapsibleSection(
+            label: 'DATA',
+            expanded: _expanded['DATA'] ?? false,
+            onToggle: () => _toggle('DATA'),
+            child: PremiumCard(
             padding: EdgeInsets.zero,
             child: Column(
               children: [
@@ -158,11 +187,14 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
           ),
+          ),
           const SizedBox(height: 20),
 
-           PremiumSectionLabel('ABOUT'),
-          const SizedBox(height: 8),
-          PremiumCard(
+           CollapsibleSection(
+            label: 'ABOUT',
+            expanded: _expanded['ABOUT'] ?? false,
+            onToggle: () => _toggle('ABOUT'),
+            child: PremiumCard(
             padding: EdgeInsets.zero,
             child: Column(
               children: [
@@ -178,6 +210,7 @@ class SettingsScreen extends ConsumerWidget {
                  PremiumListTile(label: 'Version', sublabel: '0.2.0'),
               ],
             ),
+          ),
           ),
         ],
       );
