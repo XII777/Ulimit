@@ -80,8 +80,15 @@ android {
             // fresh clones still produce a consistently-signed,
             // installable APK without ever touching the real secret.
             signingConfig releaseSigningReady ? signingConfigs.release : signingConfigs.testing
-            minifyEnabled false
-            shrinkResources false
+            // R8 shrinking + resource shrinking: the single biggest
+            // APK-size win (typically 40-60% smaller) with the keep
+            // rules in proguard-rules.pro keeping the Flutter engine,
+            // the FFI sqlite3 bindings, and the manifest-declared
+            // components intact.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                    'proguard-rules.pro'
         }
         debug {
             signingConfig signingConfigs.testing
