@@ -53,5 +53,24 @@ void main() {
       final domains = BlockListRepository.parseDomainList(body);
       expect(domains, ['only.com']);
     });
+
+    test('parses HaGeZi bare-domain lists (one domain per line)', () {
+      const body = '''
+# Title: HaGeZi ... mini version
+# Syntax: Domains (without subdomains)
+allegrolokalnie.0-230-23.rest
+allegro.0000vv.study
+kleinanzeigen.0002010.com
+
+# trailing comment
+''';
+      final domains = BlockListRepository.parseDomainList(body);
+      expect(domains, containsAll([
+        'allegrolokalnie.0-230-23.rest',
+        'allegro.0000vv.study',
+        'kleinanzeigen.0002010.com',
+      ]));
+      expect(domains.length, 3);
+    });
   });
 }

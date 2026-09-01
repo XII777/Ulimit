@@ -58,6 +58,21 @@ class UlimitVpnService : VpnService() {
         // all-internet-blocked bug).
         val DNS_SERVER: InetAddress = InetAddress.getByName("10.111.0.1")
 
+        // Public DNS resolvers that also serve encrypted DNS. Routed
+        // into the TUN in filter mode so the loop can DROP DoH (443)
+        // / DoT (853) connections and force browsers onto plain DNS —
+        // which then goes through the virtual resolver and the domain
+        // filter. Non-encrypted traffic to these IPs passes untouched
+        // because the loop only drops the DoH/DoT/foreign-DNS cases.
+        val DOH_ROUTED_IPS = listOf(
+            "1.1.1.1",       // Cloudflare
+            "1.0.0.1",       // Cloudflare secondary
+            "8.8.8.8",       // Google
+            "8.8.4.4",       // Google secondary
+            "9.9.9.9",       // Quad9
+            "149.112.112.112", // Quad9 secondary
+        )
+
         @Volatile
         var isRunning: Boolean = false
             private set
@@ -216,10 +231,22 @@ class UlimitVpnService : VpnService() {
                 }
             }
         } else {
-            // Filter-only mode needs the virtual resolver reachable.
+            // Filter-only mode needs the virtual resolver reachable…
             builder
                 .addDnsServer("10.111.0.1")
                 .addRoute("10.111.0.1", 32)
+            // …and DoH/DoT breakpoints routed into the TUN so encrypted
+            // DNS from browsers (Chrome/Brave/Firefox use DNS-over-
+            // HTTPS by default) can be neutralized. Their queries to
+            // Cloudflare/Google/Quad9 over 443/853 never touch the
+            // system resolver, so with only the /32 DNS route the
+            // filter loop would never see them. Routing the resolver
+            // IPs into the TUN lets the loop DROP those connections;
+            // the browser then falls back to plain DNS through us,
+            // where the domain filter actually applies.
+            for (ip in DOH_ROUTED_IPS) {
+                builder.addRoute(ip, 32)
+            }
         }
 
         val newTun = try {
@@ -304,6 +331,7 @@ class UlimitVpnService : VpnService() {
     private fun dnsFilterLoop(input: FileInputStream, output: FileOutputStream) {
         val buffer = ByteArray(32767)
         val upstreamDns = arrayOf("1.1.1.1", "8.8.8.8")
+        val routedDoH = DOH_ROUTED_IPS.toSet()
 
         while (running.get()) {
             val n = input.read(buffer)
@@ -315,6 +343,37 @@ class UlimitVpnService : VpnService() {
 
             val ihl = (buffer[0].toInt() and 0xF) * 4
             val protocol = buffer[9].toInt() and 0xFF
+
+            // Destination IP — every routed DoH breakpoint lands here
+            // (plus the /32 virtual resolver route). Read before the
+            // protocol check so DoH (TCP 443) can be dropped too.
+            val dstIp = InetAddress.getByAddress(buffer.copyOfRange(16, 20)).hostAddress ?: ""
+            if (routedDoH.contains(dstIp)) {
+                if (protocol == 6) {
+                    val tcpStart = ihl
+                    val dstPort = ((buffer[tcpStart + 2].toInt() and 0xFF) shl 8) or
+                        (buffer[tcpStart + 3].toInt() and 0xFF)
+                    if (dstPort == 443 || dstPort == 853) {
+                        // DoH / DoT: drop. The browser can't reach its
+                        // encrypted resolver — it must fall back to
+                        // plain DNS, which this loop filters.
+                        continue
+                    }
+                } else if (protocol == 17) {
+                    val udpStart = ihl
+                    val dstPort = ((buffer[udpStart + 2].toInt() and 0xFF) shl 8) or
+                        (buffer[udpStart + 3].toInt() and 0xFF)
+                    if (dstPort == 53) {
+                        // Plain DNS straight to a public resolver would
+                        // bypass the opaque domain filter entirely.
+                        continue
+                    }
+                }
+                // No further forwarding to a resolver IP: any other
+                // traffic is dropped by simply never being written back.
+                continue
+            }
+
             if (protocol != 17) continue // UDP only; TCP DNS is rare and retried over UDP
 
             val srcAddr = InetAddress.getByAddress(buffer.copyOfRange(12, 16))

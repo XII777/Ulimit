@@ -53,20 +53,22 @@ extension WebsiteRulesActions on AppDatabase {
 }
 
 // ---------------------------------------------------------------------------
-// Block-list catalog (StevenBlack/hosts)
+// Block-list catalog (StevenBlack/hosts + HaGeZi category-completes)
 // ---------------------------------------------------------------------------
 
-/// A downloadable, categorized domain list. Sources are StevenBlack's
-/// hosts repo: the merged `hosts` file (everything) and the
-/// category-specific `alternates/<name>-only/hosts` variants, all in
-/// standard hosts format (`0.0.0.0 domain` per line). Entry counts are
-/// approximate from upstream; the real count is stored when downloaded.
+/// A downloadable, categorized domain list. Primary source is
+/// StevenBlack's hosts repo (merged `hosts` + category `alternates`),
+/// which does not ship every category — the categories it lacks
+/// (security, scams, popup ads, piracy, URL shorteners, hosting,
+/// dynamic DNS) are filled from HaGeZi's per-category `-onlydomains`
+/// files. Both are plain lists: hosts format and one-domain-per-line.
 class BlockListTemplate {
   const BlockListTemplate({
     required this.id,
     required this.title,
     required this.description,
     required this.remotePath,
+    required this.baseUrl,
     required this.approxEntries,
     this.locksAfterEnable = false,
     this.recommended = false,
@@ -76,6 +78,7 @@ class BlockListTemplate {
   final String title;
   final String description;
   final String remotePath;
+  final String baseUrl;
   final int approxEntries;
 
   /// One-way categories (Adult content): once enabled, the filter
@@ -84,8 +87,11 @@ class BlockListTemplate {
   final bool locksAfterEnable;
   final bool recommended;
 
-  String get url => 'https://raw.githubusercontent.com/StevenBlack/hosts/master/$remotePath';
+  String get url => '$baseUrl/$remotePath';
 }
+
+const _stevenBlackBase = 'https://raw.githubusercontent.com/StevenBlack/hosts/master';
+const _hageziBase = 'https://raw.githubusercontent.com/hagezi/dns-blocklists/main';
 
 const blockListCatalog = <BlockListTemplate>[
   BlockListTemplate(
@@ -94,21 +100,50 @@ const blockListCatalog = <BlockListTemplate>[
     description:
         'Blocks ads, affiliate links, trackers and data collection. The merged StevenBlack/hosts list — a favorite of Pi-hole users.',
     remotePath: 'hosts',
+    baseUrl: _stevenBlackBase,
     approxEntries: 78609,
     recommended: true,
   ),
   BlockListTemplate(
-    id: 'fakenews',
-    title: 'Fake News & Misinformation',
-    description: 'Known fake-news, misinformation and conspiracy sites.',
-    remotePath: 'alternates/fakenews-only/hosts',
-    approxEntries: 2187,
+    id: 'security',
+    title: 'Malware & Phishing',
+    description:
+        'Threat-intelligence feeds: malware, scams, phishing, cryptojacking and command-and-control domains.',
+    remotePath: 'wildcard/tif.mini-onlydomains.txt',
+    baseUrl: _hageziBase,
+    approxEntries: 177567,
+    recommended: true,
+  ),
+  BlockListTemplate(
+    id: 'scams',
+    title: 'Scams & Fake Sites',
+    description: 'Fake stores, fake streaming sites, rip-offs, subscription traps and similar scams.',
+    remotePath: 'wildcard/fake-onlydomains.txt',
+    baseUrl: _hageziBase,
+    approxEntries: 17283,
+  ),
+  BlockListTemplate(
+    id: 'popupads',
+    title: 'Pop-Up Ads',
+    description: 'Annoying and malicious pop-up advertising domains.',
+    remotePath: 'wildcard/popupads-onlydomains.txt',
+    baseUrl: _hageziBase,
+    approxEntries: 54190,
+  ),
+  BlockListTemplate(
+    id: 'piracy',
+    title: 'Piracy',
+    description: 'Sites and services mainly used for illegally distributing copyrighted content.',
+    remotePath: 'wildcard/anti.piracy-onlydomains.txt',
+    baseUrl: _hageziBase,
+    approxEntries: 46599,
   ),
   BlockListTemplate(
     id: 'gambling',
     title: 'Gambling',
     description: 'Gambling-related sites from the StevenBlack list.',
     remotePath: 'alternates/gambling-only/hosts',
+    baseUrl: _stevenBlackBase,
     approxEntries: 6618,
   ),
   BlockListTemplate(
@@ -116,6 +151,7 @@ const blockListCatalog = <BlockListTemplate>[
     title: 'Adult Content',
     description: 'Blocks adult content. This filter cannot be disabled after it is turned on.',
     remotePath: 'alternates/porn-only/hosts',
+    baseUrl: _stevenBlackBase,
     approxEntries: 76767,
     locksAfterEnable: true,
   ),
@@ -124,7 +160,40 @@ const blockListCatalog = <BlockListTemplate>[
     title: 'Social Networks',
     description: 'Blocks social networks like Facebook, Instagram, TikTok, X and Snapchat.',
     remotePath: 'alternates/social-only/hosts',
+    baseUrl: _stevenBlackBase,
     approxEntries: 3808,
+  ),
+  BlockListTemplate(
+    id: 'urlshortener',
+    title: 'URL Shorteners',
+    description: 'Blocks link shorteners that hide where a link actually leads.',
+    remotePath: 'wildcard/urlshortener-onlydomains.txt',
+    baseUrl: _hageziBase,
+    approxEntries: 9922,
+  ),
+  BlockListTemplate(
+    id: 'hosting',
+    title: 'Badware Hosting',
+    description: 'Hosting providers that repeatedly serve malicious user-uploaded content.',
+    remotePath: 'wildcard/hoster-onlydomains.txt',
+    baseUrl: _hageziBase,
+    approxEntries: 1238,
+  ),
+  BlockListTemplate(
+    id: 'dyndns',
+    title: 'Dynamic DNS',
+    description: 'Dynamic DNS services commonly abused for phishing campaigns.',
+    remotePath: 'wildcard/dyndns-onlydomains.txt',
+    baseUrl: _hageziBase,
+    approxEntries: 1540,
+  ),
+  BlockListTemplate(
+    id: 'fakenews',
+    title: 'Fake News & Misinformation',
+    description: 'Known fake-news, misinformation and conspiracy sites.',
+    remotePath: 'alternates/fakenews-only/hosts',
+    baseUrl: _stevenBlackBase,
+    approxEntries: 2187,
   ),
 ];
 
