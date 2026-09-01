@@ -35,6 +35,17 @@ class UlimitAccessibilityService : AccessibilityService() {
     private var overlayView: View? = null
     private var overlayPackageName: String? = null
 
+    // Adult-content screen scanning state: while the adult filter is
+    // enabled we read the visible text of the current browser app and,
+    // if it contains a domain from the blocked set, back out
+    // automatically. Kept as fields so the scan debounce survives
+    // across events (done once per ~2s per package, never on the UI
+    // thread — accessibility content reads ARE the UI thread here, so
+    // the work must stay bounded).
+    private var lastContentScanPackage: String? = null
+    private var lastContentScanAt: Long = 0
+    private var lastContentScanDomain: String? = null
+
     // Services expose WindowManager through getSystemService, not a
     // `windowManager` property (that's an Activity API).
     private val windowManagerService: WindowManager by lazy {
@@ -43,6 +54,16 @@ class UlimitAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            // Adult-content screen scan: the content change is the
+            // signal that a browser page rendered new text (URL bar /
+            // page content). Debounce per package, and only when the
+            // adult filter is on.
+            scanBrowserContent(event.packageName?.toString())
+            return
+        }
+
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
         val packageName = event.packageName?.toString() ?: return
@@ -226,5 +247,159 @@ class UlimitAccessibilityService : AccessibilityService() {
         }
         overlayView = null
         overlayPackageName = null
+    }
+
+    // ------------------------------------------------------------------
+    // Adult-content screen scanning (belt & braces for the DNS filter):
+    // while the adult block-list is enabled, the visible text of the
+    // foreground browser (URL bar + page) is scanned and — if a domain
+    // from the blocked set is present — the browser is backed out
+    // automatically with a one-time notice. This catches what DNS
+    // filtering structurally cannot: DoH-resolved content, iframes from
+    // third-party domains, and any domain matching missed by the DNS
+    // layer. Bounded by design: at most one scan per package per ~2.5s,
+    // a node/text budget, and cheap substring matching.
+    // ------------------------------------------------------------------
+
+    private val FQDN_REGEX = Regex("[a-z0-9-]+(\\.[a-z0-9-]+)+")
+
+    private fun scanBrowserContent(packageName: String?) {
+        if (packageName == null) return
+
+        // Only when the adult filter is on and the foreground package is
+        // a known browser — never scan other apps' text.
+        val snapshot = PolicySnapshot.read(this) ?: return
+        if (!snapshot.adultFilterEnabled) return
+        if (packageName !in snapshot.browserPackages) return
+
+        // Debounce: TYPE_WINDOW_CONTENT_CHANGED fires continuously as a
+        // page paints. One scan per package per window.
+        val now = System.currentTimeMillis()
+        if (packageName == lastContentScanPackage &&
+            now - lastContentScanAt < 2500
+        ) {
+            return
+        }
+        lastContentScanPackage = packageName
+        lastContentScanAt = now
+
+        val domains = loadScanDomains()
+        if (domains.isEmpty()) return
+
+        val text = collectVisibleText()
+        if (text.isEmpty()) return
+
+        for (match in FQDN_REGEX.findAll(text)) {
+            val candidate = match.value.lowercase().trimEnd('.')
+            if (candidate in domains) {
+                // Blocked domain present in the visible browser content.
+                // Back out and lock the package until it changes screens.
+                onBlockedDomainInBrowser(packageName, candidate)
+                return
+            }
+        }
+    }
+
+    /** Reads the blocked-domain set from the same file the DNS filter
+     * uses (blocked_domains.txt) so the two layers never disagree. */
+    private fun loadScanDomains(): Set<String> {
+        return try {
+            val file = java.io.File(filesDir, "blocked_domains.txt")
+            if (!file.exists()) emptySet()
+            else file.readLines()
+                .asSequence()
+                .map { it.trim().lowercase() }
+                .filter { it.isNotEmpty() }
+                .toSet()
+        } catch (_: Exception) {
+            emptySet()
+        }
+    }
+
+    /** Traverses the active window's node tree and gathers visible text.
+     * Bounded: stops after a node/char budget so a huge DOM or a deep
+     * WebView can never stall the UI thread. */
+    private fun collectVisibleText(): String {
+        return try {
+            val root = rootInActiveWindow ?: return ""
+            val sb = StringBuilder()
+            var nodes = 0
+            fun walk(node: android.view.accessibility.AccessibilityNodeInfo?) {
+                if (node == null || nodes > 600 || sb.length > 22000) return
+                nodes++
+                try {
+                    val text = node.text?.toString()
+                    if (!text.isNullOrBlank()) {
+                        sb.append(text).append('.')
+                    }
+                    val desc = node.contentDescription?.toString()
+                    if (!desc.isNullOrBlank()) {
+                        sb.append(desc).append('.')
+                    }
+                    for (i in 0 until node.childCount) {
+                        walk(node.getChild(i) ?: continue)
+                    }
+                } catch (_: Exception) {
+                    // Node detached mid-walk — stop this subtree.
+                } finally {
+                    try {
+                        node.recycle()
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+            walk(root)
+            sb.toString()
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun onBlockedDomainInBrowser(packageName: String, domain: String) {
+        // One visible notice, then an automatic back. The back also
+        // covers the case where the user manually entered a blocked
+        // URL in the address bar (the typed URL shows up in the text).
+        showSmallNotice(
+            packageName = packageName,
+            message = "Adult content blocked: $domain",
+        )
+        performGlobalAction(GLOBAL_ACTION_BACK)
+    }
+
+    /** A small top-of-screen badge (non-blocking — the browser still
+     * shows behind it while the back happens). Auto-hides in 4s. */
+    private fun showSmallNotice(packageName: String, message: String) {
+        try {
+            hideOverlay()
+            val density = resources.displayMetrics.density
+            fun dp(v: Int): Int = (v * density).toInt()
+
+            val view = TextView(this).apply {
+                text = "Blocked by Ulimit · $message"
+                setTextColor(Color.parseColor("#F5F5F4"))
+                setBackgroundColor(Color.parseColor("#CC0A0A0B"))
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setPadding(dp(20), dp(8), dp(20), dp(8))
+            }
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                dp(34),
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP
+                y = dp(40)
+            }
+
+            windowManagerService.addView(view, params)
+            overlayView = view
+            overlayPackageName = packageName
+            view.postDelayed({ hideOverlay() }, 4000)
+        } catch (_: Exception) {
+        }
     }
 }

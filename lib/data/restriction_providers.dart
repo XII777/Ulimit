@@ -9,6 +9,28 @@ import 'focus_providers.dart';
 import 'providers.dart';
 import 'website_providers.dart';
 
+/// Popular browser packages, the targets of adult-content screen
+/// scanning (the accessibility service reads their visible text — URL
+/// bar + page — and automatically goes back when a blocked domain is
+/// present, then backs the browser out whenever the adult filter is on).
+const kBrowserPackages = <String>[
+  'com.android.chrome',
+  'com.chrome.beta',
+  'com.chrome.dev',
+  'com.android.browser',
+  'com.brave.browser',
+  'org.mozilla.firefox',
+  'org.mozilla.firefox_beta',
+  'org.mozilla.fenix',
+  'com.microsoft.emmx',
+  'com.microsoft.edge',
+  'com.opera.browser',
+  'com.opera.mini.native',
+  'com.sec.android.app.sbrowser',
+  'mark.via',
+  'com.duckduckgo.mobile.android',
+];
+
 // ---------------------------------------------------------------------------
 // App limits
 // ---------------------------------------------------------------------------
@@ -295,6 +317,7 @@ class EnforcementSync {
     final focus = ref.read(activeFocusSessionProvider).valueOrNull;
     final bedtime = ref.read(bedtimeScheduleProvider).valueOrNull;
     final internet = ref.read(internetBlocksProvider).valueOrNull ?? const [];
+    final categories = ref.read(blockListCategoriesProvider).valueOrNull ?? const [];
     final now = DateTime.now();
 
     // The engine's own verdict, shipped to native as a flat fast path:
@@ -358,6 +381,13 @@ class EnforcementSync {
               'packages': bedtime.selectedApps,
             },
       'internetBlocks': [for (final i in internet) i.packageName],
+      // Accessibility-side adult gating: when the (locked) adult
+      // block-list is enabled, the accessibility service blocks the
+      // BROWSER apps themselves — belt and braces alongside the VPN's
+      // domain filter. The list is the popular-browser catalog; the
+      // adult flag comes from the enabled block-list categories.
+      'adultFilterEnabled': categories.any((c) => c.template.id == 'adult' && c.enabled),
+      'browserPackages': kBrowserPackages,
     };
 
     await EnforcementChannel.pushSnapshot(snapshot);

@@ -60,7 +60,9 @@ object PolicySnapshot {
         val groups: List<Group>,
         val focus: Focus?,
         val bedtime: Bedtime?,
-        val internetBlocks: List<String>
+        val internetBlocks: List<String>,
+        val adultFilterEnabled: Boolean,
+        val browserPackages: List<String>
     )
 
     fun prefs(context: Context): SharedPreferences =
@@ -154,6 +156,10 @@ object PolicySnapshot {
         val internetArr = root.optJSONArray("internetBlocks") ?: JSONArray()
         for (i in 0 until internetArr.length()) internet.add(internetArr.getString(i))
 
+        val browsers = mutableListOf<String>()
+        val browserArr = root.optJSONArray("browserPackages") ?: JSONArray()
+        for (i in 0 until browserArr.length()) browsers.add(browserArr.getString(i))
+
         return Snapshot(
             pushedAtMillis = root.optLong("pushedAtMillis", 0L),
             blockedNow = blockedNow,
@@ -162,7 +168,9 @@ object PolicySnapshot {
             groups = groups,
             focus = focus,
             bedtime = bedtime,
-            internetBlocks = internet
+            internetBlocks = internet,
+            adultFilterEnabled = root.optBoolean("adultFilterEnabled", false),
+            browserPackages = browsers
         )
     }
 

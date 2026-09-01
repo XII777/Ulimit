@@ -197,14 +197,12 @@ class UlimitVpnService : VpnService() {
         // TUN; addAllowedApplication decides which apps; BOTH apply).
         //
         //  - FIREWALL apps exist → 0.0.0.0/0 default route plus an
-        //    app ALLOWLIST containing exactly the firewall apps, and
-        //    NO VPN DNS server. Only the allowlisted apps' packets can
-        //    enter the TUN (they're discarded); every other app uses
-        //    its regular network + real DNS untouched, so the whole
-        //    internet can never be captured by accident. (A VPN DNS
-        //    server would break this: 10.111.0.1 is reachable ONLY via
-        //    the TUN, and the allowlist keeps non-blocked apps out of
-        //    it, so every app would lose DNS → all internet dead.)
+        //    app ALLOWLIST containing exactly the firewall apps. Only
+        //    the allowlisted apps' packets can enter the TUN (they are
+        //    discarded — that's the per-app internet cut); every other
+        //    app bypasses the VPN entirely, uses its regular network
+        //    and real DNS, and works perfectly (the whole internet can
+        //    never be captured by accident).
         //  - FILTER-only (no firewall apps) → the virtual DNS server
         //    (10.111.0.1) + a /32 host route to it, with NO default
         //    route. Only DNS enters the TUN; all other traffic stays
@@ -212,17 +210,38 @@ class UlimitVpnService : VpnService() {
         //    interface (10.111.0.2): a route to your own interface
         //    address is degenerate and Android reverts to the default
         //    route, which was the all-internet-blocked bug.
-        //  - COMBINED → follow the FIREWALL path: the allowlist is the
-        //    binding constraint and site filtering applies to the DNS
-        //    of allowlisted apps only (their DNS is still parsed and
-        //    dropped along with everything else).
+        //  - COMBINED → the DNS/DoH routes are added ALONGSIDE the
+        //    firewall allowlist. For the allowlisted (blocked) apps
+        //    both the default route and the DNS routes apply: their
+        //    DNS is filtered and their TCP is dropped — the site
+        //    filter stays active inside the tunnel, and the apps are
+        //    dead regardless. Users without an allowlist (filter-only)
+        //    get full site filtering as before.
         val builder = Builder()
             .setSession("Ulimit")
             .setMtu(32767)
             .addAddress("10.111.0.2", 32)
 
+        // DoH breakpoints are always routed: in filter mode they are
+        // part of the capture; in firewall/combined mode they are
+        // inert for bypassing apps and correctly filter the tunnel's
+        // DNS-adjacent traffic.
+        for (ip in DOH_ROUTED_IPS) {
+            builder.addRoute(ip, 32)
+        }
+
         if (firewallApps.isNotEmpty()) {
-            builder.addRoute("0.0.0.0", 0)
+            // Firewall + combined: NO VPN DNS server. Assigning
+            // 10.111.0.1 as the system resolver makes EVERY app that
+            // bypasses the allowlist try it over the real network —
+            // unreachable → DNS dies for all unblocked apps (the
+            // all-internet-dead bug). Without it, unblocked apps keep
+            // their real DNS; the allowlisted (blocked) apps' own DNS
+            // still enters the tunnel via the /32 route and is
+            // filtered/dropped with everything else.
+            builder
+                .addRoute("0.0.0.0", 0)
+                .addRoute("10.111.0.1", 32)
             for (pkg in firewallApps.distinct()) {
                 try {
                     builder.addAllowedApplication(pkg)
@@ -231,22 +250,11 @@ class UlimitVpnService : VpnService() {
                 }
             }
         } else {
-            // Filter-only mode needs the virtual resolver reachable…
+            // Filter-only mode: the virtual resolver must be assigned
+            // so DNS from all apps enters the TUN and can be filtered.
             builder
                 .addDnsServer("10.111.0.1")
                 .addRoute("10.111.0.1", 32)
-            // …and DoH/DoT breakpoints routed into the TUN so encrypted
-            // DNS from browsers (Chrome/Brave/Firefox use DNS-over-
-            // HTTPS by default) can be neutralized. Their queries to
-            // Cloudflare/Google/Quad9 over 443/853 never touch the
-            // system resolver, so with only the /32 DNS route the
-            // filter loop would never see them. Routing the resolver
-            // IPs into the TUN lets the loop DROP those connections;
-            // the browser then falls back to plain DNS through us,
-            // where the domain filter actually applies.
-            for (ip in DOH_ROUTED_IPS) {
-                builder.addRoute(ip, 32)
-            }
         }
 
         val newTun = try {
