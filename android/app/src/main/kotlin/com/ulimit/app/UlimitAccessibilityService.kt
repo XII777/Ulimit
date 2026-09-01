@@ -9,7 +9,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.widget.Button
+
 import android.widget.LinearLayout
 import android.widget.TextView
 
@@ -163,69 +163,119 @@ class UlimitAccessibilityService : AccessibilityService() {
             packageName
         }
 
+        // App icon rendered inside the overlay (a Drawable in a square
+        // white tile), because the Android app switcher/launcher icon
+        // may not be reachable from this service otherwise.
+        val appIcon = try {
+            val pm = packageManager
+            pm.getApplicationIcon(packageName)
+        } catch (_: Exception) {
+            null
+        }
+
         val density = resources.displayMetrics.density
         fun dp(v: Int): Int = (v * density).toInt()
 
+        // --- Root: full-screen, touch-blocking, dark backdrop -----------
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setBackgroundColor(Color.parseColor("#0A0A0B"))
+            setBackgroundColor(Color.parseColor("#EE0A0A0B"))
             setPadding(dp(32), dp(32), dp(32), dp(32))
         }
 
+        // --- Icon tile: white rounded square with the app icon ----------
+        val iconTile = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(0), dp(40), dp(0), dp(8))
+        }
+        val iconSize = dp(96)
+        val iconHolder = android.widget.FrameLayout(this).apply {
+            layoutParams = android.view.ViewGroup.LayoutParams(iconSize, iconSize)
+            setBackgroundColor(Color.parseColor("#FFFFFFFF"))
+            // rounded corners via a rounded drawable resource
+        }
+        iconHolder.background = android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = dp(20).toFloat()
+            color = android.content.res.ColorStateList.valueOf(
+                Color.parseColor("#FFFFFFFF"))
+        }
+        appIcon?.let {
+            val iconView = android.widget.ImageView(this).apply {
+                setImageDrawable(it)
+                layoutParams = android.view.ViewGroup.LayoutParams(dp(64), dp(64))
+            }
+            iconHolder.addView(iconView)
+        }
+        iconTile.addView(iconHolder)
+
+        // --- App name ----------------------------------------------------
         val appNameView = TextView(this).apply {
             text = appName
             setTextColor(Color.parseColor("#F5F5F4"))
-            textSize = 22f
+            textSize = 24f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             gravity = Gravity.CENTER
+            setPadding(0, dp(20), 0, 0)
         }
 
+        // --- Reason --------------------------------------------------------
         val reasonView = TextView(this).apply {
             text = reason
             setTextColor(Color.parseColor("#A3A3A6"))
-            textSize = 15f
+            textSize = 14f
             gravity = Gravity.CENTER
-            setPadding(0, dp(10), 0, 0)
+            setPadding(0, dp(12), 0, 0)
         }
 
+        // --- Remaining time + horizontal progress bar -----------------------
+        val remainingView = TextView(this).apply {
+            setTextColor(Color.parseColor("#F5F5F4"))
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setPadding(0, dp(24), 0, dp(10))
+        }
+
+        val progressBar = android.widget.ProgressBar(
+            this, null, android.R.attr.progressBarStyleHorizontal
+        ).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(240), dp(8))
+            max = 100
+            progress = 100
+            progressTintList = android.content.res.ColorStateList.valueOf(
+                Color.parseColor("#F0F0F0"))
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(
+                Color.parseColor("#3A3A3E"))
+        }
+
+        // --- Byline ------------------------------------------------------
         val byline = TextView(this).apply {
-            text = "Blocked by Ulimit"
+            text = "Blocked by Ulimit · closing in 5s"
             setTextColor(Color.parseColor("#6B6B6F"))
             textSize = 12f
             gravity = Gravity.CENTER
-            setPadding(0, dp(4), 0, 0)
+            setPadding(0, dp(16), 0, 0)
         }
 
-        val backButton = Button(this).apply {
-            text = "Back"
-            setTextColor(Color.parseColor("#0A0A0B"))
-            setPadding(dp(28), dp(10), dp(28), dp(10))
-            setOnClickListener {
-                hideOverlay()
-                performGlobalAction(GLOBAL_ACTION_HOME)
-            }
-        }
-
+        root.addView(iconTile)
         root.addView(appNameView)
         root.addView(reasonView)
+        root.addView(remainingView)
+        root.addView(progressBar)
         root.addView(byline)
-        root.addView(
-            backButton,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(28)
-                gravity = Gravity.CENTER_HORIZONTAL
-            }
-        )
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            // NOT_FOCUSABLE keeps keys/back away from the overlay;
+            // touches still hit it (the blocked app can't be operated).
+            // LAYOUT_IN_SCREEN/NO_LIMITS make it sit above the status
+            // bar, system UI overlays and the app's own windows.
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         )
 
@@ -234,10 +284,42 @@ class UlimitAccessibilityService : AccessibilityService() {
             overlayView = root
             overlayPackageName = packageName
         } catch (_: Exception) {
-            // Window token problems (e.g. mid-teardown) — enforcement
-            // retries on the very next accessibility event.
+            // Window token problems — retry on the next event.
+            return
         }
+
+        // --- 5s countdown + auto-close ------------------------------------
+        // Remaining time ticks down on the bar; when it hits zero we
+        // back the blocked app out (closing it) and immediately dismiss
+        // the overlay — the user's "5 second close the app and popup".
+        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        val startAt = System.currentTimeMillis()
+        val totalMillis = 5000L
+
+        val countdown = object : Runnable {
+            override fun run() {
+                if (!isShownFor(packageName)) return
+                val remaining = totalMillis - (System.currentTimeMillis() - startAt)
+                if (remaining <= 0) {
+                    // Time's up: close the blocked app, then the popup.
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    hideOverlay()
+                    return
+                }
+                val seconds = (remaining + 999) / 1000
+                remainingView.text = "${seconds}s left"
+                progressBar.progress =
+                    (remaining * 100 / totalMillis).toInt().coerceIn(0, 100)
+                mainHandler.postDelayed(this, 100)
+            }
+        }
+        mainHandler.postDelayed(countdown, 100)
     }
+
+    /** True while [packageName] is still the overlay's target. */
+    private fun isShownFor(packageName: String): Boolean =
+        overlayView != null && overlayPackageName == packageName
 
     private fun hideOverlay() {
         val view = overlayView ?: return
