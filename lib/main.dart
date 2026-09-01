@@ -8,6 +8,7 @@ import 'core/router/app_router.dart';
 import 'core/router/back_button_dispatcher.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/tokens.dart';
+import 'data/apps_repository.dart';
 import 'data/focus_indicator.dart';
 import 'data/permissions_providers.dart';
 import 'data/providers.dart';
@@ -83,6 +84,27 @@ class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserv
     // in-app buttons.
     EnforcementChannel.setFocusActionHandler((action) async {
       await ref.read(focusIndicatorSyncProvider).handleAction(action);
+    });
+
+    // Pre-warm every tab's expensive providers at BOOT, not on first
+    // visit. PageView builds tabs lazily, so without this the first tap
+    // on Settings/Bedtime/Limits pays the cost of the permission channel
+    // round-trips, the app catalog fetch (hundreds of icons over the
+    // channel) and the weekly/engine aggregates — a multi-second freeze
+    // mid-gesture on low-end devices. Warming during the launch frame
+    // makes the first visit to ANY tab instant.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(allPermissionsProvider);
+      ref.read(appsCatalogProvider);
+      ref.read(ulimitSettingsProvider);
+      ref.read(hideNavBarProvider);
+      ref.read(themeModeProvider);
+      ref.read(todayScreenTimeProvider);
+      ref.read(todayUsageByPackageDebouncedProvider);
+      ref.read(weeklyScreenTimeProvider);
+      ref.read(restrictionDecisionsProvider);
+      ref.read(permissionsOnboardingCompletedProvider);
+      ref.read(focusIndicatorEnabledProvider);
     });
   }
 
