@@ -46,8 +46,13 @@ class _PermissionsScreenState extends ConsumerState<PermissionsScreen>
   Widget build(BuildContext context) {
     final permissions = ref.watch(allPermissionsProvider);
 
-    // Biometric is optional (see design) — required count excludes it.
-    const notRequired = {PermissionKind.biometric, PermissionKind.deviceAdmin};
+    // Biometric and Usage Access are optional (see design) — required
+    // count excludes them.
+    const notRequired = {
+      PermissionKind.biometric,
+      PermissionKind.deviceAdmin,
+      PermissionKind.usageAccess,
+    };
     final required = permissions.where((p) => !notRequired.contains(p.kind));
     final grantedCount = required.where((p) => p.granted).length;
     final requiredTotal = required.length;
@@ -172,6 +177,13 @@ const _meta = {
     AppIconName.biometric,
     true,
   ),
+  PermissionKind.usageAccess: _PermissionMeta(
+    'Usage Access',
+    'Optional — reads the exact per-app screen time from the system '
+    '(the same source Digital Wellbeing uses) for accurate dashboard charts.',
+    AppIconName.chart,
+    true,
+  ),
 };
 
 class _PermissionCard extends ConsumerWidget {
@@ -277,6 +289,11 @@ class _ActionButton extends ConsumerWidget {
         // "Skip" for the optional card — nothing to request, just move
         // on; availability is a device capability, not a togglable
         // permission, so there's nothing else to do here.
+        return;
+      case PermissionKind.usageAccess:
+        await NativePermissions.openUsageAccessSettings();
+        // Optional card — opening Settings is enough; the tick picks it
+        // up on return (see permissionsRefreshTickProvider).
         return;
     }
     // VPN/Device Admin dialogs resolve synchronously enough that an

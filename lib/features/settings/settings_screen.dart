@@ -222,6 +222,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         PermissionKind.deviceAdmin => 'Device admin',
         PermissionKind.notificationListener => 'Notification access',
         PermissionKind.biometric => 'Biometrics',
+        PermissionKind.usageAccess => 'Usage access',
       };
 
   String _appearanceLabel(String mode) => switch (mode) {

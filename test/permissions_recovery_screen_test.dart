@@ -41,6 +41,7 @@ void main() {
           vpnPermissionGrantedProvider.overrideWith((ref) async => true),
           notificationListenerEnabledProvider.overrideWith((ref) async => true),
           postNotificationsGrantedProvider.overrideWith((ref) async => true),
+          usageAccessGrantedProvider.overrideWith((ref) async => true),
         ],
         child: const MaterialApp(
           home: PermissionsRecoveryScreen(onReEnabled: _noop),

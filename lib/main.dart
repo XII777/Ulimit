@@ -14,6 +14,7 @@ import 'data/permissions_providers.dart';
 import 'data/providers.dart';
 import 'data/restriction_providers.dart';
 import 'data/usage_tracker.dart';
+import 'data/usage_stats_sync.dart';
 import 'data/website_providers.dart';
 import 'features/onboarding/permissions_recovery_screen.dart';
 import 'features/onboarding/permissions_screen.dart';
@@ -117,6 +118,10 @@ class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserv
       ref.read(manualRestrictionsProvider);
       ref.read(internetBlocksProvider);
       ref.read(customWebsiteRulesProvider);
+      // UsageStats sync: authoritative per-app screen times for the
+      // dashboard charts (optional — only runs when usage access is
+      // granted). Fires on boot, on resume, and every 30s.
+      UsageStatsSyncCoordinator.instance.start(ref);
       // Block-list source migrated (HaGeZi → StevenBlack): drop rows
       // whose category no longer exists in the new catalog.
       ref.read(blockListRepositoryProvider).purgeOrphanedCategories();

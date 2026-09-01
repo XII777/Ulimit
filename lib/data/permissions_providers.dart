@@ -49,6 +49,11 @@ final biometricAvailableProvider = FutureProvider<bool>((ref) {
   return NativePermissions.isBiometricAvailable();
 });
 
+final usageAccessGrantedProvider = FutureProvider<bool>((ref) {
+  ref.watch(permissionsRefreshTickProvider);
+  return NativePermissions.isUsageAccessGranted();
+});
+
 /// Device Admin is requested during onboarding but never *required* —
 /// tapping "Allow" opens the system dialog once; whatever the user
 /// decides there, onboarding treats the card as handled so it never
@@ -61,7 +66,7 @@ final deviceAdminAcknowledgedProvider = StateProvider<bool>((ref) => false);
 /// One combined item type the onboarding screen renders from — keeps
 /// the widget dumb (map over a list) instead of five near-identical
 /// card widgets hand-wired to five different providers.
-enum PermissionKind { accessibility, vpn, deviceAdmin, notificationListener, biometric }
+enum PermissionKind { accessibility, vpn, deviceAdmin, notificationListener, biometric, usageAccess }
 
 class PermissionStatus {
   const PermissionStatus({required this.kind, required this.granted, required this.loading});
@@ -76,6 +81,7 @@ final allPermissionsProvider = Provider<List<PermissionStatus>>((ref) {
   final deviceAdmin = ref.watch(deviceAdminActiveProvider);
   final notifications = ref.watch(notificationListenerEnabledProvider);
   final biometric = ref.watch(biometricAvailableProvider);
+  final usageAccess = ref.watch(usageAccessGrantedProvider);
 
   final deviceAdminAcknowledged = ref.watch(deviceAdminAcknowledgedProvider);
 
@@ -98,6 +104,10 @@ final allPermissionsProvider = Provider<List<PermissionStatus>>((ref) {
     ),
     build(PermissionKind.notificationListener, notifications),
     build(PermissionKind.biometric, biometric),
+    // Optional enhancement, not required: gives exact screen-time data
+    // from UsageStatsManager (Digital Wellbeing's source) for the
+    // dashboard charts. Never blocks app access.
+    build(PermissionKind.usageAccess, usageAccess),
   ];
 });
 
@@ -109,6 +119,10 @@ final allPermissionsProvider = Provider<List<PermissionStatus>>((ref) {
 /// It's offered again, properly, from Parental & Lock.
 final requiredPermissionsGrantedProvider = Provider<bool>((ref) {
   final all = ref.watch(allPermissionsProvider);
-  const notRequired = {PermissionKind.biometric, PermissionKind.deviceAdmin};
+  const notRequired = {
+    PermissionKind.biometric,
+    PermissionKind.deviceAdmin,
+    PermissionKind.usageAccess,
+  };
   return all.where((p) => !notRequired.contains(p.kind)).every((p) => p.granted);
 });

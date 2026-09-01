@@ -54,7 +54,11 @@ class _PermissionsRecoveryScreenState extends ConsumerState<PermissionsRecoveryS
   Widget build(BuildContext context) {
     final permissions = ref.watch(allPermissionsProvider);
 
-    const notRequired = {PermissionKind.biometric, PermissionKind.deviceAdmin};
+    const notRequired = {
+      PermissionKind.biometric,
+      PermissionKind.deviceAdmin,
+      PermissionKind.usageAccess,
+    };
     final missing = permissions
         .where((p) => !notRequired.contains(p.kind) && !p.granted)
         .toList();
@@ -227,6 +231,8 @@ class _RecoveryCard extends ConsumerWidget {
         await NativePermissions.openNotificationListenerSettings();
       case PermissionKind.vpn:
         await NativePermissions.requestVpnPermission();
+      case PermissionKind.usageAccess:
+        await NativePermissions.openUsageAccessSettings();
       default:
         return;
     }
@@ -264,5 +270,10 @@ _RecoveryLabel _label(PermissionKind kind) {
       );
     case PermissionKind.biometric:
       return const _RecoveryLabel('Biometrics', 'Optional');
+    case PermissionKind.usageAccess:
+      return const _RecoveryLabel(
+        'Usage Access',
+        'Exact per-app screen time from the system for the dashboard charts.',
+      );
   }
 }

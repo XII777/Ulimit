@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 
 /// Thin wrapper around the native MethodChannel. Every method here maps
@@ -49,6 +51,29 @@ class NativePermissions {
 
   static Future<bool> isBiometricAvailable() async {
     return await _channel.invokeMethod<bool>('isBiometricAvailable') ?? false;
+  }
+
+  /// Usage access (UsageStatsManager special permission, granted in
+  /// system Settings → Usage access). When granted the app reads the
+  /// authoritative per-app foreground times for exact dashboard charts.
+  static Future<bool> isUsageAccessGranted() async {
+    return await _channel.invokeMethod<bool>('isUsageAccessGranted') ?? false;
+  }
+
+  static Future<void> openUsageAccessSettings() =>
+      _channel.invokeMethod('openUsageAccessSettings');
+
+  /// Per-package daily foreground seconds for the last [days] days from
+  /// UsageStatsManager; decoded as [{packageName, day, screenTime}].
+  static Future<List<Map<String, dynamic>>> fetchDeviceUsageForDays(int days) async {
+    try {
+      final raw = await _channel.invokeMethod<String>('fetchDeviceUsageForDays', days);
+      if (raw == null || raw.isEmpty) return [];
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } on PlatformException {
+      return [];
+    }
   }
 
   /// Shows the system BiometricPrompt (or device credential fallback)

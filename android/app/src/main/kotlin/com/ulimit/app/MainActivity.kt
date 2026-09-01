@@ -98,6 +98,20 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     "isBiometricAvailable" -> result.success(isBiometricAvailable())
                     "authenticate" -> authenticate(call.arguments as? String ?: "Authenticate", result)
+                    "isUsageAccessGranted" -> result.success(isUsageAccessGranted())
+                    "openUsageAccessSettings" -> {
+                        try {
+                            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                        } catch (_: Exception) {
+                            // Some OEMs hide the direct action — Settings hub
+                            // still contains it under Personal > Usage access.
+                            startActivity(Intent(Settings.ACTION_SETTINGS))
+                        }
+                        result.success(null)
+                    }
+                    "fetchDeviceUsageForDays" -> result.success(
+                        fetchDeviceUsageForDays(call.arguments as? Int ?: 7)
+                    )
                     "exportData" -> result.success(exportData(call.arguments as? String ?: "{}"))
                     "importData" -> pendingImportResult = result
                     else -> result.notImplemented()
@@ -274,5 +288,87 @@ class MainActivity : FlutterFragmentActivity() {
             this,
             android.Manifest.permission.POST_NOTIFICATIONS
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
+    // ------------------------------------------------------------------
+    // Usage access (UsageStatsManager) — special permission granted in
+    // system Settings → Usage access. Provides the authoritative
+    // per-app foreground times (the same data Digital Wellbeing shows),
+    // used to sync/verify the app_usage table for the dashboard charts.
+    // ------------------------------------------------------------------
+
+    private fun isUsageAccessGranted(): Boolean {
+        return try {
+            @Suppress("DEPRECATION")
+            val appOps = getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+            @Suppress("DEPRECATION")
+            val mode = appOps.checkOpNoThrow(
+                android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+                android.os.Process.myUid(),
+                packageName
+            )
+            mode == android.app.AppOpsManager.MODE_ALLOWED
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Returns per-package daily foreground times for the last [days]
+     * days (including today) as a JSON array of
+     * `{packageName, day (unix seconds), screenTime}` — screenTime in
+     * seconds, from UsageStatsManager (authoritative, same as Digital
+     * Wellbeing). Empty when the permission isn't granted.
+     */
+    private fun fetchDeviceUsageForDays(days: Int): String {
+        if (!isUsageAccessGranted()) return "[]"
+        return try {
+            val usm = getSystemService(Context.USAGE_STATS_SERVICE) as android.app.UsageStatsManager
+            val end = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                add(java.util.Calendar.DAY_OF_YEAR, 1)
+            }
+            val start = (end.clone() as java.util.Calendar).apply {
+                add(java.util.Calendar.DAY_OF_YEAR, -days)
+            }
+
+            val out = org.json.JSONArray()
+            // queryAndAggregateUsageStats returns {@code packageName ->
+            // UsageStats} aggregated for INTERVAL_DAILY buckets keyed
+            // by mLastTimeUsed; to get per-DAY times we walk each day
+            // separately with queryUsageStats.
+            for (dayOffset in 0 until days) {
+                val d = (start.clone() as java.util.Calendar).apply {
+                    add(java.util.Calendar.DAY_OF_YEAR, dayOffset)
+                }
+                val dayStart = d.timeInMillis
+                val dayEnd = dayStart + (24 * 3600 * 1000L)
+                val perPackage = HashMap<String, Long>()
+                val stats = usm.queryUsageStats(
+                    android.app.UsageStatsManager.INTERVAL_DAILY,
+                    dayStart, dayEnd
+                ) ?: continue
+                for (s in stats) {
+                    if (s.totalTimeInForeground <= 0) continue
+                    perPackage[s.packageName] =
+                        (perPackage[s.packageName] ?: 0L) + s.totalTimeInForeground
+                }
+                val dayUnixSeconds = dayStart / 1000
+                for ((pkg, ms) in perPackage) {
+                    out.put(
+                        org.json.JSONObject().apply {
+                            put("packageName", pkg)
+                            put("day", dayUnixSeconds)
+                            put("screenTime", ms / 1000)
+                        }
+                    )
+                }
+            }
+            out.toString()
+        } catch (_: Exception) {
+            "[]"
+        }
     }
 }
