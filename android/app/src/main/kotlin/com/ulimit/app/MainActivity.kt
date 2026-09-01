@@ -115,6 +115,13 @@ class MainActivity : FlutterFragmentActivity() {
                     "fetchAppHourlyUsage" -> result.success(
                         fetchAppHourlyUsage(call.arguments as? String ?: "")
                     )
+                    "fetchAppHourlyUsageForDay" -> result.success(
+                        fetchAppHourlyUsageForDay(
+                            (call.arguments as? Map<*, *>)?.get("packageName") as? String ?: "",
+                            (call.arguments as? Map<*, *>)?.get("dayStartMillis")
+                                ?.toString()?.toLongOrNull() ?: System.currentTimeMillis()
+                        )
+                    )
                     "fetchDayHourlyUsage" -> result.success(
                         fetchDayHourlyUsage(call.arguments as? Long ?: System.currentTimeMillis())
                     )
@@ -326,23 +333,33 @@ class MainActivity : FlutterFragmentActivity() {
      * each value in seconds. Uses UsageEvents (the raw event stream —
      * the authoritative per-app foreground attribution) when granted.
      */
-    private fun fetchAppHourlyUsage(packageName: String): String {
+    private fun fetchAppHourlyUsage(packageName: String): String =
+        fetchAppHourlyUsageForDay(packageName, System.currentTimeMillis())
+
+    /**
+     * Per-hour foreground seconds for one app on the calendar day
+     * containing [dayStartMillis] (UsageEvents retention ~7-10 days;
+     * older days return zeros — DB-backed history pages cover them).
+     * JSON int[24] in seconds.
+     */
+    private fun fetchAppHourlyUsageForDay(packageName: String, dayArg: Long): String {
         if (!isUsageAccessGranted() || packageName.isBlank()) return "[]"
         return try {
             val usm = getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
-            val now = java.util.Calendar.getInstance()
-            val dayStart = (now.clone() as java.util.Calendar).apply {
+            val midnight = java.util.Calendar.getInstance().apply {
+                timeInMillis = dayArg
                 set(java.util.Calendar.HOUR_OF_DAY, 0)
                 set(java.util.Calendar.MINUTE, 0)
                 set(java.util.Calendar.SECOND, 0)
                 set(java.util.Calendar.MILLISECOND, 0)
             }.timeInMillis
+            val dayEnd = midnight + 24 * 3600 * 1000L
 
             val hourly = LongArray(24)
             var lastEventAt: Long = 0
             var lastEventWasTarget = false
 
-            val events = usm.queryEvents(dayStart, System.currentTimeMillis())
+            val events = usm.queryEvents(midnight, dayEnd)
             val event = android.app.usage.UsageEvents.Event()
             while (events.hasNextEvent()) {
                 events.getNextEvent(event)
@@ -351,19 +368,19 @@ class MainActivity : FlutterFragmentActivity() {
                 ) {
                     if (lastEventWasTarget && lastEventAt > 0) {
                         val duration = (event.timeStamp - lastEventAt).coerceAtLeast(0)
-                        val hourIdx = (lastEventAt - dayStart) / (3600 * 1000L)
+                        val hourIdx = (lastEventAt - midnight) / (3600 * 1000L)
                         if (hourIdx in 0..23) hourly[hourIdx.toInt()] += duration
                     }
                     lastEventAt = event.timeStamp
                     lastEventWasTarget = event.packageName == packageName
                 }
             }
-            // The app is still in the foreground right now: count it up
-            // to the current minute.
+            // App still in the foreground: count up to end-of-day/today cap.
             if (lastEventWasTarget && lastEventAt > 0) {
-                val idx = (lastEventAt - dayStart) / (3600 * 1000L)
+                val idx = (lastEventAt - midnight) / (3600 * 1000L)
                 if (idx in 0..23) {
-                    hourly[idx.toInt()] += (System.currentTimeMillis() - lastEventAt).coerceAtLeast(0)
+                    hourly[idx.toInt()] +=
+                        (dayEnd.coerceAtMost(System.currentTimeMillis()) - lastEventAt).coerceAtLeast(0)
                 }
             }
 

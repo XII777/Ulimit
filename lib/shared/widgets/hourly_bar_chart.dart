@@ -155,6 +155,8 @@ class _HourlyBarChartState extends State<HourlyBarChart> {
 }
 
 /// Small poke popup: time + hour marker, anchored above the tapped bar.
+/// Sized to its content (long "12h 59m" pill vs short "45m") and
+/// centered over the bar so the bar itself never moves.
 class _TooltipBubble extends StatelessWidget {
   const _TooltipBubble({required this.text});
   final String text;
@@ -162,15 +164,34 @@ class _TooltipBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FractionalTranslation(
-      translation: const Offset(0, -0.25),
+      translation: const Offset(0, -0.4),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
           color: AppColors.ink,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.25),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
-        child: Text(text,
-            style: TextStyle(fontSize: 10, color: AppColors.bg, fontWeight: FontWeight.w600)),
+        child: Text(
+          text,
+          // Adaptive: font tracks the string length (longer values get a
+          // slightly smaller run, never clipped).
+          style: TextStyle(
+            fontSize: text.length > 6 ? 11 : 12,
+            color: AppColors.bg,
+            fontWeight: FontWeight.w700,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          softWrap: false,
+        ),
       ),
     );
   }

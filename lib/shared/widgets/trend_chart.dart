@@ -110,11 +110,24 @@ class _AreaChartPainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
     canvas.drawPath(path, linePaint);
 
+    // Faded translucent gradient under the line: fills the area below
+    // the series with a linear gradient (color@0.18 → transparent) so
+    // the chart's backdrop reads as a soft fade rather than a flat
+    // tint. Driven by [progress] so the fade-in animates with the line.
     final fillPath = Path.from(path)
       ..lineTo(points.last.dx, size.height)
       ..lineTo(points.first.dx, size.height)
       ..close();
-    final fillPaint = Paint()..color = color.withValues(alpha: 0.10);
+    final fillColor = color.withValues(alpha: 0.18 * progress);
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          fillColor.withValues(alpha: fillColor.a),
+          fillColor.withValues(alpha: 0.0),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
     canvas.drawPath(fillPath, fillPaint);
 
     // Endpoint dot — hollow ring, matches the mockup's highlighted

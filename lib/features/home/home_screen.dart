@@ -61,7 +61,7 @@ class HomeScreen extends ConsumerWidget {
           const SizedBox(height: 28),
         ],
 
-         PremiumSectionLabel("TODAY'S OVERVIEW"),
+         PremiumSectionLabel('WEEKLY OVERVIEW'),
         const SizedBox(height: 10),
         _WeeklyTrendCard(
           weeklyHours: weeklyUsage,
@@ -383,8 +383,10 @@ class _WeeklyTrendCard extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 4),
-          Text(
-            hasData ? formatDurationShort(Duration(minutes: (avg * 60).round())) : 'No data yet',
+          RollingNumber(
+            text: hasData
+                ? formatDurationShort(Duration(minutes: (avg * 60).round()))
+                : 'No data yet',
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
           ),
           const SizedBox(height: 8),

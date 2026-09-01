@@ -20,14 +20,31 @@ import '../../shared/widgets/spring_scroll.dart';
 /// list). Mirrors Digital Wellbeing's app detail: colored app card with
 /// today's usage + limit, the hourly Usage Today chart, Weekly Usage
 /// with the prior-week delta, the App Limits progress, and App Controls
-/// quick actions (block now / focus mode).
-class AppStatsScreen extends ConsumerWidget {
+/// quick actions (block now / focus mode). The Usage chart follows the
+/// selected day (date strip via the View Full Day long-press popup).
+class AppStatsScreen extends ConsumerStatefulWidget {
   const AppStatsScreen({super.key, required this.packageName});
 
   final String packageName;
 
+  /// Local-midnight of the current day.
+  static DateTime today() {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AppStatsScreen> createState() => _AppStatsScreenState();
+}
+
+class _AppStatsScreenState extends ConsumerState<AppStatsScreen> {
+  // Selected calendar day (local midnight). Defaults to today.
+  late DateTime _selectedDay = AppStatsScreen.today();
+
+  @override
+  Widget build(BuildContext context) {
+    final packageName = widget.packageName;
+    final ref = this.ref;
     final catalog = ref.watch(appsCatalogProvider).valueOrNull;
     final name = catalog?.nameFor(packageName) ?? packageName;
     final todaySeconds = ref.watch(appTodayUsageProvider(packageName)).valueOrNull ?? 0;
@@ -59,7 +76,11 @@ class AppStatsScreen extends ConsumerWidget {
             usageActiveSeconds: todaySeconds,
           ),
           const SizedBox(height: 18),
-          _HourlyUsageCard(packageName: packageName),
+          _HourlyUsageCard(
+            packageName: packageName,
+            selectedDay: _selectedDay,
+            onViewFullDay: openDatePicker,
+          ),
           const SizedBox(height: 18),
           _WeeklyUsageCard(packageName: packageName),
           const SizedBox(height: 18),
@@ -70,6 +91,82 @@ class AppStatsScreen extends ConsumerWidget {
       ),
     );
   }
+
+  /// Long-press on the View Full Day chip → small scrollable date
+  /// picker popup (max ~4 rows visible). Selecting a date updates the
+  /// hourly card (appHourlyUsage for that day) and the header.
+  Future<void> openDatePicker() async {
+    final selected = await _showDatePickerPopup(context, _selectedDay);
+    if (selected != null && mounted) {
+      setState(() => _selectedDay = selected);
+    }
+  }
+}
+
+/// Small vertically-scrollable date popup (max 4 rows). Returns the
+/// chosen local-midnight date, or null on dismiss.
+Future<DateTime?> _showDatePickerPopup(BuildContext context, DateTime current) async {
+  final today = DateTime.now();
+  final todayMidnight = DateTime(today.year, today.month, today.day);
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+
+  return showModalBottomSheet<DateTime>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: 0.45),
+    builder: (sheetContext) {
+      // Max 4 rows ≈ 4 * 44px + padding.
+      return Container(
+        margin: const EdgeInsets.only(left: 20, right: 20, bottom: 24),
+        constraints: const BoxConstraints(maxHeight: 4 * 44.0 + 20),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(color: AppColors.stroke),
+        ),
+        child: ListView.separated(
+          shrinkWrap: true,
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          itemCount: 90,
+          separatorBuilder: (_, __) => Container(height: 1, color: AppColors.stroke),
+          itemBuilder: (context, i) {
+            final day = todayMidnight.subtract(Duration(days: i));
+            final isCurrent = day == current;
+            final label = i == 0
+                ? 'Today'
+                : i == 1
+                    ? 'Yesterday'
+                    : '${months[day.month - 1]} ${day.day}, ${day.year}';
+            return InkWell(
+              onTap: () => Navigator.of(sheetContext).pop(day),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                color: isCurrent ? AppColors.ink.withValues(alpha: 0.08) : null,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(label,
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
+                            color: AppColors.ink,
+                          )),
+                    ),
+                    if (isCurrent)
+                      AppIcon(AppIconName.check, size: 15, color: AppColors.ink),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    },
+  );
 }
 
 /// Colored header: app icon (white rounded tile), status chip
@@ -218,19 +315,31 @@ class _HeaderMetric extends StatelessWidget {
   }
 }
 
-/// Hourly bar chart: native UsageEvents 24 buckets, y-axis caps ~60m.
+/// Hourly bar chart: per-day UsageEvents 24 buckets, y-axis caps ~60m.
 class _HourlyUsageCard extends ConsumerWidget {
-  const _HourlyUsageCard({required this.packageName});
+  const _HourlyUsageCard({
+    required this.packageName,
+    required this.selectedDay,
+    required this.onViewFullDay,
+  });
+
   final String packageName;
+  final DateTime selectedDay;
+  final Future<void> Function() onViewFullDay;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final hourly = ref.watch(hourlyUsageProvider(packageName)).valueOrNull ?? const <int>[];
+    final isToday = selectedDay == AppStatsScreen.today();
+    final hourly = isToday
+        ? ref.watch(hourlyUsageProvider(packageName)).valueOrNull ?? const <int>[]
+        : ref.watch(appDayHourlyUsageProvider((packageName, selectedDay))).valueOrNull ??
+            const <int>[];
 
     return _SectionCard(
-      title: 'Usage Today',
+      title: isToday ? 'Usage Today' : 'Usage · ${_shortDate(selectedDay)}',
       trailing: GestureDetector(
-        onTap: () => context.push('${Routes.appFullDay}?pkg=$packageName'),
+        // Long-press opens the date picker.
+        onLongPress: onViewFullDay,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
@@ -245,21 +354,10 @@ class _HourlyUsageCard extends ConsumerWidget {
       child: HourlyBarChart(hourly: hourly, height: 140, axisTicks: const ['60m', '30m', '0m']),
     );
   }
-}
 
-class _ViewFullDayChip extends StatelessWidget {
-  const _ViewFullDayChip();
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: AppColors.surface2,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-      ),
-      child: Text('View Full Day',
-          style: TextStyle(fontSize: 10.5, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
-    );
+  String _shortDate(DateTime day) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[day.month - 1]} ${day.day}';
   }
 }
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers.dart';
@@ -10,11 +12,36 @@ DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
 DateTime _daysAgo(int n) => _startOfDay(DateTime.now().subtract(Duration(days: n)));
 
 /// Last 7 days of total screen time, oldest→newest, in hours — feeds
-/// the weekly trend chart directly.
+/// the weekly trend chart directly. The final (today) bucket is merged
+/// with the LIVE pending screen time so the line graph's rightmost
+/// point ticks in real time instead of lagging until the next DB
+/// commit (app switch / sync).
 final weeklyScreenTimeHoursProvider = StreamProvider<List<double>>((ref) {
-  return ref.watch(weeklyScreenTimeProvider.stream).map(
-        (days) => [for (final d in days) d.inSeconds / 3600.0],
-      );
+  final controller = StreamController<List<double>>();
+
+  void current() {
+    if (controller.isClosed) return;
+    final days = ref.read(weeklyScreenTimeProvider).valueOrNull;
+    if (days == null) return;
+    final list = [for (final d in days) d.inSeconds / 3600.0];
+    if (list.isNotEmpty) {
+      list[list.length - 1] +=
+          (ref.read(livePendingScreenTimeProvider).valueOrNull ?? 0) / 3600.0;
+    }
+    controller.add(list);
+  }
+
+  controller.onListen = () {
+    current();
+    // Re-read + re-emit whenever the pending ticker ticks (1s/5s) or
+    // the DB-backed weekly rows change. ref.listen fires from either
+    // source without exposing deprecated .stream on AsyncValue.
+    ref.listen(livePendingScreenTimeProvider, (prev, next) => current());
+    ref.listen(weeklyScreenTimeProvider, (prev, next) => current());
+  };
+  controller.onCancel = () {};
+  ref.onDispose(controller.close);
+  return controller.stream;
 });
 
 /// Daily focus-session totals for the last 7 days, oldest→newest, in

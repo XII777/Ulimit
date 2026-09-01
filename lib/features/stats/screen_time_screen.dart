@@ -11,6 +11,7 @@ import '../../core/native/permissions_channel.dart';
 import '../../data/apps_repository.dart';
 import '../../data/providers.dart';
 import '../../shared/widgets/hourly_bar_chart.dart';
+import '../../shared/widgets/rolling_number.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
 /// Screen Time detail page. A horizontal DATE STRIP (today →
@@ -47,7 +48,12 @@ class _ScreenTimeScreenState extends ConsumerState<ScreenTimeScreen> {
   @override
   Widget build(BuildContext context) {
     final today = _today();
-    final dayTotal = ref.watch(dayScreenTimeProvider(_selectedDay));
+    // When the selected day is TODAY, the top total ticks live (DB
+    // total + pending foreground window); past days are static.
+    final isToday = _selectedDay == today;
+    final dayTotalSeconds = isToday
+        ? (ref.watch(liveScreenTimeSecondsProvider).valueOrNull ?? 0)
+        : (ref.watch(dayScreenTimeProvider(_selectedDay)).valueOrNull?.inSeconds ?? 0);
     final hourly = ref.watch(dayHourlyUsageProvider(_selectedDay)).valueOrNull ?? const <int>[];
 
     return Scaffold(
@@ -89,10 +95,9 @@ class _ScreenTimeScreenState extends ConsumerState<ScreenTimeScreen> {
                   ],
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  dayTotal.valueOrNull?.inSeconds != null &&
-                          (dayTotal.valueOrNull?.inSeconds ?? 0) > 0
-                      ? formatDurationHMS(Duration(seconds: dayTotal.valueOrNull!.inSeconds))
+                RollingNumber(
+                  text: dayTotalSeconds > 0
+                      ? formatDurationHMS(Duration(seconds: dayTotalSeconds))
                       : 'No data',
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
                 ),

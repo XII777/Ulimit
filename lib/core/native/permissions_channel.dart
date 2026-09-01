@@ -89,6 +89,23 @@ class NativePermissions {
     }
   }
 
+  /// Per-hour foreground buckets for ONE app on a specific calendar day
+  /// (UsageEvents retention ~7-10 days; older days return zeros).
+  static Future<List<int>> fetchAppHourlyUsageForDay(
+      String packageName, int dayStartMillis) async {
+    try {
+      final raw = await _channel.invokeMethod<String>('fetchAppHourlyUsageForDay', {
+        'packageName': packageName,
+        'dayStartMillis': dayStartMillis,
+      });
+      if (raw == null || raw.isEmpty) return List.filled(24, 0);
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return decoded.map((e) => (e as num).toInt()).toList();
+    } on PlatformException {
+      return List.filled(24, 0);
+    }
+  }
+
   /// Today's device-wide per-hour foreground seconds (all apps summed,
   /// Ulimit + launcher excluded), index 0 = 00:00–00:59 … 23.
   static Future<List<int>> fetchDeviceHourlyUsage() async {

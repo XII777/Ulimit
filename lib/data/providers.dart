@@ -146,11 +146,11 @@ final liveScreenTimeSecondsProvider = StreamProvider<int>((ref) {
   }
 
   // 1s foreground / 5s background throttling.
-  bool _appBackgrounded = false;
-  _AppLifecycleObserver? _lifecycleObserver;
+  bool appBackgrounded = false;
+  _AppLifecycleObserver? lifecycleObserver;
   void _armTicker() {
     timer?.cancel();
-    final cadence = _appBackgrounded
+    final cadence = appBackgrounded
         ? const Duration(seconds: 5)
         : const Duration(seconds: 1);
     timer = Timer.periodic(cadence, (_) {
@@ -164,29 +164,83 @@ final liveScreenTimeSecondsProvider = StreamProvider<int>((ref) {
       _armTicker();
       // Pause the fast tick while backgrounded — keep-alive tabs keep
       // the subscription alive even when the app is not in view.
-      _lifecycleObserver =
+      lifecycleObserver =
           _AppLifecycleObserver((state) {
-        _appBackgrounded = state != AppLifecycleState.resumed;
+        appBackgrounded = state != AppLifecycleState.resumed;
         _armTicker();
       });
-      WidgetsBinding.instance.addObserver(_lifecycleObserver!);
+      WidgetsBinding.instance.addObserver(lifecycleObserver!);
     },
     onCancel: () {
       timer?.cancel();
-      final observer = _lifecycleObserver;
+      final observer = lifecycleObserver;
       if (observer != null) {
         WidgetsBinding.instance.removeObserver(observer);
-        _lifecycleObserver = null;
+        lifecycleObserver = null;
       }
     },
   );
   ref.onDispose(() {
     timer?.cancel();
-    final observer = _lifecycleObserver;
+    final observer = lifecycleObserver;
     if (observer != null) {
       WidgetsBinding.instance.removeObserver(observer);
-      _lifecycleObserver = null;
+      lifecycleObserver = null;
     }
+    controller.close();
+  });
+  return controller.stream;
+});
+
+/// Just the un-committed pending screen time of the current foreground
+/// app (seconds since the last tracker event), ticking at the same
+/// adaptive cadence. Used to make the weekly line graph's today point
+/// live without polluting the persisted totals.
+final livePendingScreenTimeProvider = StreamProvider<int>((ref) {
+  late final StreamController<int> controller;
+  Timer? timer;
+  bool backgrounded = false;
+  _AppLifecycleObserver? observer;
+
+  int compute() {
+    final foreground = UsageTracker.liveForeground.value;
+    if (foreground == null || foreground.package == 'com.ulimit.app') return 0;
+    return ((DateTime.now().millisecondsSinceEpoch - foreground.sinceMillis) / 1000)
+        .floor()
+        .clamp(0, 6 * 3600)
+        .toInt();
+  }
+
+  void armTicker() {
+    timer?.cancel();
+    timer = Timer.periodic(
+      backgrounded ? const Duration(seconds: 5) : const Duration(seconds: 1),
+      (_) {
+        if (!controller.isClosed) controller.add(compute());
+      },
+    );
+  }
+
+  controller = StreamController<int>(
+    onListen: () {
+      controller.add(compute());
+      armTicker();
+      observer = _AppLifecycleObserver((state) {
+        backgrounded = state != AppLifecycleState.resumed;
+        armTicker();
+      });
+      WidgetsBinding.instance.addObserver(observer!);
+    },
+    onCancel: () {
+      timer?.cancel();
+      final o = observer;
+      if (o != null) WidgetsBinding.instance.removeObserver(o);
+    },
+  );
+  ref.onDispose(() {
+    timer?.cancel();
+    final o = observer;
+    if (o != null) WidgetsBinding.instance.removeObserver(o);
     controller.close();
   });
   return controller.stream;
@@ -449,6 +503,17 @@ final hourlyUsageProvider =
     FutureProvider.family<List<int>, String>((ref, packageName) async {
   ref.watch(permissionsRefreshTickProvider);
   return NativePermissions.fetchAppHourlyUsage(packageName);
+});
+
+/// One app's per-hour foreground buckets for a specific calendar day
+/// (UsageEvents retention ~7-10 days; older days return zeros).
+final appDayHourlyUsageProvider =
+    FutureProvider.family<List<int>, (String, DateTime)>((ref, args) async {
+  ref.watch(permissionsRefreshTickProvider);
+  final (packageName, day) = args;
+  final midnight = startOfDay(day);
+  return NativePermissions.fetchAppHourlyUsageForDay(
+      packageName, midnight.millisecondsSinceEpoch);
 });
 
 /// Today's device-wide per-hour foreground buckets (all apps summed,
