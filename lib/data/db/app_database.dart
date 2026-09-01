@@ -31,7 +31,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.connect(super.e);
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   // Migrations are explicit (rather than "just delete and recreate")
   // because this is local user data — wiping someone's focus history on
@@ -111,6 +111,10 @@ class AppDatabase extends _$AppDatabase {
             await _addColumnIfMissing(m, ulimitSettings, ulimitSettings.coloredSessionTags, 'colored_session_tags');
             await m.createTable(focusTags);
           }
+          if (from < 7) {
+            // v6 → v7: hide-nav-bar setting.
+            await _addColumnIfMissing(m, ulimitSettings, ulimitSettings.hideNavBar, 'hide_nav_bar');
+          }
         },
         beforeOpen: (details) async {
           final m = createMigrator();
@@ -132,6 +136,8 @@ class AppDatabase extends _$AppDatabase {
               'permissions_onboarding_completed');
           await _addColumnIfMissing(
               m, ulimitSettings, ulimitSettings.coloredSessionTags, 'colored_session_tags');
+          await _addColumnIfMissing(
+              m, ulimitSettings, ulimitSettings.hideNavBar, 'hide_nav_bar');
 
           // Ensure the singleton settings row exists so every reader
           // gets real values instead of "null until first write".

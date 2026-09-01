@@ -38,7 +38,8 @@ class HomeScreen extends ConsumerWidget {
 
     return ListView(
       physics: springScrollPhysics,
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
+      padding: EdgeInsets.fromLTRB(
+          20, 12, 20, ref.watch(hideNavBarProvider).valueOrNull == true ? navBarHiddenInset : navBarPillInset),
       children: [
          _Header(),
         const SizedBox(height: 22),

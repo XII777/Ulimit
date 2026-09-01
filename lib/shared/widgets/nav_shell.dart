@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/router/app_router.dart';
+import '../../data/providers.dart';
 import '../../features/bedtime/bedtime_screen.dart';
 import '../../features/focus/focus_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/limits/limits_screen.dart';
 import '../../features/settings/settings_screen.dart';
-import 'app_sheet.dart';
-import 'pressable_scale.dart';
 
 /// The app's navigation shell. Owns the global navigation behaviors:
 ///
@@ -23,15 +23,15 @@ import 'pressable_scale.dart';
 ///     route) is open.
 ///  3. Constant status-bar top spacing (native, stable — no
 ///     scroll-coupled layout changes, which caused jitter).
-class NavShell extends StatefulWidget {
+class NavShell extends ConsumerStatefulWidget {
   const NavShell({super.key, required this.child});
   final Widget child;
 
   @override
-  State<NavShell> createState() => _NavShellState();
+  ConsumerState<NavShell> createState() => _NavShellState();
 }
 
-class _NavShellState extends State<NavShell> {
+class _NavShellState extends ConsumerState<NavShell> {
   static const _tabs = [
     (Routes.home, AppIconName.home, 'Home'),
     (Routes.focus, AppIconName.focus, 'Focus'),
@@ -101,6 +101,9 @@ class _NavShellState extends State<NavShell> {
     final location = GoRouterState.of(context).uri.path;
     final routeIndex = _tabs.indexWhere((t) => t.$1 == location).clamp(0, _tabs.length - 1);
 
+    // "Hide Nav Bar" setting: immersive mode — no floating pill at all.
+    final hideNavBar = ref.watch(hideNavBarProvider).valueOrNull ?? false;
+
     // A location change that did NOT come from the PageView itself
     // (deep link, initial load) must drag the PageView to match.
     if (_lastRouteIndex == -1) {
@@ -129,8 +132,10 @@ class _NavShellState extends State<NavShell> {
       // Let the page background and scrolling content extend behind the
       // floating-pill strip: the nav strip's own area is transparent (see
       // _FloatingNavContainer) so the main page shows through it, while
-      // the pill itself keeps its opaque surface.
-      extendBody: true,
+      // the pill itself keeps its opaque surface. In "Hide Nav Bar"
+      // immersive mode there is no strip at all — the body simply spans
+      // the full screen.
+      extendBody: !hideNavBar,
       body: NotificationListener<ScrollNotification>(
         onNotification: _onScroll,
         child: Padding(
@@ -152,13 +157,16 @@ class _NavShellState extends State<NavShell> {
       ),
       // Floating nav pill — hidden while scrolling down or while any
       // overlay is open; selection follows the swipe gesture live.
-      bottomNavigationBar: _FloatingNavContainer(
-        tabs: _tabs,
-        routeIndex: routeIndex,
-        pageController: _pageController,
-        visible: _navVisible,
-        onTap: goToTab,
-      ),
+      // Omitted entirely in "Hide Nav Bar" immersive mode.
+      bottomNavigationBar: hideNavBar
+          ? null
+          : _FloatingNavContainer(
+              tabs: _tabs,
+              routeIndex: routeIndex,
+              pageController: _pageController,
+              visible: _navVisible,
+              onTap: goToTab,
+            ),
     );
   }
 }

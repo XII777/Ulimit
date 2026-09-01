@@ -182,6 +182,11 @@ class UlimitSettings extends Table {
   // changed or removed (Invincible Mode's core behavior).
   BoolColumn get biometricProtection => boolean().withDefault(const Constant(false))();
   BoolColumn get hapticsEnabled => boolean().withDefault(const Constant(true))();
+
+  // Hide the floating nav pill entirely (immersive browsing): when true
+  // the NavShell renders no bottom navigation — the pill auto-hide on
+  // scroll still applies when false.
+  BoolColumn get hideNavBar => boolean().withDefault(const Constant(false))();
   BoolColumn get pauseNotificationsDuringFocus => boolean().withDefault(const Constant(true))();
   IntColumn get defaultFocusMinutes => integer().withDefault(const Constant(25))();
   // Desired VPN state — the VPN reconnects to match this after reboot.

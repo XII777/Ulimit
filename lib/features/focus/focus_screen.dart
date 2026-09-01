@@ -97,7 +97,7 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
 
     return ListView(
       physics: springScrollPhysics,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 110),
+      padding: EdgeInsets.fromLTRB(20, 16, 20, ref.watch(hideNavBarProvider).valueOrNull == true ? navBarHiddenInset : navBarPillInset),
       children: [
         Text('Focus', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 4),

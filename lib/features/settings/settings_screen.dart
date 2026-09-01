@@ -37,7 +37,9 @@ class SettingsScreen extends ConsumerWidget {
     // Top spacing is owned by NavShell's collapsing inset.
     return ListView(
       physics: springScrollPhysics,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 110),
+      padding: EdgeInsets.fromLTRB(
+          20, 16, 20,
+          ref.watch(hideNavBarProvider).valueOrNull == true ? navBarHiddenInset : navBarPillInset),
       children: [
           Text('Settings', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 4),
@@ -69,6 +71,14 @@ class SettingsScreen extends ConsumerWidget {
                   trailing: Switch(
                     value: settings?.hapticsEnabled ?? true,
                     onChanged: (v) => ref.read(settingsControllerProvider).setHapticsEnabled(v),
+                  ),
+                ),
+                PremiumListTile(
+                  label: 'Hide Nav Bar',
+                  sublabel: 'Immersive browsing — remove the bottom nav pill',
+                  trailing: Switch(
+                    value: settings?.hideNavBar ?? false,
+                    onChanged: (v) => ref.read(settingsControllerProvider).setHideNavBar(v),
                   ),
                 ),
               ],

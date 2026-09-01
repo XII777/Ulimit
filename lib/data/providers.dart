@@ -34,6 +34,18 @@ final ulimitSettingsProvider = StreamProvider<UlimitSetting>((ref) {
   return db.select(db.ulimitSettings).watchSingle();
 });
 
+/// Immersive-browsing toggle: true hides the floating nav pill entirely.
+final hideNavBarProvider = StreamProvider<bool>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.select(db.ulimitSettings).watchSingle().map((s) => s.hideNavBar);
+});
+
+/// Bottom scroll inset for tab screens. With the floating pill visible
+/// content needs ~110px of clearance so the last row never hides
+/// behind it; in "Hide Nav Bar" immersive mode 16px is plenty.
+const double navBarPillInset = 110;
+const double navBarHiddenInset = 16;
+
 class SettingsController {
   SettingsController(this._db);
   final AppDatabase _db;
@@ -42,6 +54,11 @@ class SettingsController {
       _update(UlimitSettingsCompanion(biometricProtection: Value(v)));
   Future<void> setHapticsEnabled(bool v) =>
       _update(UlimitSettingsCompanion(hapticsEnabled: Value(v)));
+
+  /// Hides the floating nav pill entirely — immersive browsing mode.
+  /// The scroll auto-hide still applies when this is false.
+  Future<void> setHideNavBar(bool v) =>
+      _update(UlimitSettingsCompanion(hideNavBar: Value(v)));
   Future<void> setPauseNotificationsDuringFocus(bool v) =>
       _update(UlimitSettingsCompanion(pauseNotificationsDuringFocus: Value(v)));
   Future<void> setDefaultFocusMinutes(int v) =>
