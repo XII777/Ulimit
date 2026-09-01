@@ -44,8 +44,11 @@ jobs:
         # test/restriction_engine_test.dart (same assertions).
         run: dart run tool/validate_engine.dart
 
-      - name: Build release APK
-        run: flutter build apk --release
+      - name: Build release APK (split per ABI)
+        run: |
+          flutter build apk --release --split-per-abi
+          # Also a universal APK (all ABIs in one) for sideload/family use.
+          flutter build apk --release
 
       # Categorized notes from the commits included in this release
       # (conventional prefixes + keyword fallback) — see
@@ -56,11 +59,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/release-notes.mjs > release-notes.md
 
-      - name: Upload APK artifact
+      - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ulimit-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: ulimit-release-apks
+          path: |
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            build/app/outputs/flutter-apk/app-x86_64-release.apk
+            build/app/outputs/flutter-apk/app-release.apk
 
       - name: Create GitHub Release
         if: github.event_name == 'push'
@@ -69,6 +76,10 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: Release ${{ github.run_number }}
           body_path: release-notes.md
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: |
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            build/app/outputs/flutter-apk/app-x86_64-release.apk
+            build/app/outputs/flutter-apk/app-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
