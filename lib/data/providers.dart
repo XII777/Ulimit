@@ -388,6 +388,61 @@ final appTodayUsageProvider = StreamProvider.family<int, String>((ref, packageNa
       );
 });
 
+/// Total device screen time for ONE calender day (local). Backs the
+/// Screen Time page's date-strip top card.
+final dayScreenTimeProvider = StreamProvider.family<Duration, DateTime>((ref, day) {
+  final db = ref.watch(databaseProvider);
+  final start = startOfDay(day);
+  final query = db.select(db.appUsage)..where((t) => t.day.equals(start));
+  return query.watch().map((rows) => Duration(
+        seconds: rows
+            .where((r) => r.packageName != 'com.ulimit.app')
+            .fold(0, (sum, r) => sum + r.foregroundSeconds),
+      ));
+});
+
+/// Per-package usage for ONE calendar day (local) — the Screen Time
+/// app list under the selected date.
+final dayUsageByPackageProvider =
+    StreamProvider.family<Map<String, int>, DateTime>((ref, day) {
+  final db = ref.watch(databaseProvider);
+  final start = startOfDay(day);
+  final query = db.select(db.appUsage)..where((t) => t.day.equals(start));
+  return query.watch().map((rows) => {
+        for (final r in rows)
+          if (r.packageName != 'com.ulimit.app') r.packageName: r.foregroundSeconds,
+      });
+});
+
+/// One app's per-day foreground seconds for the last [days] days,
+/// oldest→newest (index 0 = days-1 ago … last = today). Feeds the app
+/// info page's full-day history bar graph.
+final appDayHistoryProvider =
+    StreamProvider.family<(List<int>, int), String>((ref, packageName) {
+  final db = ref.watch(databaseProvider);
+  final today = startOfDay(DateTime.now());
+  final start = today.subtract(const Duration(days: 89)); // 90 days
+  final query = db.select(db.appUsage)
+    ..where((t) =>
+        t.day.isBiggerOrEqualValue(start) & t.packageName.equals(packageName));
+  return query.watch().map((rows) {
+    final byDay = <DateTime, int>{};
+    for (final r in rows) {
+      byDay.update(startOfDay(r.day.toLocal()), (v) => v + r.foregroundSeconds,
+          ifAbsent: () => r.foregroundSeconds);
+    }
+    final list = <int>[];
+    var total = 0;
+    for (var i = 0; i < 90; i++) {
+      final day = start.add(Duration(days: i));
+      final v = byDay[day] ?? 0;
+      list.add(v);
+      total += v;
+    }
+    return (list, total);
+  });
+});
+
 /// Today's 24 per-hour foreground-second buckets for one app (native
 /// UsageEvents attribution). Index 0 = 00:00–00:59 … 23 = 23:00–23:59.
 final hourlyUsageProvider =
@@ -401,6 +456,16 @@ final hourlyUsageProvider =
 final deviceHourlyUsageProvider = FutureProvider<List<int>>((ref) async {
   ref.watch(permissionsRefreshTickProvider);
   return NativePermissions.fetchDeviceHourlyUsage();
+});
+
+/// Device-wide per-hour foreground buckets for a specific calendar day
+/// (UsageEvents retention ~7-10 days — older dates return zeros, and
+/// the DB-backed per-day pages cover those).
+final dayHourlyUsageProvider =
+    FutureProvider.family<List<int>, DateTime>((ref, day) async {
+  ref.watch(permissionsRefreshTickProvider);
+  final midnight = startOfDay(day);
+  return NativePermissions.fetchDayHourlyUsage(midnight.millisecondsSinceEpoch);
 });
 
 /// Last 7 days of completed-focus-session time, oldest first. Falls

@@ -115,6 +115,9 @@ class MainActivity : FlutterFragmentActivity() {
                     "fetchAppHourlyUsage" -> result.success(
                         fetchAppHourlyUsage(call.arguments as? String ?: "")
                     )
+                    "fetchDayHourlyUsage" -> result.success(
+                        fetchDayHourlyUsage(call.arguments as? Long ?: System.currentTimeMillis())
+                    )
                     "fetchDeviceHourlyUsage" -> result.success(fetchDeviceHourlyUsage())
                     "exportData" -> result.success(exportData(call.arguments as? String ?: "{}"))
                     "importData" -> pendingImportResult = result
@@ -378,23 +381,41 @@ class MainActivity : FlutterFragmentActivity() {
      * Same UsageEvents attribution as [fetchAppHourlyUsage] but without
      * the package filter — feeds the Screen Time "Today" hourly bars.
      */
-    private fun fetchDeviceHourlyUsage(): String {
+    private fun fetchDeviceHourlyUsage(): String =
+        fetchDayHourlyUsage(System.currentTimeMillis())
+
+    /**
+     * Per-hour foreground seconds for the calendar day containing
+     * [dayStartMillis] (any day within UsageEvents retention, ~7-10
+     * days on Android; older days fall back to the aggregated int[24]
+     * with zeros — the DB-backed per-day history covers those). All
+     * apps summed, Ulimit + launcher excluded. Returns JSON int[24].
+     */
+    private fun fetchDayHourlyUsage(dayStartMillis: Long): String {
         if (!isUsageAccessGranted()) return "[]"
         return try {
             val usm = getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
-            val now = java.util.Calendar.getInstance()
-            val dayStart = (now.clone() as java.util.Calendar).apply {
+            val midnight = java.util.Calendar.getInstance().apply {
+                timeInMillis = dayStartMillis
+                if (dayStartMillis < System.currentTimeMillis() - (10L * 24 * 3600 * 1000)) {
+                    // Historical request: strip to that day's 00:00.
+                }
                 set(java.util.Calendar.HOUR_OF_DAY, 0)
                 set(java.util.Calendar.MINUTE, 0)
                 set(java.util.Calendar.SECOND, 0)
                 set(java.util.Calendar.MILLISECOND, 0)
             }.timeInMillis
 
+            // UsageEvents only retains ~7-10 days. For older days, the
+            // query returns empty — the callers (Screen Time date strip)
+            // already fall back to 'No data', and the DB-backed per-day
+            // history pages show those days instead.
+            val dayEnd = midnight + 24 * 3600 * 1000L
             val hourly = LongArray(24)
             var lastEventAt: Long = 0
             var lastEventWasTracked = false
 
-            val events = usm.queryEvents(dayStart, System.currentTimeMillis())
+            val events = usm.queryEvents(midnight, dayEnd)
             val event = android.app.usage.UsageEvents.Event()
             while (events.hasNextEvent()) {
                 events.getNextEvent(event)
@@ -403,12 +424,10 @@ class MainActivity : FlutterFragmentActivity() {
                 ) {
                     if (lastEventWasTracked && lastEventAt > 0) {
                         val duration = (event.timeStamp - lastEventAt).coerceAtLeast(0)
-                        val hourIdx = (lastEventAt - dayStart) / (3600 * 1000L)
+                        val hourIdx = (lastEventAt - midnight) / (3600 * 1000L)
                         if (hourIdx in 0..23) hourly[hourIdx.toInt()] += duration
                     }
                     lastEventAt = event.timeStamp
-                    // Skip Ulimit's own foreground (not "screen time")
-                    // and the launcher (system surface).
                     lastEventWasTracked =
                         event.packageName != packageName &&
                         event.packageName != "com.android.launcher" &&
@@ -416,9 +435,9 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             }
             if (lastEventWasTracked && lastEventAt > 0) {
-                val idx = (lastEventAt - dayStart) / (3600 * 1000L)
+                val idx = (lastEventAt - midnight) / (3600 * 1000L)
                 if (idx in 0..23) {
-                    hourly[idx.toInt()] += (System.currentTimeMillis() - lastEventAt).coerceAtLeast(0)
+                    hourly[idx.toInt()] += (dayEnd.coerceAtMost(System.currentTimeMillis()) - lastEventAt).coerceAtLeast(0)
                 }
             }
 

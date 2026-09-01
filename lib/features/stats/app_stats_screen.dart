@@ -13,6 +13,7 @@ import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../features/limits/limits_screen.dart' show showAppLimitEditor;
 import '../../shared/widgets/app_sheet.dart';
+import '../../shared/widgets/hourly_bar_chart.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
 /// Per-app statistics page (opened by tapping an app in the Screen Time
@@ -225,80 +226,23 @@ class _HourlyUsageCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hourly = ref.watch(hourlyUsageProvider(packageName)).valueOrNull ?? const <int>[];
-    final anyData = hourly.any((v) => v > 0);
 
     return _SectionCard(
       title: 'Usage Today',
-      trailing: const _ViewFullDayChip(),
-      child: SizedBox(
-        height: 140,
-        child: anyData ? _HourlyBars(hourly: hourly) : _EmptyHint('No usage today yet'),
+      trailing: GestureDetector(
+        onTap: () => context.push('${Routes.appFullDay}?pkg=$packageName'),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: AppColors.surface2,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+          child: Text('View Full Day',
+              style: TextStyle(
+                  fontSize: 10.5, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
+        ),
       ),
-    );
-  }
-}
-
-class _HourlyBars extends StatelessWidget {
-  const _HourlyBars({required this.hourly});
-  final List<int> hourly;
-
-  @override
-  Widget build(BuildContext context) {
-    final max = hourly.fold<int>(0, (m, v) => v > m ? v : m);
-    final yMax = max > 0 ? ((max / 3600).ceil() * 3600).clamp(900, 3600) : 3600;
-
-    // Labels: 15m/30m/45m/60m gridlines + hour ticks every 4h.
-    return Column(
-      children: [
-        // Y-axis gridlines
-        SizedBox(
-          height: 18,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              for (final label in ['${yMax ~/ 60}m', '${(yMax * 3) ~/ 4 ~/ 60}m',
-                  '${(yMax ~/ 2) ~/ 60}m', '${(yMax ~/ 4) ~/ 60}m', '0m'])
-                Text(label,
-                    style: TextStyle(fontSize: 9.5, color: AppColors.inkFaint)),
-            ],
-          ),
-        ),
-        const SizedBox(height: 4),
-        Expanded(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: List.generate(24, (h) {
-              final value = h < hourly.length ? hourly[h] : 0;
-              final normalized = yMax == 0 ? 0.0 : (value / yMax).clamp(0.0, 1.0);
-              return Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 1.5),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Container(
-                        height: 34 * normalized + 2,
-                        decoration: BoxDecoration(
-                          color: value > 0 ? AppColors.ink : AppColors.surface2,
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            for (final h in ['12 AM', '4 AM', '8 AM', '12 PM', '4 PM', '8 PM', '12 AM'])
-              Text(h, style: TextStyle(fontSize: 9, color: AppColors.inkFaint)),
-          ],
-        ),
-      ],
+      child: HourlyBarChart(hourly: hourly, height: 140, axisTicks: const ['60m', '30m', '0m']),
     );
   }
 }
@@ -368,7 +312,7 @@ class _WeeklyUsageCard extends ConsumerWidget {
                           borderRadius: BorderRadius.circular(4),
                         )),
                         const SizedBox(height: 6),
-                        Text(['S', 'M', 'T', 'W', 'T', 'F', 'S'][i],
+                        Text(_weekLetters()[i],
                             style: TextStyle(fontSize: 9, color: AppColors.inkFaint)),
                       ],
                     ),
@@ -380,6 +324,17 @@ class _WeeklyUsageCard extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// Weekday letters for the current 7-day window (oldest→today),
+  /// derived from the real dates so the rightmost label is today.
+  static List<String> _weekLetters() {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
+    const letters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    return [
+      for (var i = 0; i < 7; i++) letters[start.add(Duration(days: i)).weekday - 1],
+    ];
   }
 }
 

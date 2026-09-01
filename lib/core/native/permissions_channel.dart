@@ -102,6 +102,21 @@ class NativePermissions {
     }
   }
 
+  /// Device-wide per-hour foreground seconds for the calendar day
+  /// containing [dayStartMillis] (UsageEvents retention ~7-10 days;
+  /// older days return zeros — the DB-backed history covers them).
+  static Future<List<int>> fetchDayHourlyUsage(int dayStartMillis) async {
+    try {
+      final raw =
+          await _channel.invokeMethod<String>('fetchDayHourlyUsage', dayStartMillis);
+      if (raw == null || raw.isEmpty) return List.filled(24, 0);
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return decoded.map((e) => (e as num).toInt()).toList();
+    } on PlatformException {
+      return List.filled(24, 0);
+    }
+  }
+
   /// Shows the system BiometricPrompt (or device credential fallback)
   /// and resolves true only on success. Used by Invincible Mode before
   /// restriction changes and by early-ending an invincible session.

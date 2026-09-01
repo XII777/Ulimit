@@ -11,6 +11,7 @@ import '../../features/internet/internet_sites_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
 import '../../features/bedtime/bedtime_screen.dart';
 import '../../features/settings/settings_screen.dart';
+import '../../features/stats/app_full_day_screen.dart';
 import '../../features/stats/app_stats_screen.dart';
 import '../../features/stats/screen_time_screen.dart';
 import '../../features/parental/parental_screen.dart';
@@ -31,6 +32,7 @@ abstract final class Routes {
   static const focusHistory = '/focus-history';
   static const screenTime = '/screen-time';
   static const appStats = '/app-stats';
+  static const appFullDay = '/app-full-day';
 
   // Tab-navigation direction state for the swipe transition. NavShell
   // writes these on every tab change; _tabRoute's transition reads them.
@@ -64,6 +66,7 @@ final appRouter = GoRouter(
     _detailRoute(Routes.focusHistory,  FocusHistoryScreen()),
     _detailRoute(Routes.screenTime,  ScreenTimeScreen()),
     _detailRouteWithPackage(Routes.appStats, (pkg) => AppStatsScreen(packageName: pkg)),
+    _detailRouteWithPackage(Routes.appFullDay, (pkg) => AppFullDayScreen(packageName: pkg)),
     _detailRoute(Routes.internet,  InternetSitesScreen()),
     _detailRoute(Routes.notifications,  NotificationsScreen()),
     _detailRoute(Routes.parental,  ParentalScreen()),

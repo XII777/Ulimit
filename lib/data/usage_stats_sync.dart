@@ -27,7 +27,7 @@ class UsageStatsSync {
 
   final AppDatabase _db;
 
-  Future<void> syncHistory({int days = 14}) async {
+  Future<void> syncHistory({int days = 90}) async {
     final granted = await NativePermissions.isUsageAccessGranted();
     if (!granted) return;
 

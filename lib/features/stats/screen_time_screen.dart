@@ -7,15 +7,17 @@ import '../../core/engine/restriction_engine.dart' show formatDurationHMS;
 import '../../core/router/app_router.dart';
 import '../../core/theme/premium_components.dart';
 import '../../core/theme/tokens.dart';
+import '../../core/native/permissions_channel.dart';
 import '../../data/apps_repository.dart';
-import '../../data/home_data_providers.dart';
 import '../../data/providers.dart';
+import '../../shared/widgets/hourly_bar_chart.dart';
 import '../../shared/widgets/spring_scroll.dart';
-import '../../shared/widgets/trend_chart.dart';
 
-/// Screen Time detail page. Top: the weekly trend graph (same shape as
-/// Home's Avg. daily card). Below: every tracked app's usage for the
-/// selected window (Last 7 days, or Today) with its daily total.
+/// Screen Time detail page. A horizontal DATE STRIP (today →
+/// yesterday → … up to 3 months back) drives everything: the top card
+/// shows the selected day's total + device-wide hourly bars, and the
+/// app list below shows that day's per-app usage. Everything updates
+/// dynamically as the selected date changes.
 class ScreenTimeScreen extends ConsumerStatefulWidget {
   const ScreenTimeScreen({super.key});
 
@@ -24,25 +26,29 @@ class ScreenTimeScreen extends ConsumerStatefulWidget {
 }
 
 class _ScreenTimeScreenState extends ConsumerState<ScreenTimeScreen> {
-  // false = last 7 days, true = today.
-  bool _todayOnly = false;
+  // Selected calendar day (local midnight). Defaults to today.
+  late DateTime _selectedDay = _today();
+
+  static DateTime _today() {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Re-anchor if the page is kept alive across midnight.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_selectedDay != _today()) setState(() => _selectedDay = _today());
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final weekly = ref.watch(weeklyScreenTimeProvider);
-    final weeklyHours = ref.watch(weeklyScreenTimeHoursProvider).valueOrNull ?? const [0, 0, 0, 0, 0, 0, 0];
-
-    // The window runs [today-6 … today]: the LAST column is always the
-    // present day, so the labels must reflect the actual dates.
-    final today = DateTime.now();
-    final windowStart = DateTime(today.year, today.month, today.day).subtract(const Duration(days: 6));
-    final dayLabels = List.generate(7, (i) {
-      final d = windowStart.add(Duration(days: i));
-      // Sunday → 'S', Monday → 'M' … single-letter, derived from the
-      // real weekday so the label track follows the data automatically.
-      const letters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-      return letters[d.weekday - 1];
-    });
+    final today = _today();
+    final dayTotal = ref.watch(dayScreenTimeProvider(_selectedDay));
+    final hourly = ref.watch(dayHourlyUsageProvider(_selectedDay)).valueOrNull ?? const <int>[];
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -55,124 +61,157 @@ class _ScreenTimeScreenState extends ConsumerState<ScreenTimeScreen> {
         physics: springScrollPhysics,
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 110),
         children: [
-          // Filter chips: Today | Last 7 days
-          Row(
-            children: [
-              _FilterChip(
-                label: 'Today',
-                selected: _todayOnly,
-                onTap: () => setState(() => _todayOnly = true),
-              ),
-              const SizedBox(width: 8),
-              _FilterChip(
-                label: 'Last 7 days',
-                selected: !_todayOnly,
-                onTap: () => setState(() => _todayOnly = false),
-              ),
-            ],
+          // Date strip: today → 3 months back.
+          _DateStrip(
+            selectedDay: _selectedDay,
+            today: today,
+            onSelect: (day) => setState(() => _selectedDay = day),
           ),
           const SizedBox(height: 18),
 
-          // Top card mirrors the filter: Today → today's total + hour
-          // bars; Last 7 days → the weekly trend + dynamic day labels.
-          _todayOnly
-              ? _TodayPanel()
-              : PremiumCard(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('7-day screen time',
+          // Selected-day total + device-wide hourly bars.
+          PremiumCard(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(_dayTitle(_selectedDay, today),
                           style: TextStyle(
                               fontSize: AppText.caption,
                               color: AppColors.inkDim,
                               fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 4),
-                      Text(
-                        _weeklyTotalLabel(weekly.valueOrNull),
-                        style:
-                            TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
-                      ),
-                      const SizedBox(height: 8),
-                      TrendAreaChart(
-                          values: weeklyHours, color: AppColors.ink, showAverageLine: true),
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          for (final l in dayLabels) _DayLabel(l),
-                        ],
-                      ),
-                    ],
-                  ),
+                    ),
+                    Text(_dayDetail(_selectedDay, today),
+                        style: TextStyle(fontSize: 10.5, color: AppColors.inkFaint)),
+                  ],
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  dayTotal.valueOrNull?.inSeconds != null &&
+                          (dayTotal.valueOrNull?.inSeconds ?? 0) > 0
+                      ? formatDurationHMS(Duration(seconds: dayTotal.valueOrNull!.inSeconds))
+                      : 'No data',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
+                ),
+                const SizedBox(height: 10),
+                HourlyBarChart(hourly: hourly, height: 130),
+                const SizedBox(height: 4),
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _DayLabel('12 AM'), _DayLabel('4 AM'), _DayLabel('8 AM'), _DayLabel('12 PM'),
+                    _DayLabel('4 PM'), _DayLabel('8 PM'), _DayLabel('12 AM'),
+                  ],
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 18),
 
-          // Per-app usage list for the selected window
-          _AppUsageList(todayOnly: _todayOnly),
+          // Per-app usage for the selected day.
+          _DayAppUsageList(day: _selectedDay),
         ],
       ),
     );
   }
 
-  String _weeklyTotalLabel(List<Duration>? days) {
-    if (days == null || days.isEmpty || !days.any((d) => d.inSeconds > 0)) return 'No data yet';
-    final total = days.fold<Duration>(Duration.zero, (sum, d) => sum + d);
-    return '${total.inHours}h ${total.inMinutes % 60}m this week';
+  String _dayTitle(DateTime day, DateTime today) {
+    if (day == today) return 'Today';
+    if (day == today.subtract(const Duration(days: 1))) return 'Yesterday';
+    return 'Screen time';
+  }
+
+  String _dayDetail(DateTime day, DateTime today) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return '${months[day.month - 1]} ${day.day}, ${day.year}';
   }
 }
 
-class _FilterChip extends StatelessWidget {
-  const _FilterChip({required this.label, required this.selected, required this.onTap});
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
+/// Horizontal date strip: Today, Yesterday, … back 90 days. Selected
+/// chip inverted; future dates never offered.
+class _DateStrip extends StatelessWidget {
+  const _DateStrip({
+    required this.selectedDay,
+    required this.today,
+    required this.onSelect,
+  });
+
+  final DateTime selectedDay;
+  final DateTime today;
+  final ValueChanged<DateTime> onSelect;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.ink : AppColors.surface,
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          border: selected ? null : Border.all(color: AppColors.stroke),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w600,
-            color: selected ? AppColors.bg : AppColors.inkDim,
-          ),
-        ),
+    final offsets = List.generate(90, (i) => i);
+    return SizedBox(
+      height: 38,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: springScrollPhysics,
+        itemCount: offsets.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final day = today.subtract(Duration(days: i));
+          final selected = day == selectedDay;
+          final label = _chipLabel(i, day);
+          return GestureDetector(
+            onTap: () => onSelect(day),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: BoxDecoration(
+                color: selected ? AppColors.ink : AppColors.surface,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+                border: selected ? null : Border.all(color: AppColors.stroke),
+              ),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: selected ? AppColors.bg : AppColors.inkDim,
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
+
+  String _chipLabel(int offset, DateTime day) {
+    if (offset == 0) return 'Today';
+    if (offset == 1) return 'Yesterday';
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return '${months[day.month - 1]} ${day.day}';
+  }
 }
 
-/// Every tracked app's usage for the selected window, sorted by time.
-class _AppUsageList extends ConsumerWidget {
-  const _AppUsageList({required this.todayOnly});
-
-  final bool todayOnly;
+/// Per-app usage for one calendar day, sorted by time.
+class _DayAppUsageList extends ConsumerWidget {
+  const _DayAppUsageList({required this.day});
+  final DateTime day;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final usage = ref.watch(todayOnly ? todayUsageByPackageProvider : windowUsageByPackageProvider);
-    final appMap = usage.valueOrNull ?? const <String, int>{};
+    final appMap = ref.watch(dayUsageByPackageProvider(day)).valueOrNull ?? const <String, int>{};
     final catalog = ref.watch(appsCatalogProvider).valueOrNull;
 
-    final entries = appMap.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
+    final entries = appMap.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
 
     if (entries.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 40),
         child: Text(
-          'No usage in this window yet.\nEnable Accessibility / Usage access to start tracking.',
+          'No usage on this day.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 13, color: AppColors.inkFaint, height: 1.5),
         ),
@@ -264,107 +303,5 @@ class _DayLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(text,
         style: TextStyle(fontSize: 10, color: AppColors.inkFaint, fontWeight: FontWeight.w600));
-  }
-}
-
-/// "Today" filter top panel: today's total + device-wide hourly bars.
-class _TodayPanel extends ConsumerWidget {
-  const _TodayPanel();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final todaySeconds = ref.watch(todayScreenTimeProvider).valueOrNull?.inSeconds ?? 0;
-    final hourly = ref.watch(deviceHourlyUsageProvider).valueOrNull ?? const <int>[];
-    final anyData = hourly.any((v) => v > 0);
-
-    return PremiumCard(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Today',
-              style: TextStyle(
-                  fontSize: AppText.caption,
-                  color: AppColors.inkDim,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 4),
-          Text(
-            todaySeconds > 0 ? formatDurationHMS(Duration(seconds: todaySeconds)) : '0m',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            height: 120,
-            child: anyData
-                ? _TodayHourlyBars(hourly: hourly)
-                : Center(
-                    child: Text('No usage today yet',
-                        style: TextStyle(fontSize: 11.5, color: AppColors.inkFaint)),
-                  ),
-          ),
-          const SizedBox(height: 4),
-          const Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _DayLabel('12 AM'), _DayLabel('4 AM'), _DayLabel('8 AM'), _DayLabel('12 PM'),
-              _DayLabel('4 PM'), _DayLabel('8 PM'), _DayLabel('12 AM'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 24 hourly bars with y-axis gridlines (like the per-app stats card).
-class _TodayHourlyBars extends StatelessWidget {
-  const _TodayHourlyBars({required this.hourly});
-  final List<int> hourly;
-
-  @override
-  Widget build(BuildContext context) {
-    final max = hourly.isEmpty ? 0 : hourly.reduce((a, b) => a > b ? a : b);
-    final yMax = max > 0 ? ((max / 3600).ceil() * 3600).clamp(900, 3600) : 3600;
-
-    return Column(
-      children: [
-        SizedBox(
-          height: 16,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              for (final label in ['${yMax ~/ 60}m', '${(yMax ~/ 2) ~/ 60}m', '0m'])
-                Text(label, style: TextStyle(fontSize: 9, color: AppColors.inkFaint)),
-            ],
-          ),
-        ),
-        Expanded(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: List.generate(24, (h) {
-              final value = h < hourly.length ? hourly[h] : 0;
-              final normalized = yMax == 0 ? 0.0 : (value / yMax).clamp(0.0, 1.0);
-              return Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 1.5),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Container(
-                        height: 30 * normalized + 2,
-                        decoration: BoxDecoration(
-                          color: value > 0 ? AppColors.ink : AppColors.surface2,
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ),
-        ),
-      ],
-    );
   }
 }
