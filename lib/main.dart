@@ -117,6 +117,9 @@ class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserv
       ref.read(manualRestrictionsProvider);
       ref.read(internetBlocksProvider);
       ref.read(customWebsiteRulesProvider);
+      // Block-list source migrated (HaGeZi → StevenBlack): drop rows
+      // whose category no longer exists in the new catalog.
+      ref.read(blockListRepositoryProvider).purgeOrphanedCategories();
     });
   }
 

@@ -156,8 +156,8 @@ class WebsiteRules extends Table {
       ];
 }
 
-/// Per-category state for the downloadable block lists (HaGeZi
-/// dns-blocklists). The catalog itself (titles/URLs/descriptions) is
+/// Per-category state for the downloadable block lists (StevenBlack/
+/// hosts). The catalog itself (titles/URLs/descriptions) is
 /// static Dart; this table records what the user has downloaded and
 /// whether the category's filter is on. `locked` is the one-way flag:
 /// the Adult category cannot be turned off after being turned on.

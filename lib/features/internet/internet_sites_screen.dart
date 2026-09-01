@@ -19,8 +19,8 @@ import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
 /// Internet & Sites: local VPN status, per-app internet blocking,
-/// custom domain rules, and the downloadable HaGeZi block-list
-/// categories with per-site toggles.
+/// custom domain rules, and the downloadable StevenBlack/hosts
+/// block-list categories with per-site toggles.
 class InternetSitesScreen extends ConsumerStatefulWidget {
   const InternetSitesScreen({super.key});
 

@@ -205,7 +205,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                  PremiumListTile(
                   label: 'Block-list source',
-                  sublabel: 'HaGeZi dns-blocklists (GPL-3.0), downloaded on demand',
+                  sublabel: 'StevenBlack/hosts (MIT), downloaded on demand',
                 ),
                  PremiumListTile(label: 'Version', sublabel: '0.2.0'),
               ],

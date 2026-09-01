@@ -53,14 +53,14 @@ extension WebsiteRulesActions on AppDatabase {
 }
 
 // ---------------------------------------------------------------------------
-// Block-list catalog (HaGeZi dns-blocklists)
+// Block-list catalog (StevenBlack/hosts)
 // ---------------------------------------------------------------------------
 
-/// A downloadable, categorized domain list. Sources are the HaGeZi
-/// dns-blocklists `wildcard …-onlydomains` files: plain one-domain-per-
-/// line lists, ideal for import into our WebsiteRules table. The
-/// `mini`/`medium` variants are chosen for on-device scale; entries
-/// counts are from the upstream README.
+/// A downloadable, categorized domain list. Sources are StevenBlack's
+/// hosts repo: the merged `hosts` file (everything) and the
+/// category-specific `alternates/<name>-only/hosts` variants, all in
+/// standard hosts format (`0.0.0.0 domain` per line). Entry counts are
+/// approximate from upstream; the real count is stored when downloaded.
 class BlockListTemplate {
   const BlockListTemplate({
     required this.id,
@@ -84,7 +84,7 @@ class BlockListTemplate {
   final bool locksAfterEnable;
   final bool recommended;
 
-  String get url => 'https://raw.githubusercontent.com/hagezi/dns-blocklists/main/$remotePath';
+  String get url => 'https://raw.githubusercontent.com/StevenBlack/hosts/master/$remotePath';
 }
 
 const blockListCatalog = <BlockListTemplate>[
@@ -92,83 +92,39 @@ const blockListCatalog = <BlockListTemplate>[
     id: 'ads',
     title: 'Ads & Trackers',
     description:
-        'Blocks ads, affiliate links, trackers, metrics and telemetry. Balanced, size-optimized list for phones.',
-    remotePath: 'wildcard/pro.mini-onlydomains.txt',
-    approxEntries: 56926,
+        'Blocks ads, affiliate links, trackers and data collection. The merged StevenBlack/hosts list — a favorite of Pi-hole users.',
+    remotePath: 'hosts',
+    approxEntries: 78609,
     recommended: true,
   ),
   BlockListTemplate(
-    id: 'security',
-    title: 'Malware & Phishing',
-    description:
-        'Threat-intelligence feeds: malware, scams, phishing, cryptojacking and command-and-control domains.',
-    remotePath: 'wildcard/tif.mini-onlydomains.txt',
-    approxEntries: 176834,
-    recommended: true,
-  ),
-  BlockListTemplate(
-    id: 'scams',
-    title: 'Scams & Fake Sites',
-    description: 'Fake stores, fake streaming sites, rip-offs, subscription traps and similar scams.',
-    remotePath: 'wildcard/fake-onlydomains.txt',
-    approxEntries: 17284,
-  ),
-  BlockListTemplate(
-    id: 'popupads',
-    title: 'Pop-Up Ads',
-    description: 'Annoying and malicious pop-up advertising domains.',
-    remotePath: 'wildcard/popupads-onlydomains.txt',
-    approxEntries: 54178,
-  ),
-  BlockListTemplate(
-    id: 'piracy',
-    title: 'Piracy',
-    description: 'Sites and services mainly used for illegally distributing copyrighted content.',
-    remotePath: 'wildcard/anti.piracy-onlydomains.txt',
-    approxEntries: 45775,
+    id: 'fakenews',
+    title: 'Fake News & Misinformation',
+    description: 'Known fake-news, misinformation and conspiracy sites.',
+    remotePath: 'alternates/fakenews-only/hosts',
+    approxEntries: 2187,
   ),
   BlockListTemplate(
     id: 'gambling',
     title: 'Gambling',
-    description: 'Gambling-related sites. Size-optimized variant for mobile devices.',
-    remotePath: 'wildcard/gambling.mini-onlydomains.txt',
-    approxEntries: 99165,
+    description: 'Gambling-related sites from the StevenBlack list.',
+    remotePath: 'alternates/gambling-only/hosts',
+    approxEntries: 6618,
   ),
   BlockListTemplate(
     id: 'adult',
     title: 'Adult Content',
     description: 'Blocks adult content. This filter cannot be disabled after it is turned on.',
-    remotePath: 'wildcard/nsfw-onlydomains.txt',
-    approxEntries: 114339,
+    remotePath: 'alternates/porn-only/hosts',
+    approxEntries: 76767,
     locksAfterEnable: true,
   ),
   BlockListTemplate(
     id: 'social',
     title: 'Social Networks',
     description: 'Blocks social networks like Facebook, Instagram, TikTok, X and Snapchat.',
-    remotePath: 'wildcard/social-onlydomains.txt',
-    approxEntries: 902,
-  ),
-  BlockListTemplate(
-    id: 'urlshortener',
-    title: 'URL Shorteners',
-    description: 'Blocks link shorteners that hide where a link actually leads.',
-    remotePath: 'wildcard/urlshortener-onlydomains.txt',
-    approxEntries: 9922,
-  ),
-  BlockListTemplate(
-    id: 'hosting',
-    title: 'Badware Hosting',
-    description: 'Hosting providers that repeatedly serve malicious user-uploaded content.',
-    remotePath: 'wildcard/hoster-onlydomains.txt',
-    approxEntries: 1238,
-  ),
-  BlockListTemplate(
-    id: 'dyndns',
-    title: 'Dynamic DNS',
-    description: 'Dynamic DNS services commonly abused for phishing campaigns.',
-    remotePath: 'wildcard/dyndns-onlydomains.txt',
-    approxEntries: 1540,
+    remotePath: 'alternates/social-only/hosts',
+    approxEntries: 3808,
   ),
 ];
 
@@ -225,6 +181,24 @@ class BlockListRepository {
   BlockListRepository(this._db);
 
   final AppDatabase _db;
+
+  /// Deletes rows whose category no longer exists in the catalog (list
+  /// source migrations: e.g. HaGeZi → StevenBlack dropped the
+  /// `security`/`popupads`/`piracy` identifiers). Called at boot; the
+  /// domain-file builder already ignores unknown categories, this just
+  /// reclaims the stale rows.
+  Future<void> purgeOrphanedCategories() async {
+    final valid = {for (final t in blockListCatalog) t.id};
+    final categories = await _db.select(_db.blockListCategories).get();
+    for (final row in categories) {
+      if (!valid.contains(row.id)) {
+        await _db.transaction(() async {
+          await (_db.delete(_db.websiteRules)..where((t) => t.category.equals(row.id))).go();
+          await (_db.delete(_db.blockListCategories)..where((t) => t.id.equals(row.id))).go();
+        });
+      }
+    }
+  }
 
   /// Downloads the category's list, replaces its rows while preserving
   /// per-site toggles, then marks the meta row. Returns imported count.
@@ -307,18 +281,37 @@ class BlockListRepository {
     });
   }
 
-  /// Parses a HaGeZi `-onlydomains` file: skips `#` comments and blank
-  /// lines, lowercases, validates shape, dedupes.
+  /// Parses a StevenBlack/hosts-style file: `#` comments (plus the `!`
+  /// adblock-style comment), blank lines, and hosts lines in any of the
+  /// shapes StevenBlack emits — `0.0.0.0 domain`, `127.0.0.1 domain`,
+  /// `::1 domain`, and `||domain^` / `*.domain` fragments. The IP is
+  /// skipped; the DOMAIN token is what gets normalized and deduped.
   static List<String> parseDomainList(String body) {
     final result = <String>{};
     for (var line in body.split('\n')) {
       line = line.trim();
-      if (line.isEmpty || line.startsWith('#')) continue;
-      // Tolerate variants: "||domain^", "*.domain", "0.0.0.0 domain".
+      if (line.isEmpty) continue;
+      if (line.startsWith('#') || line.startsWith('!')) continue;
+
+      // Strip adblock-style wrappers, then any leading IP.
       line = line.replaceFirst(RegExp(r'^\|\|'), '').replaceFirst(RegExp(r'\^$'), '');
       line = line.replaceFirst(RegExp(r'^\*\.'), '');
-      line = line.split(RegExp(r'\s')).first;
-      final normalized = normalizeDomain(line);
+
+      final tokens = line.split(RegExp(r'\s+'));
+      if (tokens.isEmpty) continue;
+
+      // Hosts block: first token is the IP (0.0.0.0 / 127.0.0.1 / ::1 /
+      // 255.255.255.255 / fe80::…); the domain is the second.
+      final first = tokens.first;
+      final looksLikeIp = RegExp(r'^(0\.|127\.|255\.|::|fe80|ff00|\d+\.\d+\.\d+\.\d+)')
+          .hasMatch(first);
+      var candidate = looksLikeIp && tokens.length > 1 ? tokens[1] : first;
+      // A bare IP (no domain after it) is not a blocklist entry — skip
+      // rather than importing "0.0.0.0" as a bogus rule.
+      if (RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(candidate)) continue;
+      if (candidate == 'localhost' || candidate == '0.0.0.0') continue;
+
+      final normalized = normalizeDomain(candidate);
       if (normalized.isNotEmpty) result.add(normalized);
     }
     return result.toList(growable: false);
