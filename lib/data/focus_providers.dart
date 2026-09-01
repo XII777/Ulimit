@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:drift/drift.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'db/app_database.dart';
 import 'providers.dart';
@@ -195,6 +196,27 @@ final focusRemainingProvider = StreamProvider<Duration>((ref) {
   return _remainingStream(session);
 });
 
+/// Ticks at 1s in the foreground, 5s when backgrounded. The ticker
+/// itself is cheap (a Timer + arithmetic), but a foreground session
+/// running while the keep-alive tabs churn would otherwise waste a full
+/// rebuild per second — the adaptive cadence keeps the drain invisible.
+Stream<void> _tickStream() async* {
+  var backgrounded = false;
+  final observer = _AppLifecycleObserver((state) {
+    backgrounded = state != AppLifecycleState.resumed;
+  });
+  WidgetsBinding.instance.addObserver(observer);
+  try {
+    while (true) {
+      yield null;
+      await Future<void>.delayed(
+          backgrounded ? const Duration(seconds: 5) : const Duration(seconds: 1));
+    }
+  } finally {
+    WidgetsBinding.instance.removeObserver(observer);
+  }
+}
+
 Stream<Duration> _remainingStream(FocusSession session) async* {
   Duration remaining() {
     final seconds = FocusClock.remainingSeconds(session, DateTime.now());
@@ -202,7 +224,7 @@ Stream<Duration> _remainingStream(FocusSession session) async* {
   }
 
   yield remaining();
-  await for (final _ in Stream<void>.periodic(const Duration(seconds: 1))) {
+  await for (final _ in _tickStream()) {
     yield remaining();
   }
 }
@@ -254,7 +276,17 @@ Stream<int> _liveFocusStream(FocusSession session, Future<int> Function() settle
   final rowElapsedAtQuery = FocusClock.elapsedSeconds(session, DateTime.now());
   final base = (settled - rowElapsedAtQuery).clamp(0, 1 << 30);
   yield base + rowElapsedAtQuery;
-  await for (final _ in Stream<void>.periodic(const Duration(seconds: 1))) {
+  await for (final _ in _tickStream()) {
     yield base + FocusClock.elapsedSeconds(session, DateTime.now());
   }
+}
+
+/// Lifecycle observer shim so tickers can adapt their cadence to the
+/// app's visibility without being WidgetsBindingObservers themselves.
+class _AppLifecycleObserver extends WidgetsBindingObserver {
+  _AppLifecycleObserver(this._onChange);
+  final void Function(AppLifecycleState) _onChange;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) => _onChange(state);
 }

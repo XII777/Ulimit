@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:drift/drift.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'db/app_database.dart';
 import 'db/tables.dart';
@@ -117,8 +118,13 @@ final themeModeProvider = StreamProvider<String>((ref) {
 
 /// Live today screen time in seconds: the persisted per-day total plus
 /// the un-attributed elapsed time of whatever app is currently in front
-/// (updated by usage events, ticked once per second). Only consumers
-/// that listen to this stream rebuild — the rest of Home does not.
+/// (updated by usage events, ticked adaptively). Only consumers that
+/// listen to this stream rebuild — the rest of Home does not.
+///
+/// Battery-aware cadence: 1s while the app is foreground (the counter
+/// must feel live), 5s while it is backgrounded (keep-alive tabs still
+/// hold the subscription; a 1s tick there is pure drain), and the timer
+/// is cancelled entirely when nothing is listening.
 final liveScreenTimeSecondsProvider = StreamProvider<int>((ref) {
   late final StreamController<int> controller;
   Timer? timer;
@@ -137,25 +143,62 @@ final liveScreenTimeSecondsProvider = StreamProvider<int>((ref) {
     return base + pending;
   }
 
-  void tick(Timer _) {
-    if (!controller.isClosed) controller.add(compute());
+  // 1s foreground / 5s background throttling.
+  bool _appBackgrounded = false;
+  _AppLifecycleObserver? _lifecycleObserver;
+  void _armTicker() {
+    timer?.cancel();
+    final cadence = _appBackgrounded
+        ? const Duration(seconds: 5)
+        : const Duration(seconds: 1);
+    timer = Timer.periodic(cadence, (_) {
+      if (!controller.isClosed) controller.add(compute());
+    });
   }
 
   controller = StreamController<int>(
     onListen: () {
       controller.add(compute());
-      timer = Timer.periodic(const Duration(seconds: 1), tick);
+      _armTicker();
+      // Pause the fast tick while backgrounded — keep-alive tabs keep
+      // the subscription alive even when the app is not in view.
+      _lifecycleObserver =
+          _AppLifecycleObserver((state) {
+        _appBackgrounded = state != AppLifecycleState.resumed;
+        _armTicker();
+      });
+      WidgetsBinding.instance.addObserver(_lifecycleObserver!);
     },
     onCancel: () {
       timer?.cancel();
+      final observer = _lifecycleObserver;
+      if (observer != null) {
+        WidgetsBinding.instance.removeObserver(observer);
+        _lifecycleObserver = null;
+      }
     },
   );
   ref.onDispose(() {
     timer?.cancel();
+    final observer = _lifecycleObserver;
+    if (observer != null) {
+      WidgetsBinding.instance.removeObserver(observer);
+      _lifecycleObserver = null;
+    }
     controller.close();
   });
   return controller.stream;
 });
+
+/// Lifecycle observer shim so the provider can re-arm its tick cadence
+/// without being a WidgetsBindingObserver itself.
+class _AppLifecycleObserver extends WidgetsBindingObserver {
+  _AppLifecycleObserver(this._onChange);
+  final void Function(AppLifecycleState) _onChange;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) => _onChange(state);
+}
 
 Future<void> setDailyBudget(AppDatabase db, int minutes) async {
   final existing = await db.select(db.profile).get();

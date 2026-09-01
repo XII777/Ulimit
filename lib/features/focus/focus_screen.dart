@@ -435,7 +435,8 @@ class _RunningFocusView extends ConsumerWidget {
         : 1 - (remaining.inSeconds / planned.inSeconds).clamp(0.0, 1.0);
     final paused = session.pausedAt != null;
 
-    return Column(
+    return RepaintBoundary(
+      child: Column(
       children: [
         const SizedBox(height: 24),
         _InvincibleChip(invincible: session.invincible),
@@ -516,6 +517,7 @@ class _RunningFocusView extends ConsumerWidget {
           ),
         ),
       ],
+      ),
     );
   }
 
