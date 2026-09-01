@@ -96,13 +96,12 @@ class _NavShellState extends ConsumerState<NavShell> {
     return false;
   }
 
-  // True when the current location change was requested by a NAV-ITEM
-  // TAP rather than a swipe. Taps must JUMP to the target page directly
-  // — animateToPage slides through every intermediate tab, building and
-  // laying out each keep-alive screen's heavy subtree along the way
-  // (charts, 18 providers, collapsibles…), which is the multi-second
-  // freeze when crossing e.g. Home → Settings. Swipes keep the natural
-  // page-by-page behavior.
+  // True when the coming location change was initiated by a NAV-ITEM
+  // TAP: the PageView must JUMP to the destination without sliding
+  // through intermediate tabs (each keep-alive screen's heavy subtree
+  // would be built along the way — the multi-second freeze). Set by
+  // goToTab (a tap callback) and consumed on the next route-change
+  // build; swipes never set it, so they keep their slide behavior.
   bool _jumpOnNextRouteChange = false;
 
   @override
@@ -113,8 +112,9 @@ class _NavShellState extends ConsumerState<NavShell> {
     // "Hide Nav Bar" setting: immersive mode — no floating pill at all.
     final hideNavBar = ref.watch(hideNavBarProvider).valueOrNull ?? false;
 
-    // A location change that did NOT come from the PageView itself
-    // (deep link, initial load) must drag the PageView to match.
+    // Physical navigation: deep link / initial route / a go() that did
+    // NOT come from a PageView gesture or nav-item tap. The PageView
+    // must be steered to match.
     if (_lastRouteIndex == -1) {
       _lastRouteIndex = routeIndex;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -126,8 +126,15 @@ class _NavShellState extends ConsumerState<NavShell> {
         (!_pageController.hasClients || _pageController.page?.round() != routeIndex)) {
       if (_jumpOnNextRouteChange) {
         // Nav-item tap: direct jump — the page change is instant and no
-        // intermediate screen is ever built or laid out.
-        _pageController.jumpToPage(routeIndex);
+        // intermediate screen is ever built or laid out. Deferred past
+        // the build phase: jumpToPage in build() would fire
+        // onPageChanged synchronously mid-build (and therefore
+        // context.go mid-build), corrupting the router. Post-frame it
+        // is equivalent, and a tap is always post-frame anyway.
+        final target = routeIndex;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_pageController.hasClients) _pageController.jumpToPage(target);
+        });
       } else {
         // Swipe/route-driven: slide through pages naturally.
         _pageController.animateToPage(
@@ -142,8 +149,9 @@ class _NavShellState extends ConsumerState<NavShell> {
 
     void goToTab(int index) {
       if (index < 0 || index >= _tabs.length || index == routeIndex) return;
-      // Nav-item tap: mark the next route change as a JUMP so
-      // build() skips the slide-through-intermediates animation.
+      // Nav-item tap: mark the next route change as a JUMP so build()
+      // offsets its PageView steering instead of sliding through the
+      // intermediate screens.
       _jumpOnNextRouteChange = true;
       context.go(_tabs[index].$1);
     }
