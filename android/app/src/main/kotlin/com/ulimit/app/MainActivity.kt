@@ -323,7 +323,7 @@ class MainActivity : FlutterFragmentActivity() {
     private fun fetchDeviceUsageForDays(days: Int): String {
         if (!isUsageAccessGranted()) return "[]"
         return try {
-            val usm = getSystemService(Context.USAGE_STATS_SERVICE) as android.app.UsageStatsManager
+            val usm = getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
             val end = java.util.Calendar.getInstance().apply {
                 set(java.util.Calendar.HOUR_OF_DAY, 0)
                 set(java.util.Calendar.MINUTE, 0)
@@ -335,10 +335,9 @@ class MainActivity : FlutterFragmentActivity() {
             }
 
             val out = org.json.JSONArray()
-            // queryAndAggregateUsageStats returns {@code packageName ->
-            // UsageStats} aggregated for INTERVAL_DAILY buckets keyed
-            // by mLastTimeUsed; to get per-DAY times we walk each day
-            // separately with queryUsageStats.
+            // queryUsageStats returns per-package UsageStats aggregated
+            // for INTERVAL_DAILY buckets keyed by mLastTimeUsed; to get
+            // per-DAY times we walk each day separately.
             for (dayOffset in 0 until days) {
                 val d = (start.clone() as java.util.Calendar).apply {
                     add(java.util.Calendar.DAY_OF_YEAR, dayOffset)
@@ -347,10 +346,10 @@ class MainActivity : FlutterFragmentActivity() {
                 val dayEnd = dayStart + (24 * 3600 * 1000L)
                 val perPackage = HashMap<String, Long>()
                 val stats = usm.queryUsageStats(
-                    android.app.UsageStatsManager.INTERVAL_DAILY,
+                    android.app.usage.UsageStatsManager.INTERVAL_DAILY,
                     dayStart, dayEnd
-                ) ?: continue
-                for (s in stats) {
+                )
+                for (s in stats ?: continue) {
                     if (s.totalTimeInForeground <= 0) continue
                     perPackage[s.packageName] =
                         (perPackage[s.packageName] ?: 0L) + s.totalTimeInForeground
