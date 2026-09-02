@@ -14,6 +14,7 @@ import '../../data/permissions_providers.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_selector.dart';
+import '../../shared/widgets/duration_flow.dart';
 import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/spring_scroll.dart';
 import '../../shared/widgets/trend_chart.dart';
@@ -66,7 +67,8 @@ class HomeScreen extends ConsumerWidget {
             Expanded(
               child: _MiniTrendCard(
                 label: 'Focus Time',
-                valueText: _formatFocusAvg(weeklyFocusSeconds.valueOrNull),
+                valueDuration:
+                    Duration(seconds: ((weeklyFocusSeconds.valueOrNull ?? 0) / 7).round()),
                 values: weeklyFocusHours.valueOrNull ?? const [0, 0, 0, 0, 0, 0, 0],
                 delta: focusDelta,
               ),
@@ -91,13 +93,6 @@ class HomeScreen extends ConsumerWidget {
          _ControlsList(),
       ],
     );
-  }
-
-  String _formatFocusAvg(int? seconds) {
-    if (seconds == null || seconds == 0) return '0m';
-    // Weekly average: total ÷ 7 days (matching the "Avg. daily" card).
-    final avgSeconds = (seconds / 7).round();
-    return formatDurationHMS(Duration(seconds: avgSeconds));
   }
 
   String _formatPickupsAvg(List<int>? days) {
@@ -165,13 +160,10 @@ class _ScreenTimeCard extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Center(
-            child: Text(
-              formatDurationHMS(Duration(seconds: seconds)),
+            child: DurationFlow(
+              duration: Duration(seconds: seconds),
               style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.ink,
-                  fontFeatures: const [FontFeature.tabularFigures()]),
+                  fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
             ),
           ),
           const SizedBox(height: 8),
@@ -226,13 +218,10 @@ class _FocusTimeCard extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
             Center(
-              child: Text(
-                formatDurationHMS(Duration(seconds: seconds)),
+              child: DurationFlow(
+                duration: Duration(seconds: seconds),
                 style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.ink,
-                    fontFeatures: const [FontFeature.tabularFigures()]),
+                    fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
               ),
             ),
             const SizedBox(height: 12),
@@ -383,12 +372,13 @@ class _WeeklyTrendCard extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 4),
-          Text(
-            hasData || todaySeconds > 0
-                ? formatDurationHMS(Duration(seconds: todaySeconds))
-                : 'No data yet',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
-          ),
+          (hasData || todaySeconds > 0)
+              ? DurationFlow(
+                  duration: Duration(seconds: todaySeconds),
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
+                )
+              : Text('No data yet',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink)),
           const SizedBox(height: 8),
           if (hasData)
             TrendAreaChart(
@@ -447,13 +437,15 @@ class _DayLabel extends StatelessWidget {
 class _MiniTrendCard extends StatelessWidget {
   const _MiniTrendCard({
     required this.label,
-    required this.valueText,
+    this.valueText,
+    this.valueDuration,
     required this.values,
     required this.delta,
   });
 
   final String label;
-  final String valueText;
+  final String? valueText;
+  final Duration? valueDuration;
   final List<double> values;
   final TrendDelta delta;
 
@@ -469,10 +461,16 @@ class _MiniTrendCard extends StatelessWidget {
           const SizedBox(height: 6),
           Sparkline(values: values, color: AppColors.ink),
           const SizedBox(height: 6),
-          Text(
-            valueText,
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
-          ),
+          valueDuration != null
+              ? DurationFlow(
+                  duration: valueDuration!,
+                  style:
+                      TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
+                )
+              : Text(
+                  valueText ?? '',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
+                ),
           if (delta.hasData) ...[
             const SizedBox(height: 2),
             _DeltaLabel(delta: delta),

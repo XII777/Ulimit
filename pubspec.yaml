@@ -39,6 +39,10 @@ dependencies:
   # `http` package — no dio/heavyweight client for three GETs.
   http: ^1.2.0
 
+  # Animated durations/numbers (odometer wheels) — sizes every glyph from
+  # real text metrics so nothing crops, with an opt-in iOS spring.
+  number_flow_flutter: ^0.1.0
+
   # Native Android integration point for Accessibility Service +
   # Device Admin (see android/ — MethodChannel, not a plugin, since no
   # existing plugin exposes AccessibilityService the way we need it).
