@@ -175,30 +175,12 @@ class RestrictionsScreen extends ConsumerWidget {
   }
 
   Future<bool?> _confirmPermanent(BuildContext context, String appName) {
-    return showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-        title: Text('Block $appName permanently?',
-            style: TextStyle(fontSize: 15.5, color: AppColors.ink)),
-        content: Text(
-          'The app stays blocked until you remove the block here. '
+    return showAppConfirmSheet(
+      context,
+      title: 'Block $appName permanently?',
+      message: 'The app stays blocked until you remove the block here. '
           'There is no automatic end — this is not a temporary block.',
-          style: TextStyle(fontSize: 12.5, color: AppColors.inkDim, height: 1.5),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text('Cancel', style: TextStyle(color: AppColors.inkDim)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text('Block permanently',
-                style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-          ),
-        ],
-      ),
+      confirmLabel: 'Block permanently',
     );
   }
 }

@@ -11,6 +11,7 @@ import '../../features/focus/focus_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/limits/limits_screen.dart';
 import '../../features/settings/settings_screen.dart';
+import '../../shared/widgets/app_sheet.dart';
 
 /// The app's navigation shell. Owns the global navigation behaviors:
 ///
@@ -164,22 +165,28 @@ class _NavShellState extends ConsumerState<NavShell> {
       // immersive mode there is no strip at all — the body simply spans
       // the full screen.
       extendBody: !hideNavBar,
-      body: NotificationListener<ScrollNotification>(
-        onNotification: _onScroll,
-        child: Padding(
-          // Constant status-bar spacing — stable, native, no
-          // scroll-coupled layout changes.
-          padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top),
-          child: PageView.builder(
-            controller: _pageController,
-            itemCount: _tabs.length,
-            onPageChanged: (page) {
-              // Keep the router location in sync with the gesture.
-              if (_tabs[page].$1 != location) {
-                context.go(_tabs[page].$1);
-              }
-            },
-            itemBuilder: (context, i) => _TabKeepAlive(child: _screen(i)),
+      // iOS sheet presentation: the page zooms out (scales down with
+      // rounded corners) while any bottom sheet is open. The nav pill
+      // stays outside the zoom — it hides itself while overlays are
+      // open anyway.
+      body: SheetZoom(
+        child: NotificationListener<ScrollNotification>(
+          onNotification: _onScroll,
+          child: Padding(
+            // Constant status-bar spacing — stable, native, no
+            // scroll-coupled layout changes.
+            padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top),
+            child: PageView.builder(
+              controller: _pageController,
+              itemCount: _tabs.length,
+              onPageChanged: (page) {
+                // Keep the router location in sync with the gesture.
+                if (_tabs[page].$1 != location) {
+                  context.go(_tabs[page].$1);
+                }
+              },
+              itemBuilder: (context, i) => _TabKeepAlive(child: _screen(i)),
+            ),
           ),
         ),
       ),

@@ -96,6 +96,8 @@ GoRoute _detailRoute(String path, Widget child) {
       // duplicated inline rather than reused because MorphPage is a
       // PageRouteBuilder for imperative Navigator.push, not a go_router
       // Page; CustomTransitionPage is go_router's equivalent shape.
+      // SheetZoom gives pushed screens the same iOS background-zoom
+      // reaction when a bottom sheet opens on top of them.
       transitionsBuilder: (context, animation, secondaryAnimation, child) {
         final curved = CurvedAnimation(
           parent: animation,
@@ -106,7 +108,7 @@ GoRoute _detailRoute(String path, Widget child) {
           opacity: curved,
           child: ScaleTransition(
             scale: Tween(begin: 0.97, end: 1.0).animate(curved),
-            child: child,
+            child: SheetZoom(child: child),
           ),
         );
       },
@@ -135,7 +137,7 @@ GoRoute _detailRouteWithPackage(String path, Widget Function(String pkg) builder
           opacity: curved,
           child: ScaleTransition(
             scale: Tween(begin: 0.97, end: 1.0).animate(curved),
-            child: child,
+            child: SheetZoom(child: child),
           ),
         );
       },

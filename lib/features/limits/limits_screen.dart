@@ -522,53 +522,62 @@ class _AppIconRow extends StatelessWidget {
 
 Future<String?> _promptGroupName(BuildContext context) {
   final controller = TextEditingController();
-  return showDialog<String>(
+  return showAppSheet<String>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      backgroundColor: AppColors.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-      title: Text('Group name', style: TextStyle(fontSize: 16, color: AppColors.ink)),
-      content: TextField(
-        controller: controller,
-        autofocus: true,
-        style: TextStyle(color: AppColors.ink),
-        decoration: InputDecoration(
-          hintText: 'e.g. Social Media',
-          hintStyle: TextStyle(color: AppColors.inkFaint),
-        ),
+    title: 'Group name',
+    subtitle: 'Apps in the group share one daily allowance',
+    builder: (sheetContext, scrollController) => SingleChildScrollView(
+      controller: scrollController,
+      physics: springScrollPhysics,
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: controller,
+            autofocus: true,
+            style: TextStyle(color: AppColors.ink),
+            decoration: InputDecoration(
+              hintText: 'e.g. Social Media',
+              hintStyle: TextStyle(color: AppColors.inkFaint),
+            ),
+            onSubmitted: (v) => Navigator.of(sheetContext).pop(v),
+          ),
+          const SizedBox(height: 16),
+          TextButton(
+            onPressed: () => Navigator.of(sheetContext).pop(controller.text),
+            style: TextButton.styleFrom(
+              backgroundColor: AppColors.ink,
+              foregroundColor: AppColors.bg,
+              padding: const EdgeInsets.all(14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+            ),
+            child: const Text('Next', style: TextStyle(fontWeight: FontWeight.w600)),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(),
-          child: Text('Cancel', style: TextStyle(color: AppColors.inkDim)),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-          child: Text('Next', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-        ),
-      ],
     ),
   );
 }
 
 Future<int?> _promptGroupLimit(BuildContext context) {
   const presets = [15, 30, 60, 90, 120];
-  return showDialog<int>(
+  return showAppSheet<int>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      backgroundColor: AppColors.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-      title: Text('Combined daily limit', style: TextStyle(fontSize: 16, color: AppColors.ink)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final m in presets)
-            ListTile(
-              title: Text('$m minutes', style: TextStyle(color: AppColors.ink, fontSize: 14)),
-              onTap: () => Navigator.of(dialogContext).pop(m),
-            ),
-        ],
-      ),
+    title: 'Combined daily limit',
+    subtitle: 'Shared allowance for the whole group',
+    builder: (sheetContext, scrollController) => ListView(
+      controller: scrollController,
+      physics: springScrollPhysics,
+      shrinkWrap: true,
+      padding: const EdgeInsets.only(bottom: 8),
+      children: [
+        for (final m in presets)
+          ListTile(
+            title: Text('$m minutes', style: TextStyle(color: AppColors.ink, fontSize: 14)),
+            onTap: () => Navigator.of(sheetContext).pop(m),
+          ),
+      ],
     ),
   );
 }

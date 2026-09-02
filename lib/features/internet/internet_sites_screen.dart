@@ -681,24 +681,11 @@ class _BlockListTile extends ConsumerWidget {
         if (!view.locked && template.id != 'adult')
           GestureDetector(
             onTap: () async {
-              final confirmed = await showDialog<bool>(
-                context: context,
-                builder: (dialogContext) => AlertDialog(
-                  backgroundColor: AppColors.surface,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-                  title: Text('Remove "${template.title}"?',
-                      style: TextStyle(fontSize: 15, color: AppColors.ink)),
-                  content: Text('All ${template.title} sites and their toggles will be deleted.',
-                      style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(false),
-                        child: Text('Cancel', style: TextStyle(color: AppColors.inkDim))),
-                    TextButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(true),
-                        child: Text('Remove', style: TextStyle(color: AppColors.ink))),
-                  ],
-                ),
+              final confirmed = await showAppConfirmSheet(
+                context,
+                title: 'Remove "${template.title}"?',
+                message: 'All ${template.title} sites and their toggles will be deleted.',
+                confirmLabel: 'Remove',
               );
               if (confirmed == true) {
                 await ref.read(blockListRepositoryProvider).removeCategory(template.id);
@@ -732,33 +719,18 @@ class _BlockListTile extends ConsumerWidget {
 
   Future<void> _setEnabled(BuildContext context, WidgetRef ref, bool enabled) async {
     if (enabled && view.template.locksAfterEnable) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
-          backgroundColor: AppColors.surface,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-          title: Text('This cannot be undone',
-              style: TextStyle(fontSize: 16, color: AppColors.ink)),
-          content: Text(
-            'Once adult-content blocking is turned on, it cannot be turned '
+      final confirmed = await showAppConfirmSheet(
+        context,
+        title: 'This cannot be undone',
+        message: 'Once adult-content blocking is turned on, it cannot be turned '
             'off again. The list will keep blocking adult sites on this '
             'device. Individual sites inside the list can still be '
             'toggled, but the filter itself stays on permanently.',
-            style: TextStyle(fontSize: 12.5, color: AppColors.inkDim, height: 1.55),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text('Cancel', style: TextStyle(color: AppColors.inkDim)),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: Text('Turn on permanently',
-                  style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-            ),
-          ],
-        ),
+        confirmLabel: 'Turn on permanently',
+        // Irreversible action — a stray tap on the dim background must
+        // not close the warning; an explicit Cancel / drag-down is the
+        // way out (matches the previous barrierDismissible: false).
+        isDismissible: false,
       );
       if (confirmed != true) return;
     }

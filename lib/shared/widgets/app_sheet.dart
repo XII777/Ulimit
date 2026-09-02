@@ -6,8 +6,7 @@ import '../../core/icons/app_icons.dart';
 import '../../core/theme/tokens.dart';
 
 /// The app's one modal bottom-sheet system. Every popup in the app MUST
-/// open through [showAppSheet] (or [showDialog], for short centered
-/// confirmations) so the global behavior guarantees hold:
+/// open through [showAppSheet] so the global behavior guarantees hold:
 ///
 ///  1. **Background locked** — the modal barrier sits on the root
 ///     navigator above the shell; swipes/drags/taps never reach the
@@ -24,6 +23,9 @@ import '../../core/theme/tokens.dart';
 ///  5. **Safe area + keyboard** — the chrome pads for the bottom system
 ///     inset and the sheet lifts above the keyboard when a field has
 ///     focus.
+///  6. **iOS background zoom** — while a sheet is open the page behind
+///     it zooms out (scales down with rounded corners, see [SheetZoom]),
+///     in sync with the sheet's own entrance/exit animation.
 ///
 /// Contract: `builder` must attach the provided `scrollController` to
 /// the content's primary scrollable (ListView/SingleChildScrollView),
@@ -74,6 +76,120 @@ Future<T?> showAppSheet<T>({
         ),
       );
     },
+  ).whenComplete(() {
+    // whenComplete fires the moment the sheet starts dismissing
+    // (pop, barrier tap or drag) — so the background zooms back in
+    // in sync with the slide-down, not after it.
+    _openSheetCount = math.max(0, _openSheetCount - 1);
+    _syncSheetZoom();
+  });
+}
+
+/// Open-sheet depth. Depth-counted (not boolean) so a sheet opened
+/// from inside another sheet keeps the background zoomed out until
+/// the last one closes.
+int _openSheetCount = 0;
+
+/// Whether any app sheet is open right now. Drives the iOS-style
+/// background zoom in [SheetZoom].
+final ValueNotifier<bool> appSheetOpen = ValueNotifier<bool>(false);
+
+void _syncSheetZoom() {
+  appSheetOpen.value = _openSheetCount > 0;
+}
+
+/// iOS-style modal presentation backdrop: while any sheet opened via
+/// [showAppSheet] is on screen, the wrapped page content zooms out —
+/// scales down slightly and rounds its corners like the background
+/// card receding behind an iOS presented sheet.
+///
+/// Wrap the root page content with it (NavShell body and the detail
+/// routes do). The animation is depth-safe: it stays zoomed while any
+/// number of sheets is stacked and restores on the last close, with
+/// the same ease as the sheet's own slide so the two read as one
+/// gesture.
+class SheetZoom extends StatelessWidget {
+  const SheetZoom({super.key, required this.child});
+  final Widget child;
+
+  static const _duration = Duration(milliseconds: 400);
+  static const _curve = Curves.easeOutCubic;
+  static const _zoomedScale = 0.94;
+  static const _zoomedRadius = 32.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: appSheetOpen,
+      builder: (context, child) {
+        final zoomed = appSheetOpen.value;
+        return AnimatedScale(
+          scale: zoomed ? _zoomedScale : 1.0,
+          duration: _duration,
+          curve: _curve,
+          child: AnimatedContainer(
+            duration: _duration,
+            curve: _curve,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(zoomed ? _zoomedRadius : 0),
+            ),
+            child: child,
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+}
+
+/// App-wide confirmation popup — the bottom-sheet replacement for the
+/// classic centered confirm dialog. A minimal sheet with the title in
+/// the chrome, the message, one filled confirm action and a plain
+/// cancel. Used for destructive/irreversible decisions app-wide.
+Future<bool?> showAppConfirmSheet(
+  BuildContext context, {
+  required String title,
+  String? message,
+  String confirmLabel = 'Confirm',
+  String cancelLabel = 'Cancel',
+  bool isDismissible = true,
+}) {
+  return showAppSheet<bool>(
+    context: context,
+    title: title,
+    isDismissible: isDismissible,
+    builder: (sheetContext, _) => Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (message != null) ...[
+            Text(
+              message,
+              style: TextStyle(fontSize: 12.5, color: AppColors.inkDim, height: 1.5),
+            ),
+            const SizedBox(height: 20),
+          ],
+          TextButton(
+            onPressed: () => Navigator.of(sheetContext).pop(true),
+            style: TextButton.styleFrom(
+              backgroundColor: AppColors.ink,
+              foregroundColor: AppColors.bg,
+              padding: const EdgeInsets.all(14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+            ),
+            child: Text(confirmLabel, style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: () => Navigator.of(sheetContext).pop(false),
+            child: Text(cancelLabel, style: TextStyle(color: AppColors.inkDim)),
+          ),
+        ],
+      ),
+    ),
   );
 }
 

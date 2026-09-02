@@ -10,6 +10,7 @@ import '../../data/apps_repository.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../features/limits/limits_screen.dart' show showAppLimitEditor;
+import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/hourly_bar_chart.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
@@ -89,9 +90,9 @@ class _AppStatsScreenState extends ConsumerState<AppStatsScreen> {
     );
   }
 
-  /// Hold on the View Full Day chip → a popup opens NEAR the pill (not
-  /// a bottom sheet): a vertically-swiping wheel of dates (Today →
-  /// 90 days back). Lifting the finger commits the centered selection.
+  /// Hold on the View Full Day chip → the date wheel bottom sheet
+  /// opens: a vertically-swiping wheel of dates (Today → 90 days back).
+  /// Committing happens via a row tap or the Done button.
   Future<void> openDatePicker({Offset? anchor}) async {
     final selected = await _showDateWheelPopup(context, _selectedDay, anchor);
     if (selected != null && mounted) {
@@ -100,9 +101,12 @@ class _AppStatsScreenState extends ConsumerState<AppStatsScreen> {
   }
 }
 
-/// Hold-anchored vertical date WHEEL: swipe up/down to scroll dates.
-/// The row under the center indicator is the current selection and the
-/// wheel commits it when the finger lifts (or on tap of a row).
+/// Date WHEEL popup presented as a compact bottom sheet: swipe the
+/// wheel up/down to scroll dates (Today → 90 days back). The row under
+/// the center indicator is the current selection; committing happens
+/// on a tap of a row or the Done button. Closing the sheet any other
+/// way (barrier tap, drag-down, back) falls back to the date that was
+/// last centered in the wheel.
 Future<DateTime?> _showDateWheelPopup(
     BuildContext context, DateTime current, Offset? anchor) async {
   final today = DateTime.now();
@@ -132,69 +136,87 @@ Future<DateTime?> _showDateWheelPopup(
   // commit the centered row no matter how the sheet closes.
   var selectedIndex = currentIndex;
 
-  final result = await showModalBottomSheet<DateTime>(
+  final result = await showAppSheet<DateTime>(
     context: context,
-    backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: 0.35),
-    builder: (sheetContext) {
-      final scrollController = ScrollController(initialScrollOffset: initialOffset);
+    title: 'View full day',
+    subtitle: 'Scroll the wheel to pick a date',
+    initialSize: 0.5,
+    minSize: 0.35,
+    builder: (sheetContext, scrollController) {
+      final wheelController = ScrollController(initialScrollOffset: initialOffset);
 
-      return Container(
-        alignment: Alignment.center,
-        margin: const EdgeInsets.only(bottom: 60),
-        child: Container(
-          height: rowHeight * visibleRows + 2,
-          width: 160,
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            border: Border.all(color: AppColors.stroke),
-          ),
-          child: Stack(
-            clipBehavior: Clip.hardEdge,
-            children: [
-              // Center selection window.
-              Positioned(
-                left: 0,
-                right: 0,
-                top: rowHeight * (visibleRows ~/ 2),
-                height: rowHeight,
-                child: IgnorePointer(
-                  child: Container(
-                    color: AppColors.ink.withValues(alpha: 0.10),
-                    decoration: BoxDecoration(
-                      border: Border.symmetric(
-                          horizontal: BorderSide(color: AppColors.stroke)),
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            height: rowHeight * visibleRows + 2,
+            width: 160,
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: AppColors.stroke),
+            ),
+            child: Stack(
+              clipBehavior: Clip.hardEdge,
+              children: [
+                // Center selection window.
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: rowHeight * (visibleRows ~/ 2),
+                  height: rowHeight,
+                  child: IgnorePointer(
+                    child: Container(
+                      color: AppColors.ink.withValues(alpha: 0.10),
+                      decoration: BoxDecoration(
+                        border: Border.symmetric(
+                            horizontal: BorderSide(color: AppColors.stroke)),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              // Snapping wheel.
-              ListWheelScrollView.useDelegate(
-                controller: scrollController,
-                itemExtent: rowHeight,
-                perspective: 0.002,
-                diameterRatio: 1.4,
-                physics: const FixedExtentScrollPhysics(),
-                onSelectedItemChanged: (index) => selectedIndex = index,
-                childDelegate: ListWheelChildBuilderDelegate(
-                  childCount: 90,
-                  builder: (context, index) => Center(
-                    child: Text(
-                      labelFor(index),
-                      style: index == selectedIndex
-                          ? TextStyle(
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.ink)
-                          : TextStyle(fontSize: 13, color: AppColors.inkDim),
+                // Snapping wheel.
+                ListWheelScrollView.useDelegate(
+                  controller: wheelController,
+                  itemExtent: rowHeight,
+                  perspective: 0.002,
+                  diameterRatio: 1.4,
+                  physics: const FixedExtentScrollPhysics(),
+                  onSelectedItemChanged: (index) => selectedIndex = index,
+                  childDelegate: ListWheelChildBuilderDelegate(
+                    childCount: 90,
+                    builder: (context, index) => Center(
+                      child: Text(
+                        labelFor(index),
+                        style: index == selectedIndex
+                            ? TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.ink)
+                            : TextStyle(fontSize: 13, color: AppColors.inkDim),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: TextButton(
+              onPressed: () => Navigator.of(sheetContext).pop(dayAt(selectedIndex)),
+              style: TextButton.styleFrom(
+                backgroundColor: AppColors.ink,
+                foregroundColor: AppColors.bg,
+                padding: const EdgeInsets.all(14),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.md)),
+              ),
+              child: const Text('Done', style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ],
       );
     },
   );
