@@ -39,6 +39,12 @@ dependencies:
   # `http` package — no dio/heavyweight client for three GETs.
   http: ^1.2.0
 
+  # Screen headings + live counters — butter-smooth per-character rolls
+  # (spring + stagger + direction). Zero dependencies; respects the OS
+  # reduced-motion setting, which the old hand-rolled AnimatedSwitcher
+  # roll did not. Used for screen titles and the rolling duration digits.
+  rolling_text: ^0.1.3
+
   # Native Android integration point for Accessibility Service +
   # Device Admin (see android/ — MethodChannel, not a plugin, since no
   # existing plugin exposes AccessibilityService the way we need it).

@@ -6,6 +6,7 @@ import '../../core/native/permissions_channel.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/permissions_providers.dart';
 import '../../data/providers.dart';
+import '../../shared/widgets/rolling_title.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
 class ParentalScreen extends ConsumerStatefulWidget {
@@ -73,8 +74,10 @@ class _ParentalScreenState extends ConsumerState<ParentalScreen> with WidgetsBin
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Parental & Lock',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontSize: 19)),
+                  RollingTitle(
+                    text: 'Parental & Lock',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontSize: 19),
+                  ),
                   Text('Protects settings from being changed',
                       style: Theme.of(context).textTheme.bodySmall),
                 ],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:rolling_text/rolling_text.dart';
 
 import '../../core/engine/restriction_engine.dart';
 import '../../core/icons/app_icons.dart';
@@ -14,9 +15,8 @@ import '../../data/permissions_providers.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_selector.dart';
-
 import '../../shared/widgets/pressable_scale.dart';
-import '../../shared/widgets/rolling_number.dart';
+import '../../shared/widgets/rolling_title.dart';
 import '../../shared/widgets/spring_scroll.dart';
 import '../../shared/widgets/trend_chart.dart';
 
@@ -120,9 +120,12 @@ class _Header extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(greeting,
-            style: TextStyle(
-                fontSize: 26, fontWeight: FontWeight.w600, color: AppColors.ink, letterSpacing: -0.3)),
+        RollingTitle(
+          text: greeting,
+          route: Routes.home,
+          style: TextStyle(
+              fontSize: 26, fontWeight: FontWeight.w600, color: AppColors.ink, letterSpacing: -0.3),
+        ),
         const SizedBox(height: 2),
         Text(_formattedDate(), style: TextStyle(fontSize: AppText.body, color: AppColors.inkDim)),
       ],
@@ -167,7 +170,7 @@ class _ScreenTimeCard extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Center(
-            child: RollingNumber(
+            child: RollingText(
               text: formatDurationHMS(Duration(seconds: seconds)),
               style: TextStyle(
                   fontSize: 16,
@@ -228,7 +231,7 @@ class _FocusTimeCard extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
             Center(
-              child: RollingNumber(
+              child: RollingText(
                 text: formatDurationHMS(Duration(seconds: seconds)),
                 style: TextStyle(
                     fontSize: 16,
@@ -385,7 +388,7 @@ class _WeeklyTrendCard extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 4),
-          RollingNumber(
+          RollingText(
             text: hasData || todaySeconds > 0
                 ? formatDurationHMS(Duration(seconds: todaySeconds))
                 : 'No data yet',
@@ -471,7 +474,7 @@ class _MiniTrendCard extends StatelessWidget {
           const SizedBox(height: 6),
           Sparkline(values: values, color: AppColors.ink),
           const SizedBox(height: 6),
-          RollingNumber(
+          RollingText(
             text: valueText,
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
           ),

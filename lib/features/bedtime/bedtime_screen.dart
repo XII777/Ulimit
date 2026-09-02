@@ -5,11 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/engine/restriction_engine.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/native/enforcement_channel.dart';
+import '../../core/router/app_router.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/db/app_database.dart';
 import '../../data/providers.dart';
 import '../../shared/widgets/app_selector.dart';
 import '../../shared/widgets/pressable_scale.dart';
+import '../../shared/widgets/rolling_title.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
 class BedtimeScreen extends ConsumerWidget {
@@ -54,7 +56,7 @@ class _Body extends ConsumerWidget {
       physics: springScrollPhysics,
       padding: EdgeInsets.fromLTRB(20, 16, 20, ref.watch(hideNavBarProvider).valueOrNull == true ? navBarHiddenInset : navBarPillInset),
       children: [
-        Text('Bedtime', style: Theme.of(context).textTheme.headlineSmall),
+        RollingTitle(text: 'Bedtime', route: Routes.bedtime),
         const SizedBox(height: 4),
         Text(enabled ? 'Scheduled · repeats every night' : 'Schedule is off',
             style: Theme.of(context).textTheme.bodySmall),

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/engine/restriction_engine.dart';
 import '../../core/icons/app_icons.dart';
+import '../../core/router/app_router.dart';
 import '../../core/theme/tokens.dart';
 import '../../shared/widgets/app_sheet.dart';
 import '../../data/apps_repository.dart';
@@ -12,6 +13,7 @@ import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_selector.dart';
 import '../../shared/widgets/pressable_scale.dart';
+import '../../shared/widgets/rolling_title.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
 /// Daily limits — per-app allowances and shared-pool restriction
@@ -29,7 +31,7 @@ class LimitsScreen extends ConsumerWidget {
       physics: springScrollPhysics,
       padding: EdgeInsets.fromLTRB(20, 16, 20, ref.watch(hideNavBarProvider).valueOrNull == true ? navBarHiddenInset : navBarPillInset),
       children: [
-        Text('Limits', style: Theme.of(context).textTheme.headlineSmall),
+        RollingTitle(text: 'Limits', route: Routes.limits),
         const SizedBox(height: 4),
         Text('Daily allowances that reset at midnight',
             style: TextStyle(fontSize: AppText.body, color: AppColors.inkDim)),

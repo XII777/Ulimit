@@ -11,6 +11,7 @@ import '../../features/focus/focus_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/limits/limits_screen.dart';
 import '../../features/settings/settings_screen.dart';
+import 'rolling_title.dart' show currentRouteProvider;
 
 /// The app's navigation shell. Owns the global navigation behaviors:
 ///
@@ -66,6 +67,7 @@ class _NavShellState extends ConsumerState<NavShell> {
   late final PageController _pageController;
   bool _navVisible = true;
   int _lastRouteIndex = -1;
+  String _lastRoutePath = '';
 
   @override
   void initState() {
@@ -108,6 +110,16 @@ class _NavShellState extends ConsumerState<NavShell> {
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.path;
     final routeIndex = _tabs.indexWhere((t) => t.$1 == location).clamp(0, _tabs.length - 1);
+
+    // Publish the active route so keep-alive tab headings replay their
+    // roll on each switch. Deferred past the build phase: writing the
+    // provider here would notify the tab screens' Consumers mid-build.
+    if (location != _lastRoutePath) {
+      _lastRoutePath = location;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(currentRouteProvider.notifier).state = location;
+      });
+    }
 
     // "Hide Nav Bar" setting: immersive mode — no floating pill at all.
     final hideNavBar = ref.watch(hideNavBarProvider).valueOrNull ?? false;

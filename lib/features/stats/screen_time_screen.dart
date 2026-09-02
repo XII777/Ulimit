@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:rolling_text/rolling_text.dart';
 
 import '../../core/engine/restriction_engine.dart' show formatDurationHMS;
 import '../../core/router/app_router.dart';
@@ -9,7 +10,6 @@ import '../../core/theme/tokens.dart';
 import '../../data/apps_repository.dart';
 import '../../data/providers.dart';
 import '../../shared/widgets/hourly_bar_chart.dart';
-import '../../shared/widgets/rolling_number.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
 /// Screen Time detail page. A horizontal DATE STRIP (today →
@@ -93,7 +93,7 @@ class _ScreenTimeScreenState extends ConsumerState<ScreenTimeScreen> {
                   ],
                 ),
                 const SizedBox(height: 4),
-                RollingNumber(
+                RollingText(
                   text: dayTotalSeconds > 0
                       ? formatDurationHMS(Duration(seconds: dayTotalSeconds))
                       : 'No data',

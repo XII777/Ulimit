@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../core/engine/restriction_engine.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/native/permissions_channel.dart';
+import '../../core/router/app_router.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/apps_repository.dart';
 import '../../data/db/app_database.dart';
@@ -17,6 +18,7 @@ import '../../shared/widgets/app_selector.dart';
 import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/limit_ring.dart';
 import '../../shared/widgets/pressable_scale.dart';
+import '../../shared/widgets/rolling_title.dart';
 import '../../shared/widgets/session_tag_editor.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
@@ -97,7 +99,7 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
       physics: springScrollPhysics,
       padding: EdgeInsets.fromLTRB(20, 16, 20, ref.watch(hideNavBarProvider).valueOrNull == true ? navBarHiddenInset : navBarPillInset),
       children: [
-        Text('Focus', style: Theme.of(context).textTheme.headlineSmall),
+        RollingTitle(text: 'Focus', route: Routes.focus),
         const SizedBox(height: 4),
         Text('One session. One intention.', style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 22),
