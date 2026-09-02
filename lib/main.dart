@@ -157,7 +157,14 @@ class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserv
 
   @override
   Widget build(BuildContext context) {
-    _tracker ??= UsageTracker(ref.read(databaseProvider))..start();
+    _tracker ??= UsageTracker(
+      ref.read(databaseProvider),
+      // The accessibility service announces itself (sentinel event) the
+      // instant it connects: push a fresh policy snapshot so native ALWAYS
+      // has the latest restrictions — even if the service was enabled
+      // outside the normal app flow (OS settings / recovery screen).
+      onAccessibilityReady: () => ref.read(enforcementSyncProvider).push(),
+    )..start();
 
     // Persist "onboarding completed" as soon as every required
     // permission is granted — covers both the Continue-tap path and the

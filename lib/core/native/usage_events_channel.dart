@@ -23,3 +23,13 @@ class UsageEventsChannel {
       .receiveBroadcastStream()
       .map((raw) => ForegroundEvent.fromMap(raw as Map<dynamic, dynamic>));
 }
+
+/// Sentinel "package" names used for signalling (never real packages).
+class UlimitSentinel {
+  UlimitSentinel._();
+
+  /// Emitted by the accessibility service the instant it connects so the
+  /// Dart side re-pushes the native policy snapshot (fresh restrictions
+  /// even when the service was enabled outside the normal app flow).
+  static const accessibilityReady = '__accessibility_ready__';
+}

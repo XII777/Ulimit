@@ -142,6 +142,10 @@ class UlimitAccessibilityService : AccessibilityService() {
             Log.d("UlimitBlock", "service connected")
         }
         launchTrackingManager.start()
+        // Tell Dart we're live: it re-pushes the policy snapshot so native
+        // always evaluates against the LATEST restrictions (the service can
+        // be re-enabled from OS settings after an update/reset).
+        UsageEventBridge.emit("__accessibility_ready__", System.currentTimeMillis())
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {

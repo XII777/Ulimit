@@ -19,13 +19,21 @@ import 'db/app_database.dart';
 /// than split across the boundary. Acceptable for a v1 — the error is
 /// bounded by one app's single foreground duration, not compounding.
 class UsageTracker {
-  UsageTracker(this._db);
+  UsageTracker(this._db, {Future<void> Function()? onAccessibilityReady})
+      : _onAccessibilityReady = onAccessibilityReady;
 
   /// The most recent foreground transition, exposed for the live
   /// screen-time counter: while an app is in front, its un-attributed
   /// elapsed time grows by the second on top of the persisted total.
   static final ValueNotifier<({String package, int sinceMillis})?> liveForeground =
       ValueNotifier(null);
+
+  /// Invoked the moment the accessibility service connects (it emits a
+  /// sentinel event). Used to re-push the native policy snapshot so
+  /// native always has the LATEST restrictions — even when the service
+  /// was enabled from outside the normal app flow (OS settings, the
+  /// recovery screen after an app update).
+  final Future<void> Function()? _onAccessibilityReady;
 
   final AppDatabase _db;
   StreamSubscription<ForegroundEvent>? _sub;
@@ -45,6 +53,13 @@ class UsageTracker {
 
   Future<void> _onEvent(ForegroundEvent event) async {
     final now = event.timestampMillis;
+
+    // Sentinel from the accessibility service on connect: refresh the
+    // native policy snapshot, then drop it (never a real package).
+    if (event.packageName == UlimitSentinel.accessibilityReady) {
+      await _onAccessibilityReady?.call();
+      return;
+    }
 
     if (_pendingPackage != null && _pendingTimestampMillis != null) {
       // floor(), matching the live counter: the DB row becomes the
