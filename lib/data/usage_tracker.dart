@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:drift/drift.dart';
 import '../core/native/usage_events_channel.dart';
 import 'db/app_database.dart';
+import 'screen_time_filter.dart';
 
 /// Bridges native foreground-app events into real Drift rows. Started
 /// once at app launch (see main.dart) and lives for the app's process
@@ -91,6 +92,9 @@ class UsageTracker {
   }
 
   Future<void> _addUsage(String package, int atMillis, int seconds) async {
+    // Never persist home-screen/launcher, system-UI or Ulimit time as
+    // app usage — screen time counts opened apps only.
+    if (isExcludedFromScreenTime(package)) return;
     final day = _truncateToDay(DateTime.fromMillisecondsSinceEpoch(atMillis));
     // Real upsert leaning on the (packageName, day) unique key from the
     // schema: insert a fresh row, or atomically add to the existing

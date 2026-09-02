@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/native/permissions_channel.dart';
 import 'db/app_database.dart';
 import 'providers.dart';
+import 'screen_time_filter.dart';
 
 /// Syncs the authoritative per-app screen times from UsageStatsManager
 /// (the OS's own usage stats — the same source Digital Wellbeing shows)
@@ -57,9 +58,9 @@ class UsageStatsSync {
         final dayUnix = record['day'] as int?;
         final screenTime = record['screenTime'] as int?;
         if (package == null || dayUnix == null || screenTime == null) continue;
-        // Ulimit's own foreground is never part of the user's wellbeing
-        // budget (see todayScreenTimeProvider).
-        if (package == 'com.ulimit.app') continue;
+        // Screen time counts OPENED APPS only — never the home screen/
+        // launcher, system UI, or Ulimit itself (see screen_time_filter).
+        if (isExcludedFromScreenTime(package)) continue;
 
         final trackerValue = existing['$package|$dayUnix'] ?? 0;
         // OS foreground is authoritative (foreground-only). The tracker

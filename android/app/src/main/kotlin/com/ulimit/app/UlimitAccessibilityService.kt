@@ -109,7 +109,7 @@ class UlimitAccessibilityService : AccessibilityService() {
             val elapsedSeconds = ((now - lastEventTimestamp) / 1000).toInt()
             // Discard huge gaps — almost certainly a phone-asleep period
             // the OS didn't cleanly signal, not real foreground time.
-            if (elapsedSeconds in 1..(6 * 3600)) {
+            if (elapsedSeconds in 1..(6 * 3600) && !isShellPackage(previous)) {
                 PolicySnapshot.addForegroundSeconds(this, previous, elapsedSeconds)
             }
         }
@@ -159,6 +159,25 @@ class UlimitAccessibilityService : AccessibilityService() {
     // ------------------------------------------------------------------
     // Blocking decision — Mindful's MindfulTrackerService.onNewAppLaunch
     // ------------------------------------------------------------------
+
+    /** Home-screen/system shells are not "opened apps": their time never
+     *  counts toward screen time (mirrors Dart's screen_time_filter). */
+    private fun isShellPackage(pkg: String): Boolean =
+        pkg == packageName ||
+            pkg == "com.android.systemui" ||
+            pkg == "com.miui.home" ||
+            pkg == "com.oplus.launcher" ||
+            pkg == "com.coloros.launcher" ||
+            pkg == "com.bbk.launcher" ||
+            pkg == "com.vivo.launcher" ||
+            pkg == "com.hw.launcher" ||
+            pkg == "com.huawei.android.launcher" ||
+            pkg == "com.hihonor.launcher" ||
+            pkg == "com.sec.android.app.launcher" ||
+            pkg == "com.samsung.android.launcher" ||
+            pkg == "org.lineageos.launcher3" ||
+            pkg == "com.nothing.launcher" ||
+            pkg.contains("launcher")
 
     /** Called whenever a new real app surfaces (accessibility fast path
      *  or the UsageStats poll). If it's blocked we show the full-screen

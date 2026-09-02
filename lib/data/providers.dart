@@ -7,6 +7,7 @@ import '../core/native/permissions_channel.dart';
 import 'db/app_database.dart';
 import 'db/tables.dart';
 import 'permissions_providers.dart';
+import 'screen_time_filter.dart';
 import 'usage_tracker.dart';
 
 /// Single DB instance for the app's lifetime. `keepAlive` so switching
@@ -134,10 +135,9 @@ final liveScreenTimeSecondsProvider = StreamProvider<int>((ref) {
   int compute() {
     final base = ref.read(todayScreenTimeProvider).valueOrNull?.inSeconds ?? 0;
     final foreground = UsageTracker.liveForeground.value;
-    // Ulimit's own foreground is not screen time (see
-    // todayScreenTimeProvider); the pending window only counts while a
-    // real app is in front.
-    if (foreground == null || foreground.package == 'com.ulimit.app') return base;
+    // Screen time counts opened apps only — the pending window never
+    // adds launcher/system-UI/Ulimit time (see screen_time_filter).
+    if (foreground == null || isExcludedFromScreenTime(foreground.package)) return base;
     final pending = ((DateTime.now().millisecondsSinceEpoch - foreground.sinceMillis) / 1000)
         .floor()
         .clamp(0, 6 * 3600)
@@ -204,7 +204,7 @@ final livePendingScreenTimeProvider = StreamProvider<int>((ref) {
 
   int compute() {
     final foreground = UsageTracker.liveForeground.value;
-    if (foreground == null || foreground.package == 'com.ulimit.app') return 0;
+    if (foreground == null || isExcludedFromScreenTime(foreground.package)) return 0;
     return ((DateTime.now().millisecondsSinceEpoch - foreground.sinceMillis) / 1000)
         .floor()
         .clamp(0, 6 * 3600)
@@ -280,7 +280,7 @@ final todayScreenTimeProvider = StreamProvider<Duration>((ref) {
   return query.watch().map(
         (rows) => Duration(
           seconds: rows
-              .where((r) => r.packageName != 'com.ulimit.app')
+              .where((r) => !isExcludedFromScreenTime(r.packageName))
               .fold(0, (sum, r) => sum + r.foregroundSeconds),
         ),
       );
@@ -297,7 +297,8 @@ final todayUsageByPackageProvider = StreamProvider<Map<String, int>>((ref) {
   return query.watch().map(
         (rows) => {
           for (final r in rows)
-            if (r.packageName != 'com.ulimit.app') r.packageName: r.foregroundSeconds,
+            if (!isExcludedFromScreenTime(r.packageName))
+              r.packageName: r.foregroundSeconds,
         },
       );
 });
@@ -378,7 +379,8 @@ final windowUsageByPackageProvider = StreamProvider<Map<String, int>>((ref) {
   return query.watch().map(
         (rows) => {
           for (final r in rows)
-            if (r.packageName != 'com.ulimit.app') r.packageName: r.foregroundSeconds,
+            if (!isExcludedFromScreenTime(r.packageName))
+              r.packageName: r.foregroundSeconds,
         },
       );
 });
@@ -450,7 +452,7 @@ final dayScreenTimeProvider = StreamProvider.family<Duration, DateTime>((ref, da
   final query = db.select(db.appUsage)..where((t) => t.day.equals(start));
   return query.watch().map((rows) => Duration(
         seconds: rows
-            .where((r) => r.packageName != 'com.ulimit.app')
+            .where((r) => !isExcludedFromScreenTime(r.packageName))
             .fold(0, (sum, r) => sum + r.foregroundSeconds),
       ));
 });
@@ -464,7 +466,7 @@ final dayUsageByPackageProvider =
   final query = db.select(db.appUsage)..where((t) => t.day.equals(start));
   return query.watch().map((rows) => {
         for (final r in rows)
-          if (r.packageName != 'com.ulimit.app') r.packageName: r.foregroundSeconds,
+          if (!isExcludedFromScreenTime(r.packageName)) r.packageName: r.foregroundSeconds,
       });
 });
 
