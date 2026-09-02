@@ -234,7 +234,12 @@ class UlimitAccessibilityService : AccessibilityService() {
             Log.d("UlimitBlock", "foreground=$pkg blocked=${reason != null} reason=$reason")
         }
         if (reason != null) {
-            showOverlay(pkg, reason.reason, reason.untilMillis, now)
+            // Show the touch-blocking overlay. If it can't be displayed,
+            // hard-guarantee the app can't be used by ejecting it instead:
+            // a broken overlay must never leave a blocked app usable.
+            if (!showOverlay(pkg, reason.reason, reason.untilMillis, now)) {
+                performGlobalAction(GLOBAL_ACTION_HOME)
+            }
         } else if (overlayPackageName != null && overlayPackageName != pkg) {
             hideOverlay()
         }
@@ -244,8 +249,11 @@ class UlimitAccessibilityService : AccessibilityService() {
     // Blocking overlay
     // ------------------------------------------------------------------
 
-    private fun showOverlay(packageName: String, reason: String, untilMillis: Long, nowMillis: Long) {
-        if (overlayView != null && overlayPackageName == packageName) return
+    /** @return `true` if the overlay is now displayed for [packageName],
+     *  `false` if it could not be shown (the caller must then eject the
+     *  app so the block is never a no-op). */
+    private fun showOverlay(packageName: String, reason: String, untilMillis: Long, nowMillis: Long): Boolean {
+        if (overlayView != null && overlayPackageName == packageName) return true
         hideOverlay()
 
         val appName = try {
@@ -372,14 +380,16 @@ class UlimitAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT
         )
 
+        var shown = false
         try {
             windowManagerService.addView(root, params)
             overlayView = root
             overlayPackageName = packageName
+            shown = true
         } catch (_: Exception) {
             // Window token problems — the continuous enforcement loop
             // retries on its next tick, so the block is never lost.
-            return
+            return false
         }
 
         // --- Countdown driven by the REAL restriction time ----------------
@@ -435,6 +445,7 @@ class UlimitAccessibilityService : AccessibilityService() {
             }
         }
         mainHandler.postDelayed(countdown, 100)
+        return shown
     }
 
     /** "2h 5m" / "34m 12s" / "9s" — the overlay's remaining-time text. */
