@@ -29,6 +29,11 @@
     <!-- Android 13+ runtime permission for notification batching/muting -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Do Not Disturb policy access (user-granted via system Settings →
+         Do not disturb access): lets bedtime flip the interruption filter
+         and drive the grayscale device-effect rule. -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+
     <!-- Needed to enumerate installed apps for the app-picker in
          Limits/Blocking screens. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
@@ -154,10 +159,21 @@
             </intent-filter>
         </receiver>
 
-        <!-- Bedtime window edges (DND on/off, VPN nudge). -->
+        <!-- Bedtime window edges (DND on/off, grayscale, VPN nudge). -->
         <receiver
             android:name=".BedtimeAlarmReceiver"
             android:exported="false" />
+
+        <!-- DND condition provider: evaluates the bedtime window so the
+             grayscale device-effect rule activates only during it. -->
+        <service
+            android:name=".BedtimeConditionProvider"
+            android:exported="true"
+            android:permission="android.permission.BIND_CONDITION_PROVIDER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.ConditionProviderService" />
+            </intent-filter>
+        </service>
 
     </application>
 

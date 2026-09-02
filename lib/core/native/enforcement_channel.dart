@@ -96,6 +96,19 @@ class EnforcementChannel {
     }
   }
 
+  /// Enables/disables the system-wide bedtime grayscale effect. Uses
+  /// the Android 15+ Do-Not-Disturb device-effect API; a no-op before
+  /// API 35 or without DND policy access.
+  static Future<void> setBedtimeGrayscale(bool enabled) async {
+    try {
+      await _channel.invokeMethod('setBedtimeGrayscale', enabled);
+    } on PlatformException {
+      /* DND policy access missing — grayscale is best-effort. */
+    } on MissingPluginException {
+      /* Non-Android. */
+    }
+  }
+
   static Future<bool> isDndAccessGranted() async {
     try {
       return await _channel.invokeMethod<bool>('isDndAccessGranted') ?? false;

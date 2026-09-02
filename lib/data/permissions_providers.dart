@@ -111,18 +111,24 @@ final allPermissionsProvider = Provider<List<PermissionStatus>>((ref) {
   ];
 });
 
-/// True once every *required* permission is granted. Device Admin and
-/// Biometrics are both excluded deliberately: Biometrics is genuinely
-/// optional, and Device Admin — while useful for Invincible Mode's
+/// True once every *required* permission is granted. Device Admin,
+/// Biometrics and VPN are all deliberately excluded: Biometrics is
+/// genuinely optional, Device Admin — while useful for Invincible Mode's
 /// tamper resistance — shouldn't block someone from using the app at
-/// all just because they declined a device-admin prompt on first run.
-/// It's offered again, properly, from Parental & Lock.
+/// all just because they declined a device-admin prompt on first run,
+/// and the VPN consent is only needed for the DNS-filter firewall (a
+/// separate feature) — it must never gate app blocking behind it. They
+/// are offered again, properly, from their own screens.
 final requiredPermissionsGrantedProvider = Provider<bool>((ref) {
   final all = ref.watch(allPermissionsProvider);
   // Biometrics is genuinely optional; Device Admin is offered (not
-  // required) so onboarding never blocks on a device-admin prompt.
-  // Usage access is REQUIRED now — it feeds the exact per-app screen
-  // time the dashboard graphs need.
-  const notRequired = {PermissionKind.biometric, PermissionKind.deviceAdmin};
+  // required) so onboarding never blocks on a device-admin prompt;
+  // VPN consent can be finicky on some OEMs and is only the DNS-filter
+  // feature — never a gate for app blocking.
+  const notRequired = {
+    PermissionKind.biometric,
+    PermissionKind.deviceAdmin,
+    PermissionKind.vpn,
+  };
   return all.where((p) => !notRequired.contains(p.kind)).every((p) => p.granted);
 });

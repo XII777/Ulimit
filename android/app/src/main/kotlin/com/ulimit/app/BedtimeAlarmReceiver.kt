@@ -38,6 +38,18 @@ class BedtimeAlarmReceiver : BroadcastReceiver() {
             }
         }
 
+        // Grayscale system effect, driven by the same edges. At the
+        // start the rule is created (if the setting is on) and the
+        // provider is re-bound to publish the in-window state; at the
+        // end the provider republishes FALSE (the rule stays but is
+        // inert while outside the window).
+        val snapshot = PolicySnapshot.read(context)
+        val wantsGrayscale = wantsDnd && snapshot?.bedtime?.grayscale == true
+        if (wantsGrayscale) {
+            BedtimeEffects.setGrayscale(context, true)
+        }
+        BedtimeEffects.rebindProvider(context)
+
         // VPN state can change at the boundary (bedtime internet block);
         // nudge the service so it re-reads the snapshot if running.
         if (UlimitVpnService.isRunning) {

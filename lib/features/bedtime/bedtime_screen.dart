@@ -115,6 +115,9 @@ class _Body extends ConsumerWidget {
                 value: dnd,
                 onChanged: (v) async {
                   await db.setDndEnabled(v);
+                  // Apply immediately (not just at the next window edge):
+                  // the toggle must turn DND off as well as on.
+                  await EnforcementChannel.setDnd(v);
                   await _rescheduleAlarms();
                 },
               ),
@@ -143,7 +146,12 @@ class _Body extends ConsumerWidget {
                 label: 'Grayscale display',
                 subtitle: 'Dims the pull to check',
                 value: grayscale,
-                onChanged: (v) => db.setGrayscale(v),
+                onChanged: (v) async {
+                  await db.setGrayscale(v);
+                  // Apply immediately and keep the window edges in sync
+                  // via the nightly alarms (start/end receiver).
+                  await EnforcementChannel.setBedtimeGrayscale(v);
+                },
               ),
             ],
           ),
@@ -182,6 +190,13 @@ class _Body extends ConsumerWidget {
         // it correct on every other day.
         await EnforcementChannel.setDnd(true);
       }
+      if (bedtime != null && bedtime.grayscale) {
+        await EnforcementChannel.setBedtimeGrayscale(true);
+      }
+    } else {
+      // Schedule off: undo whatever the window currently applied.
+      await EnforcementChannel.setDnd(false);
+      await EnforcementChannel.setBedtimeGrayscale(false);
     }
   }
 
@@ -204,12 +219,22 @@ class _Body extends ConsumerWidget {
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
           timePickerTheme: TimePickerThemeData(
+            // The app's ColorScheme only defines the core 9 roles, so
+            // every M3 "role" color the picker falls back to is
+            // effectively unset — pin every picker color explicitly or
+            // digits land unreadable on the dial.
             backgroundColor: AppColors.surface,
             hourMinuteTextColor: AppColors.ink,
+            hourMinuteColor: AppColors.surface2,
             dialHandColor: AppColors.ink,
             dialBackgroundColor: AppColors.surface2,
+            dialTextColor: AppColors.ink,
             dayPeriodColor: AppColors.surface2,
             dayPeriodTextColor: AppColors.ink,
+            entryModeIconColor: AppColors.inkDim,
+            timeSelectorSeparatorColor: WidgetStatePropertyAll(AppColors.inkDim),
+            helpTextStyle: TextStyle(color: AppColors.inkDim),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
           ),
         ),
         child: child!,

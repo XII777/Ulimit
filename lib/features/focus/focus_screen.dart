@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +17,7 @@ import '../../data/focus_tags_provider.dart';
 import '../../data/providers.dart';
 import '../../shared/widgets/app_selector.dart';
 import '../../shared/widgets/app_sheet.dart';
+import '../../shared/widgets/duration_flow.dart';
 import '../../shared/widgets/limit_ring.dart';
 import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/session_tag_editor.dart';
@@ -26,12 +29,17 @@ class FocusScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(activeFocusSessionProvider).valueOrNull;
+    final rollingMode = ref.watch(rollingNumberModeProvider).valueOrNull ?? false;
 
     return Container(
       color: AppColors.bg,
       // Top spacing is owned by NavShell's collapsing inset — no
       // SafeArea here, so scrolling expands content to full height.
-      child: session == null ?  _IdleFocusView() : _RunningFocusView(session: session),
+      child: session == null
+          ? _IdleFocusView()
+          : rollingMode
+              ? _RollingFocusView(session: session)
+              : _RunningFocusView(session: session),
     );
   }
 }
@@ -517,62 +525,295 @@ class _RunningFocusView extends ConsumerWidget {
     );
   }
 
-  Future<void> _confirmEndEarly(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showAppSheet<bool>(
-      context: context,
-      title: 'End session early?',
-      subtitle: session.invincible
-          ? 'This session is invincible. Ending it early counts as an incomplete session.'
-          : 'The session will be recorded as incomplete. Blocked apps are restored immediately.',
-      initialSize: 0.45,
-      minSize: 0.35,
-      builder: (sheetContext, scrollController) => SingleChildScrollView(
-        controller: scrollController,
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+  Future<void> _confirmEndEarly(BuildContext context, WidgetRef ref) =>
+      confirmEndFocusSession(context, ref, session);
+}
+
+/// End-early confirmation shared by the running view and the rolling
+/// countdown: confirm (with biometrics for invincible sessions), then
+/// end and return to the Focus tab.
+Future<void> confirmEndFocusSession(
+    BuildContext context, WidgetRef ref, FocusSession session) async {
+  final confirmed = await showAppSheet<bool>(
+    context: context,
+    title: 'End session early?',
+    subtitle: session.invincible
+        ? 'This session is invincible. Ending it early counts as an incomplete session.'
+        : 'The session will be recorded as incomplete. Blocked apps are restored immediately.',
+    initialSize: 0.45,
+    minSize: 0.35,
+    builder: (sheetContext, scrollController) => SingleChildScrollView(
+      controller: scrollController,
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(sheetContext).pop(false),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: AppColors.stroke),
+                    padding: const EdgeInsets.all(13),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                  ),
+                  child: Text('Keep going', style: TextStyle(color: AppColors.ink)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(sheetContext).pop(true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.ink,
+                    foregroundColor: AppColors.bg,
+                    padding: const EdgeInsets.all(13),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                  ),
+                  child: const Text('End session', style: TextStyle(fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+
+  if (confirmed != true) return;
+
+  if (session.invincible) {
+    final ok = await NativePermissions.authenticate(reason: 'Confirm to end this invincible session.');
+    if (!ok) return;
+  }
+  await ref.read(focusControllerProvider).endEarly();
+  if (context.mounted) context.go('/focus');
+}
+
+/// Immersive rolling-number countdown (Rolling Number Display mode):
+/// landscape fullscreen giant digits, session name top-left, controls in
+/// the bottom — auto-hidden and shown by touch.
+class _RollingFocusView extends ConsumerStatefulWidget {
+  const _RollingFocusView({required this.session});
+
+  final FocusSession session;
+
+  @override
+  ConsumerState<_RollingFocusView> createState() => _RollingFocusViewState();
+}
+
+class _RollingFocusViewState extends ConsumerState<_RollingFocusView> {
+  static const _autoHideAfter = Duration(seconds: 3);
+
+  Timer? _hideTimer;
+  bool _controlsVisible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // The mode is landscape-fullscreen by design; any other tab stays
+    // itself. Restored on dispose (session end / mode change / browse).
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    _scheduleHide();
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    super.dispose();
+  }
+
+  void _poke() {
+    if (!_controlsVisible) setState(() => _controlsVisible = true);
+    _scheduleHide();
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(_autoHideAfter, () {
+      if (mounted) setState(() => _controlsVisible = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = ref.watch(focusRemainingProvider).valueOrNull ?? Duration.zero;
+    final untimed = FocusClock.isUntimed(widget.session);
+    final paused = widget.session.pausedAt != null;
+    final safe = MediaQuery.paddingOf(context);
+    final label = widget.session.label;
+
+    return RepaintBoundary(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _poke,
+        child: Stack(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.of(sheetContext).pop(false),
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: AppColors.stroke),
-                      padding: const EdgeInsets.all(13),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-                    ),
-                    child: Text('Keep going', style: TextStyle(color: AppColors.ink)),
+            // The number itself — ~90% of the display, centered.
+            Positioned.fill(
+              child: Center(
+                child: LayoutBuilder(
+                  builder: (context, constraints) => SizedBox(
+                    width: constraints.maxWidth * 0.9,
+                    height: constraints.maxHeight * 0.9,
+                    child: untimed
+                        ? Center(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                'UNTIMED',
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 200,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.ink,
+                                ),
+                              ),
+                            ),
+                          )
+                        : DurationFlow(
+                            duration: Duration(seconds: remaining.inSeconds),
+                            style: TextStyle(
+                              fontSize: 200,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.ink,
+                            ),
+                          ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.of(sheetContext).pop(true),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.ink,
-                      foregroundColor: AppColors.bg,
-                      padding: const EdgeInsets.all(13),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+              ),
+            ),
+
+            // Session name — top-left, auto-hidden with the controls.
+            Positioned(
+              top: safe.top + 14,
+              left: 18,
+              child: _AutoHide(
+                visible: _controlsVisible,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      paused ? '$label · PAUSED' : label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.ink,
+                      ),
                     ),
-                    child: const Text('End session', style: TextStyle(fontWeight: FontWeight.w600)),
-                  ),
+                    const SizedBox(height: 3),
+                    Text(
+                      untimed ? 'until you turn it off' : 'FOCUS SESSION',
+                      style: TextStyle(fontSize: 10.5, color: AppColors.inkFaint),
+                    ),
+                  ],
                 ),
-              ],
+              ),
+            ),
+
+            // Controls — bottom, auto-hidden; every touch resets the
+            // timer so they stay while the user interacts.
+            Positioned(
+              left: 18,
+              right: 18,
+              bottom: safe.bottom + 14,
+              child: _AutoHide(
+                visible: _controlsVisible,
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: PressableScale(
+                        onTap: () => paused
+                            ? ref.read(focusControllerProvider).resume()
+                            : ref.read(focusControllerProvider).pause(),
+                        child: Container(
+                          height: 46,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: AppColors.ink,
+                            borderRadius: BorderRadius.circular(AppRadius.md),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              AppIcon(
+                                paused ? AppIconName.play : AppIconName.pause,
+                                size: 16,
+                                color: AppColors.bg,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                paused ? 'Resume' : 'Pause',
+                                style: TextStyle(
+                                  fontSize: AppText.body,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.bg,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: PressableScale(
+                        onTap: () => confirmEndFocusSession(context, ref, widget.session),
+                        child: Container(
+                          height: 46,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: AppColors.surface2,
+                            borderRadius: BorderRadius.circular(AppRadius.md),
+                            border: Border.all(color: AppColors.stroke),
+                          ),
+                          child: Text(
+                            'End session',
+                            style: TextStyle(fontSize: AppText.body, color: AppColors.inkDim),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
       ),
     );
+  }
+}
 
-    if (confirmed != true) return;
+/// Fades its child in/out with a slide. The []_AutoHide] wrapper keeps
+/// the invisible subtree participating in layout when hidden.
+class _AutoHide extends StatelessWidget {
+  const _AutoHide({required this.visible, required this.child});
 
-    if (session.invincible) {
-      final ok = await NativePermissions.authenticate(reason: 'Confirm to end this invincible session.');
-      if (!ok) return;
-    }
-    await ref.read(focusControllerProvider).endEarly();
-    if (context.mounted) context.go('/focus');
+  final bool visible;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      opacity: visible ? 1.0 : 0.0,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      child: AnimatedSlide(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        offset: visible ? Offset.zero : const Offset(0, 0.3),
+        child: child,
+      ),
+    );
   }
 }
 

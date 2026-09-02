@@ -5,10 +5,12 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/crash/crash_collector.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/native/permissions_channel.dart';
+import '../../core/router/app_router.dart';
 import '../../core/theme/premium_components.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/db/app_database.dart';
@@ -30,21 +32,31 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  // Section expand state (session-scoped — the list scroll position is
-  // preserved by the tab keep-alive, and nothing is lost on restart).
-  late final Map<String, bool> _expanded = {
-    'GENERAL': true,
-    'FOCUS': true,
-    'PERMISSIONS': false,
-    'DATA': false,
-    'ABOUT': false,
-  };
+  // Single-open accordion: the one expanded section, or null when all
+  // are collapsed (the default at the start of every visit). Tapping an
+  // open section collapses it; tapping another swaps to that one.
+  String? _expanded;
 
-  void _toggle(String section) =>
-      setState(() => _expanded[section] = !(_expanded[section] ?? false));
+  // Last known route path; leaving the settings route (tab switch,
+  // pushed detail screen) collapses everything again, so each visit to
+  // Settings starts fully collapsed.
+  String? _lastLocation;
+
+  void _toggle(String section) => setState(() {
+        _expanded = _expanded == section ? null : section;
+      });
 
   @override
   Widget build(BuildContext context) {
+    // Depends on the router state registry → this screen rebuilds on
+    // every route change (the same scope NavShell watches), even while
+    // its tab page is kept alive.
+    final location = GoRouterState.of(context).uri.path;
+    if (location != _lastLocation) {
+      _lastLocation = location;
+      if (location != Routes.settings) _expanded = null;
+    }
+
     final permissions = ref.watch(allPermissionsProvider);
     final settings = ref.watch(ulimitSettingsProvider).valueOrNull;
     final themeMode = ref.watch(themeModeProvider).valueOrNull ?? 'system';
@@ -66,7 +78,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
            CollapsibleSection(
             label: 'GENERAL',
-            expanded: _expanded['GENERAL'] ?? true,
+            expanded: _expanded == 'GENERAL',
             onToggle: () => _toggle('GENERAL'),
             child: PremiumCard(
             padding: EdgeInsets.zero,
@@ -108,23 +120,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
            CollapsibleSection(
             label: 'FOCUS',
-            expanded: _expanded['FOCUS'] ?? true,
+            expanded: _expanded == 'FOCUS',
             onToggle: () => _toggle('FOCUS'),
             child: PremiumCard(
             padding: EdgeInsets.zero,
             child: Column(
               children: [
-                PremiumListTile(
-                  label: 'Focus Session Indicator',
-                  sublabel: 'Show your active Focus Session in the Android system area',
-                  trailing: Switch(
-                    value: focusIndicatorEnabled,
-                    onChanged: (v) async {
-                      await ref.read(settingsControllerProvider).setFocusIndicatorEnabled(v);
-                      await ref.read(focusIndicatorSyncProvider).sync();
-                    },
-                  ),
-                ),
+               PremiumListTile(
+                 label: 'Focus Session Indicator',
+                 sublabel: 'Show your active Focus Session in the Android system area',
+                 trailing: Switch(
+                   value: focusIndicatorEnabled,
+                   onChanged: (v) async {
+                     await ref.read(settingsControllerProvider).setFocusIndicatorEnabled(v);
+                     await ref.read(focusIndicatorSyncProvider).sync();
+                   },
+                 ),
+               ),
+               PremiumListTile(
+                 label: 'Rolling Number Display',
+                 sublabel: 'Fullscreen landscape countdown during a session',
+                 trailing: Switch(
+                   value: settings?.rollingNumberMode ?? false,
+                   onChanged: (v) =>
+                       ref.read(settingsControllerProvider).setRollingNumberMode(v),
+                 ),
+               ),
               ],
             ),
           ),
@@ -133,7 +154,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
            CollapsibleSection(
             label: 'PERMISSIONS',
-            expanded: _expanded['PERMISSIONS'] ?? false,
+            expanded: _expanded == 'PERMISSIONS',
             onToggle: () => _toggle('PERMISSIONS'),
             child: PremiumCard(
             padding: EdgeInsets.zero,
@@ -154,7 +175,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
            CollapsibleSection(
             label: 'DATA',
-            expanded: _expanded['DATA'] ?? false,
+            expanded: _expanded == 'DATA',
             onToggle: () => _toggle('DATA'),
             child: PremiumCard(
             padding: EdgeInsets.zero,
@@ -191,7 +212,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
            CollapsibleSection(
             label: 'ABOUT',
-            expanded: _expanded['ABOUT'] ?? false,
+            expanded: _expanded == 'ABOUT',
             onToggle: () => _toggle('ABOUT'),
             child: PremiumCard(
             padding: EdgeInsets.zero,

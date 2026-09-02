@@ -311,6 +311,17 @@ class EnforcementSync {
 
   Future<void> push() async {
     final ref = _ref;
+    // Never write an EMPTY snapshot over a full one: the headless engine
+    // (the Focus-indicator foreground service) starts a second container
+    // whose DB streams haven't resolved yet — at that moment every
+    // valueOrNull is null and a push would ship `blockedNow: []`, wiping
+    // native's restrictions until the next emission re-pushes. The
+    // streams' own emissions (registered in the constructor) trigger a
+    // fresh push the moment they load, so skipping here is safe.
+    if (ref.read(manualRestrictionsProvider).valueOrNull == null ||
+        ref.read(appLimitsProvider).valueOrNull == null) {
+      return;
+    }
     final manual = ref.read(manualRestrictionsProvider).valueOrNull ?? const [];
     final limits = ref.read(appLimitsProvider).valueOrNull ?? const [];
     final groups = ref.read(restrictionGroupsProvider).valueOrNull ?? const [];
@@ -378,6 +389,7 @@ class EnforcementSync {
               'endMinutes': _minutesOf(bedtime.endTime),
               'pauseApps': bedtime.pauseApps,
               'blockInternet': bedtime.blockInternet,
+              'grayscale': bedtime.grayscale,
               'packages': bedtime.selectedApps,
             },
       'internetBlocks': [for (final i in internet) i.packageName],

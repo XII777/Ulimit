@@ -50,6 +50,9 @@ jobs:
           # Also a universal APK (all ABIs in one) for sideload/family use.
           flutter build apk --release
 
+      - name: Build debug APK
+        run: flutter build apk --debug
+
       # Categorized notes from the commits included in this release
       # (conventional prefixes + keyword fallback) — see
       # scripts/release-notes.mjs for the classification rules.
@@ -68,6 +71,7 @@ jobs:
             build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
             build/app/outputs/flutter-apk/app-x86_64-release.apk
             build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-debug.apk
 
       - name: Create GitHub Release
         if: github.event_name == 'push'
@@ -81,5 +85,6 @@ jobs:
             build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
             build/app/outputs/flutter-apk/app-x86_64-release.apk
             build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

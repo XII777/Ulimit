@@ -85,6 +85,11 @@ object UlimitChannels {
                             result.success(false)
                         }
                     }
+                    "setBedtimeGrayscale" -> {
+                        val enabled = call.arguments as? Boolean ?: false
+                        BedtimeEffects.setGrayscale(context, enabled)
+                        result.success(true)
+                    }
                     "isDndAccessGranted" -> {
                         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                         result.success(nm.isNotificationPolicyAccessGranted)

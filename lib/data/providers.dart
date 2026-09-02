@@ -44,6 +44,13 @@ final hideNavBarProvider = StreamProvider<bool>((ref) {
   return db.select(db.ulimitSettings).watchSingle().map((s) => s.hideNavBar);
 });
 
+/// Rolling Number Display toggle: during a focus session, swaps the
+/// running view for the immersive fullscreen landscape countdown.
+final rollingNumberModeProvider = StreamProvider<bool>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.select(db.ulimitSettings).watchSingle().map((s) => s.rollingNumberMode);
+});
+
 /// Bottom scroll inset for tab screens. With the floating pill visible
 /// content needs ~110px of clearance so the last row never hides
 /// behind it; in "Hide Nav Bar" immersive mode 16px is plenty.
@@ -77,6 +84,9 @@ class SettingsController {
   /// Android system-level Focus Session indicator.
   Future<void> setFocusIndicatorEnabled(bool v) =>
       _update(UlimitSettingsCompanion(focusIndicatorEnabled: Value(v)));
+
+  Future<void> setRollingNumberMode(bool v) =>
+      _update(UlimitSettingsCompanion(rollingNumberMode: Value(v)));
 
   /// Marks the permissions onboarding as completed — the cold-start gate
   /// uses this to show a compact "re-enable after update" screen rather

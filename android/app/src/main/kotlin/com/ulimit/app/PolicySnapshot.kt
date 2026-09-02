@@ -48,6 +48,7 @@ object PolicySnapshot {
         val endMinutes: Int,
         val pauseApps: Boolean,
         val blockInternet: Boolean,
+        val grayscale: Boolean,
         val packages: List<String>
     )
 
@@ -149,6 +150,7 @@ object PolicySnapshot {
                 endMinutes = it.optInt("endMinutes", 0),
                 pauseApps = it.optBoolean("pauseApps", true),
                 blockInternet = it.optBoolean("blockInternet", false),
+                grayscale = it.optBoolean("grayscale", false),
                 packages = pkgs
             )
         }

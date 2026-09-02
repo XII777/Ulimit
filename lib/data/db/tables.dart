@@ -198,6 +198,12 @@ class UlimitSettings extends Table {
   // ongoing notification with live timer and Pause/End controls).
   BoolColumn get focusIndicatorEnabled => boolean().withDefault(const Constant(true))();
 
+  // Rolling Number Display: during an active focus session, render an
+  // immersive fullscreen landscape countdown (huge rolling digits, the
+  // session name top-left, controls in the bottom) instead of the
+  // default running view.
+  BoolColumn get rollingNumberMode => boolean().withDefault(const Constant(false))();
+
   // True once the user completed the permissions onboarding step. Lets
   // the cold-start gate tell a first launch from a post-update reset:
   // Android re-claims accessibility/notification-listener access after
