@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:rolling_text/rolling_text.dart';
 
 import '../../core/engine/restriction_engine.dart' show formatDurationHMS;
 import '../../core/router/app_router.dart';
@@ -9,7 +8,7 @@ import '../../core/theme/premium_components.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/apps_repository.dart';
 import '../../data/providers.dart';
-import '../../shared/widgets/counter_roll.dart' show kCounterRollOptions, kCounterRollSpacing;
+import '../../shared/widgets/counter_roll.dart';
 import '../../shared/widgets/hourly_bar_chart.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
@@ -94,12 +93,10 @@ class _ScreenTimeScreenState extends ConsumerState<ScreenTimeScreen> {
                   ],
                 ),
                 const SizedBox(height: 4),
-                RollingText(
+                RollingCounter(
                   text: dayTotalSeconds > 0
                       ? formatDurationHMS(Duration(seconds: dayTotalSeconds))
                       : 'No data',
-                  spacing: kCounterRollSpacing,
-                  options: kCounterRollOptions,
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
                 ),
                 const SizedBox(height: 10),
