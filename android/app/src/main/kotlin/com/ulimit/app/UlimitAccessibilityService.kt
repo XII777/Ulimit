@@ -96,6 +96,16 @@ class UlimitAccessibilityService : AccessibilityService() {
             return
         }
 
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+            // Window order/layout changed without a full state transition
+            // (multi-window, split-screen, PiP-adjacent resizes, some OEM
+            // launcher wrappers) — re-check the foreground NOW instead of
+            // waiting up to a second for the enforcement loop's next tick,
+            // so a just-fronted blocked app is caught immediately.
+            enforceCurrentForeground()
+            return
+        }
+
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
         val packageName = event.packageName?.toString() ?: return
@@ -157,6 +167,9 @@ class UlimitAccessibilityService : AccessibilityService() {
         lastEventTimestamp = 0
         fgLastResumed = ""
         lastUsageQueryAt = 0L
+        if (PolicySnapshot.isDebugBuild(this)) {
+            Log.d("UlimitBlock", "service connected")
+        }
         startEnforcementLoop()
     }
 
