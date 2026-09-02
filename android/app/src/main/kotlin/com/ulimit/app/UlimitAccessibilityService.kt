@@ -87,49 +87,28 @@ class UlimitAccessibilityService : AccessibilityService() {
         val packageName = event.packageName?.toString() ?: return
         val now = System.currentTimeMillis()
 
-        // The system UI and this app itself aren't "the user picked a
-        // different app" transitions worth ENFORCING, but they ARE real
-        // usage boundaries: opening Ulimit while scrolling Instagram
-        // means Instagram stops being foreground at that instant. Emit
-        // the switch BEFORE the early return so Dart closes the pending
-        // window and time inside Ulimit is never attributed to the app
-        // it left behind. Note: the overlay is still hidden here, and
-        // lastPackageName is intentionally NOT updated for systemui -
-        // returning to the same app must re-run enforcement because the
-        // policy may have changed in between.
+        // Reaching Ulimit itself is only possible after the overlay was
+        // already released (the Home escape hides it first), and the
+        // accessibility overlay belongs to this app's package — so a
+        // window-state event for our OWN window or for transient system
+        // UI (notification shade / recents) must NOT tear down the
+        // blocker. Doing so is exactly the open bypass: the overlay
+        // disappears and the blocked app becomes usable again.
         if (packageName == this.packageName) {
+            // Only close the usage window; never hide the block overlay.
             UsageEventBridge.emit(packageName, now)
-            hideOverlay()
             return
         }
         if (packageName.startsWith("com.android.systemui")) {
-            hideOverlay()
+            // Not a usage boundary either; leave the overlay in place.
             return
         }
 
-        // 1. ENFORCEMENT FIRST — on every window-state event, even for
-        // the same package as the previous event. The dedupe below only
-        // applies to usage tracking; skipping enforcement here created a
-        // window where a blocked app was fully usable (e.g.
-        // blocked app → Recents (system UI) → blocked app again, or
-        // blocked app → Ulimit → blocked app again).
-        val reason = PolicySnapshot.shouldBlock(this, packageName, now)
-        if (PolicySnapshot.isDebugBuild(this)) {
-            Log.d(
-                "UlimitBlock",
-                "foreground=$packageName blocked=${reason != null} reason=$reason"
-            )
-        }
-        if (reason != null) {
-            showOverlay(packageName, reason.reason, reason.untilMillis, now)
-        } else if (overlayPackageName != null && overlayPackageName != packageName) {
-            // The user navigated to a non-blocked app — dismiss our
-            // overlay. If the overlay is for THIS package the block just
-            // expired here, so we leave it to the overlay's own 5s
-            // closing pill (a stray same-app event must not cut the pill
-            // short and unblock the app before the grace period ends).
-            hideOverlay()
-        }
+        // 1. ENFORCEMENT — apply the block to whatever real app surfaced.
+        // The overlay window's own events and system UI were skipped
+        // above, so neither can hide the blocker; the enforcement loop
+        // re-asserts it every second as a safety net.
+        enforceForPackage(packageName, now)
 
         // 2. Usage tracking dedupe — after enforcement.
         if (packageName == lastPackageName) return
@@ -192,21 +171,24 @@ class UlimitAccessibilityService : AccessibilityService() {
      *  and shows/hides the blocking overlay accordingly. */
     private fun enforceCurrentForeground() {
         val pkg = rootInActiveWindow?.packageName?.toString() ?: return
-        // Never act on our own window (covers devices that report the
-        // accessibility overlay as the active window) and leave the
-        // Home/recents escape — system UI — reachable.
+        enforceForPackage(pkg, System.currentTimeMillis())
+    }
+
+    /** Single enforcement decision shared by the event handler and the
+     *  loop. Skips this app and system UI (neither may hide the blocker),
+     *  shows the overlay for a blocked foreground, and only clears it when
+     *  a genuinely different, non-blocked app is in front (the Home /
+     *  another-app escape). */
+    private fun enforceForPackage(pkg: String, now: Long) {
         if (pkg == this.packageName) return
-        if (pkg.startsWith("com.android.systemui")) {
-            hideOverlay()
-            return
-        }
-        val now = System.currentTimeMillis()
+        if (pkg.startsWith("com.android.systemui")) return
         val reason = PolicySnapshot.shouldBlock(this, pkg, now)
+        if (PolicySnapshot.isDebugBuild(this)) {
+            Log.d("UlimitBlock", "foreground=$pkg blocked=${reason != null} reason=$reason")
+        }
         if (reason != null) {
             showOverlay(pkg, reason.reason, reason.untilMillis, now)
         } else if (overlayPackageName != null && overlayPackageName != pkg) {
-            // Foreground is a different, non-blocked app (or the block
-            // lifted) — drop an overlay that no longer applies.
             hideOverlay()
         }
     }
