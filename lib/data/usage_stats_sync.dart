@@ -18,10 +18,15 @@ import 'providers.dart';
 /// UsageStats is the ground truth for per-day durations, so we merge it
 /// on app start, on resume, and on a slow cadence while foregrounded.
 ///
-/// Merge semantics: for each (package, day) row the value becomes
-/// max(OS, tracker) — the OS value wins when larger (authoritative) and
-/// tracker-only seconds are never zeroed out. Rows the OS reports for
-/// days the tracker never saw are inserted fresh.
+/// Merge semantics: screen time must reflect FOREGROUND use only. The OS
+/// `totalTimeInForeground` from UsageStatsManager (the source Digital
+/// Wellbeing shows) is the authoritative foreground-only measure, so it
+/// always wins when present. The accessibility tracker is only used as a
+/// fallback for seconds the OS hasn't reported yet (fresh use this
+/// session) — its gap attribution can over-count (time across the
+/// notification shade / app switcher / screen-off where no tracked
+/// foreground event fires), so it must never extend the total above the
+/// OS's real foreground figure.
 class UsageStatsSync {
   UsageStatsSync(this._db);
 
@@ -57,7 +62,11 @@ class UsageStatsSync {
         if (package == 'com.ulimit.app') continue;
 
         final trackerValue = existing['$package|$dayUnix'] ?? 0;
-        final merged = screenTime > trackerValue ? screenTime : trackerValue;
+        // OS foreground is authoritative (foreground-only). The tracker
+        // value is only a fallback for seconds the OS hasn't aggregated
+        // yet — never a ceiling raiser, so over-counted gaps can't inflate
+        // the total.
+        final merged = screenTime > 0 ? screenTime : trackerValue;
         if (merged <= 0) continue;
 
         await _db.customStatement(
