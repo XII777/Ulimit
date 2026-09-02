@@ -204,7 +204,18 @@ class UlimitAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
         val pkg = currentForegroundFromUsageStats()
             ?: rootInActiveWindow?.packageName?.toString()
-            ?: return
+        if (pkg == null) {
+            // Silent hole: with no usage access AND no accessibility window
+            // content the foreground can't be determined, so nothing is
+            // enforced. Log it so diagnosis isn't blind.
+            if (PolicySnapshot.isDebugBuild(this)) {
+                Log.d(
+                    "UlimitBlock",
+                    "foreground resolution: none (usage access missing AND rootInActiveWindow null)"
+                )
+            }
+            return
+        }
         enforceForPackage(pkg, now)
     }
 

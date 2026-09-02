@@ -2,6 +2,7 @@ package com.ulimit.app
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -255,7 +256,15 @@ object PolicySnapshot {
     data class BlockVerdict(val reason: String, val untilMillis: Long)
 
     fun shouldBlock(context: Context, pkg: String, nowMillis: Long): BlockVerdict? {
-        val snapshot = read(context) ?: return null
+        val snapshot = read(context)
+        if (snapshot == null) {
+            // THE most common silent failure: nothing was ever pushed to
+            // native, so every decision here is "not blocked". Surface it.
+            if (isDebugBuild(context)) {
+                Log.d("UlimitBlock", "shouldBlock($pkg): snapshot is MISSING — blocking is a no-op")
+            }
+            return null
+        }
 
         // Fast path: Dart's engine already decided this package is
         // blocked. Re-validate the expiry here so a stale snapshot can
