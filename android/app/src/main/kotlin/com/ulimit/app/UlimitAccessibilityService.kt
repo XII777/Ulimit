@@ -1,6 +1,9 @@
 package com.ulimit.app
 
 import android.accessibilityservice.AccessibilityService
+import android.app.Service.USAGE_STATS_SERVICE
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
 import android.util.Log
 import android.graphics.Color
 import android.graphics.PixelFormat
@@ -14,18 +17,21 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * The core enforcement + tracking layer. Every window-state change
- * (the OS's signal for "a different app is now in front") flows through
- * here and does three things:
+ * The core enforcement + tracking layer. The block decision is evaluated
+ * for the real foreground app AND continuously re-checked on a timer:
  *
- *  1. Attributes elapsed foreground time to the previous package and
- *     accumulates it in the native usage store — this is what lets a
- *     daily limit fire even when Ulimit itself is closed.
- *  2. Evaluates the policy snapshot for the now-foreground package and,
- *     if blocked, shows a full-screen TYPE_ACCESSIBILITY_OVERLAY so the
- *     blocked app never becomes usable.
- *  3. Forwards the transition to Dart (UsageEventBridge) where the
- *     authoritative usage history is persisted to SQLite.
+ *  1. Foreground resolution is driven by the OS UsageStats
+ *     ACTIVITY_RESUMED stream (so a blocked app is caught even when it
+ *     exposes no accessibility window), falling back to the accessibility
+ *     active window; a periodic loop keeps it fresh without waiting for a
+ *     new window-state event.
+ *  2. Evaluates the policy snapshot for that app and, if blocked, shows a
+ *     full-screen touch-blocking overlay so the blocked app never becomes
+ *     usable. The overlay is cleared only when the block expires or a
+ *     genuinely different, non-blocked app comes to front.
+ *  3. Attributes elapsed foreground time and forwards transitions to Dart
+ *     (UsageEventBridge) where the authoritative usage history is
+ *     persisted to SQLite.
  */
 class UlimitAccessibilityService : AccessibilityService() {
 
@@ -52,6 +58,14 @@ class UlimitAccessibilityService : AccessibilityService() {
             enforceHandler.postDelayed(this, enforceIntervalMs)
         }
     }
+
+    // UsageStats-backed foreground detection (the approach the Mindful
+    // reference uses): the OS ACTIVITY_RESUMED stream identifies the real
+    // foreground app even when that app exposes no accessibility window
+    // content, so a blocked app's launch is caught regardless. Both are
+    // only touched on the main thread (Handler loop + events).
+    private var fgLastResumed = ""
+    private var lastUsageQueryAt = 0L
 
     // Adult-content screen scanning state: while the adult filter is
     // enabled we read the visible text of the current browser app and,
@@ -141,6 +155,8 @@ class UlimitAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         lastPackageName = null
         lastEventTimestamp = 0
+        fgLastResumed = ""
+        lastUsageQueryAt = 0L
         startEnforcementLoop()
     }
 
@@ -167,11 +183,42 @@ class UlimitAccessibilityService : AccessibilityService() {
     }
 
     /** Re-evaluates the policy for whatever is genuinely in front right
-     *  now (via [rootInActiveWindow], independent of window-state events)
-     *  and shows/hides the blocking overlay accordingly. */
+     *  now and shows/hides the blocking overlay accordingly. The
+     *  foreground app is resolved from OS UsageStats (ACTIVITY_RESUMED),
+     *  which works even when the app exposes no accessibility window, and
+     *  falls back to [rootInActiveWindow] when usage access isn't granted. */
     private fun enforceCurrentForeground() {
-        val pkg = rootInActiveWindow?.packageName?.toString() ?: return
-        enforceForPackage(pkg, System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        val pkg = currentForegroundFromUsageStats()
+            ?: rootInActiveWindow?.packageName?.toString()
+            ?: return
+        enforceForPackage(pkg, now)
+    }
+
+    /** Returns the package of the most recently RESUMED app that has not
+     *  been STOPPED, from the OS usage-event stream. Empty (→ fallback to
+     *  the accessibility window) when usage access is missing or nothing
+     *  is active. Runs on the main thread every loop tick. */
+    private fun currentForegroundFromUsageStats(): String? {
+        return try {
+            val usm = getSystemService(USAGE_STATS_SERVICE) as? UsageStatsManager ?: return null
+            val now = System.currentTimeMillis()
+            val start = if (lastUsageQueryAt == 0L) now - 3000 else lastUsageQueryAt
+            lastUsageQueryAt = now
+            val events = usm.queryEvents(start, now)
+            val event = UsageEvents.Event()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                val pkg = event.packageName?.toString() ?: continue
+                when (event.eventType) {
+                    UsageEvents.Event.ACTIVITY_RESUMED -> fgLastResumed = pkg
+                    UsageEvents.Event.ACTIVITY_STOPPED -> if (pkg == fgLastResumed) fgLastResumed = ""
+                }
+            }
+            fgLastResumed.takeIf { it.isNotEmpty() }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /** Single enforcement decision shared by the event handler and the
