@@ -97,6 +97,12 @@ class _ScreenTimeScreenState extends ConsumerState<ScreenTimeScreen> {
                   text: dayTotalSeconds > 0
                       ? formatDurationHMS(Duration(seconds: dayTotalSeconds))
                       : 'No data',
+                  spacing: 2.0,
+                  options: const RollingTextOptions(
+                    direction: RollingDirection.up,
+                    stagger: Duration(milliseconds: 40),
+                    bounce: 0.8,
+                  ),
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
                 ),
                 const SizedBox(height: 10),

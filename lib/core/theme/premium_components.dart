@@ -210,6 +210,7 @@ class PremiumHeader extends StatelessWidget {
             children: [
               RollingText(
                 text: title,
+                spacing: 2.0,
                 style: TextStyle(
                     fontSize: AppText.headline, fontWeight: FontWeight.w600, color: AppColors.ink),
                 options: const RollingTextOptions(

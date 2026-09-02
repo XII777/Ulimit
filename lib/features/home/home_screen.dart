@@ -172,6 +172,12 @@ class _ScreenTimeCard extends ConsumerWidget {
           Center(
             child: RollingText(
               text: formatDurationHMS(Duration(seconds: seconds)),
+              spacing: 2.0,
+              options: const RollingTextOptions(
+                direction: RollingDirection.up,
+                stagger: Duration(milliseconds: 40),
+                bounce: 0.8,
+              ),
               style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -233,6 +239,12 @@ class _FocusTimeCard extends ConsumerWidget {
             Center(
               child: RollingText(
                 text: formatDurationHMS(Duration(seconds: seconds)),
+                spacing: 2.0,
+                options: const RollingTextOptions(
+                  direction: RollingDirection.up,
+                  stagger: Duration(milliseconds: 40),
+                  bounce: 0.8,
+                ),
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -392,6 +404,12 @@ class _WeeklyTrendCard extends ConsumerWidget {
             text: hasData || todaySeconds > 0
                 ? formatDurationHMS(Duration(seconds: todaySeconds))
                 : 'No data yet',
+            spacing: 2.0,
+            options: const RollingTextOptions(
+              direction: RollingDirection.up,
+              stagger: Duration(milliseconds: 40),
+              bounce: 0.8,
+            ),
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
           ),
           const SizedBox(height: 8),
@@ -476,6 +494,12 @@ class _MiniTrendCard extends StatelessWidget {
           const SizedBox(height: 6),
           RollingText(
             text: valueText,
+            spacing: 2.0,
+            options: const RollingTextOptions(
+              direction: RollingDirection.up,
+              stagger: Duration(milliseconds: 40),
+              bounce: 0.8,
+            ),
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
           ),
           if (delta.hasData) ...[

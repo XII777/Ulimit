@@ -47,9 +47,12 @@ class _RollingTitleState extends ConsumerState<RollingTitle> {
 
     return RollingText(
       // New key on each replay (and on first mount) so the package
-      // re-rolls even though [text] is unchanged.
+      // re-rolls even though [text] is unchanged. `spacing` keeps glyphs
+      // from touching/clipping at the slot edge, and the spring config
+      // matches the reference showcase (up, 40ms stagger, 0.8 bounce).
       key: ValueKey('${widget.route ?? 'mount'}:$_generation'),
       text: widget.text,
+      spacing: 2.0,
       style: widget.style ?? Theme.of(context).textTheme.headlineSmall!,
       options: const RollingTextOptions(
         direction: RollingDirection.up,
