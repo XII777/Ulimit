@@ -25,6 +25,14 @@ object UlimitChannels {
                         @Suppress("UNCHECKED_CAST")
                         (call.arguments as? Map<String, Any?>)?.forEach { (k, v) -> obj.put(k, v) }
                         PolicySnapshot.write(context, obj.toString())
+                        // Keep the standalone enforcement service in step
+                        // with policy: start it as soon as any restriction
+                        // exists, stop it when the user removed them all.
+                        if (PolicySnapshot.hasActivePolicy(context)) {
+                            BlockGuardService.ensureStarted(context)
+                        } else {
+                            BlockGuardService.requestStop(context)
+                        }
                         if (PolicySnapshot.isDebugBuild(context)) {
                             android.util.Log.d("UlimitBlock", "snapshot pushed (${obj} chars)")
                         }

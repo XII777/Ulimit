@@ -40,6 +40,11 @@ class MainActivity : FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // Make sure the standalone blocking service is running — the
+        // snapshot persists from the previous session, so blocking is
+        // live before Dart even finishes booting.
+        BlockGuardService.ensureStarted(applicationContext)
+
         // Cache this engine so the FocusIndicatorService reuses it
         // instead of spawning a headless one while the app is alive.
         FlutterEngineCache.getInstance()
@@ -106,6 +111,21 @@ class MainActivity : FlutterFragmentActivity() {
                             // Some OEMs hide the direct action — Settings hub
                             // still contains it under Personal > Usage access.
                             startActivity(Intent(Settings.ACTION_SETTINGS))
+                        }
+                        result.success(null)
+                    }
+                    "isOverlayGranted" -> result.success(Settings.canDrawOverlays(this))
+                    "openOverlaySettings" -> {
+                        try {
+                            startActivity(
+                                Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    android.net.Uri.parse("package:$packageName")
+                                )
+                            )
+                        } catch (_: Exception) {
+                            // Some OEMs hide the per-app deep link.
+                            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
                         }
                         result.success(null)
                     }

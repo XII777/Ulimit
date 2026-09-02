@@ -7,33 +7,42 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.util.Log
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
 /**
- * Detects which app is in the foreground and fires [onNewAppLaunched].
+ * Detects which app is in the foreground and fires [onNewAppLaunched]
+ * for every foreground change — the OS UsageEvents stream (ACTIVITY_
+ * RESUMED / PAUSED / STOPPED) polled every [TIMER_RATE_MILLIS] on a
+ * dedicated executor, hosted by [BlockGuardService].
  *
- * Faithful port of Mindful's `LaunchTrackingManager`:
- *  - polls the OS UsageEvents stream every [TIMER_RATE_MILLIS] on a
- *    dedicated executor, maintaining the `activeApps` set from
- *    ACTIVITY_RESUMED (add) / ACTIVITY_PAUSED / ACTIVITY_STOPPED (remove);
- *    its first element is the current foreground app,
- *  - fires at most once per app change (deduped via [lastLaunchedApp]),
- *  - pauses the poll while the screen is off/locked, resumes on unlock,
- *  - receives fast-path launches from the accessibility service via
- *    [invokeNewAppLaunched] — the same role Mindful's accessibility-
- *    service broadcast plays, but as a direct callback (the broadcast
- *    adds a failure point without adding logic).
+ * This is the detector that keeps blocking alive WITHOUT the
+ * accessibility service: the accessibility fast path is instant but
+ * can be disabled/reset by the user or an OEM; this poll only needs
+ * Usage Access and the guard service being alive.
+ *
+ * Foreground model: `activeApps` holds every package that resumed and
+ * hasn't paused/stopped. On RESUMED the package moves to the END of
+ * the list, so the LAST element is the most recently resumed (i.e.
+ * the focused) app — the old implementation took `firstOrNull()`,
+ * which returned the OLDEST resumed app and mis-attributed the
+ * foreground while PAUSED events were still in flight.
+ *
+ * Dedupe policy: consecutive identical foregrounds are collapsed here,
+ * but a RE-entry (resume → pause → resume of the same app) always
+ * re-fires. The old `handleAccessibilityLaunch` dedupe that silently
+ * swallowed a re-launched blocked app is gone — accessibility events
+ * bypass this class entirely and go straight to [BlockEngine], which
+ * owns enforcement-side dedupe.
  */
 class LaunchTrackingManager(
     private val context: Context,
     private val onNewAppLaunched: (String) -> Unit,
+    private val onScreenStateChanged: (screenOn: Boolean) -> Unit = {},
 ) {
     companion object {
-        private const val TAG = "Ulimit.LaunchTracking"
         private const val TIMER_RATE_MILLIS = 750L
     }
 
@@ -44,13 +53,24 @@ class LaunchTrackingManager(
 
     private var lastUsageQueryTimestamp = System.currentTimeMillis()
     private var lastLaunchedApp = ""
+
+    /** Most-recently-resumed first... no: last element = foreground. */
     private val activeApps = mutableListOf<String>()
 
     private val lockReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, intent: Intent?) {
             when (intent?.action) {
-                Intent.ACTION_SCREEN_OFF -> pause()
-                Intent.ACTION_USER_PRESENT -> resume()
+                Intent.ACTION_SCREEN_OFF -> {
+                    onScreenStateChanged(false)
+                    pause()
+                }
+                Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
+                    onScreenStateChanged(true)
+                    resume()
+                    // Re-sync immediately instead of waiting a tick: the
+                    // foreground at unlock may already be a blocked app.
+                    executorService.submit { findLaunchedApp() }
+                }
             }
         }
     }
@@ -60,6 +80,7 @@ class LaunchTrackingManager(
         try {
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_USER_PRESENT)
             }
             context.registerReceiver(lockReceiver, filter)
@@ -94,28 +115,12 @@ class LaunchTrackingManager(
         )
     }
 
-    /** Best-effort current foreground (the first still-active app, or the
-     *  last launch we saw). Mirrors Mindful's activeApps.firstOrNull(). */
+    /** Best-effort current foreground: the most recently resumed app
+     *  that hasn't paused, or the last launch we saw. */
     val currentForeground: String?
         get() = synchronized(activeApps) {
-            activeApps.firstOrNull() ?: lastLaunchedApp.takeIf { it.isNotEmpty() }
+            activeApps.lastOrNull() ?: lastLaunchedApp.takeIf { it.isNotEmpty() }
         }
-
-    /** Fast path from accessibility events: whatever real app surfaced. */
-    fun handleAccessibilityLaunch(packageName: String) {
-        if (packageName == lastLaunchedApp || packageName.isEmpty()) return
-        invokeNewAppLaunched(packageName)
-    }
-
-    /** Fast path from the OS usage events (also used by the poll). */
-    fun invokeNewAppLaunched(packageName: String) {
-        lastLaunchedApp = packageName
-        if (packageName.isEmpty()) return
-        // The overlay + performGlobalAction must run on the main thread;
-        // the poll fires from the executor, so always hop (posting from
-        // the main thread just defers one frame, which is harmless).
-        mainHandler.post { onNewAppLaunched.invoke(packageName) }
-    }
 
     private fun findLaunchedApp() {
         try {
@@ -131,26 +136,39 @@ class LaunchTrackingManager(
 
             val events = usm.queryEvents(start, timeNow)
             val event = UsageEvents.Event()
-            while (events.hasNextEvent()) {
-                events.getNextEvent(event)
-                val pkg = event.packageName?.toString() ?: continue
-                when (event.eventType) {
-                    UsageEvents.Event.ACTIVITY_RESUMED ->
-                        synchronized(activeApps) { if (pkg !in activeApps) activeApps.add(pkg) }
+            synchronized(activeApps) {
+                while (events.hasNextEvent()) {
+                    events.getNextEvent(event)
+                    val pkg = event.packageName?.toString() ?: continue
+                    when (event.eventType) {
+                        UsageEvents.Event.ACTIVITY_RESUMED -> {
+                            // Move to the END: most recently resumed = focused.
+                            activeApps.remove(pkg)
+                            activeApps.add(pkg)
+                        }
 
-                    UsageEvents.Event.ACTIVITY_PAUSED,
-                    UsageEvents.Event.ACTIVITY_STOPPED ->
-                        synchronized(activeApps) { activeApps.remove(pkg) }
+                        UsageEvents.Event.ACTIVITY_PAUSED,
+                        UsageEvents.Event.ACTIVITY_STOPPED,
+                        -> activeApps.remove(pkg)
+                    }
                 }
             }
 
-            val front = synchronized(activeApps) { activeApps.firstOrNull() }
+            val front = synchronized(activeApps) { activeApps.lastOrNull() }
             front?.let {
                 if (lastLaunchedApp != it) invokeNewAppLaunched(it)
             }
         } catch (_: Exception) {
             // (SecurityException without usage access, transient errors) —
-            // the accessibility fast path keeps detection alive regardless.
+            // nothing to do; the accessibility fast path is independent.
         }
+    }
+
+    private fun invokeNewAppLaunched(packageName: String) {
+        lastLaunchedApp = packageName
+        if (packageName.isEmpty()) return
+        // The engine hops to the main thread itself; post from the
+        // executor to keep ordering predictable.
+        mainHandler.post { onNewAppLaunched.invoke(packageName) }
     }
 }

@@ -83,6 +83,21 @@ object PolicySnapshot {
         }
     }
 
+    /** True when ANY restriction is configured (manual blocks, limits,
+     *  groups, an active focus session, or a bedtime schedule) — the
+     *  signal for whether the standalone enforcement service is worth
+     *  running. Internet blocks are excluded: that's the VPN layer's
+     *  job, and blocking must not depend on it. */
+    fun hasActivePolicy(context: Context): Boolean {
+        val s = read(context) ?: return false
+        if (s.blockedNow.isNotEmpty()) return true
+        if (s.manual.isNotEmpty()) return true
+        if (s.limits.isNotEmpty()) return true
+        if (s.groups.isNotEmpty()) return true
+        if ((s.focus?.untilMillis ?: 0L) > System.currentTimeMillis()) return true
+        return s.bedtime != null
+    }
+
     fun parse(raw: String): Snapshot {
         val root = JSONObject(raw)
 

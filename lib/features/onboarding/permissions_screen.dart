@@ -190,6 +190,13 @@ const _meta = {
     AppIconName.chart,
     true,
   ),
+  PermissionKind.overlayPermission: _PermissionMeta(
+    'Display Over Apps',
+    'Optional hardening — lets the standalone blocking service show the '
+    'block screen itself when accessibility is off.',
+    AppIconName.block,
+    true,
+  ),
 };
 
 class _PermissionCard extends ConsumerWidget {
@@ -298,6 +305,11 @@ class _ActionButton extends ConsumerWidget {
         return;
       case PermissionKind.usageAccess:
         await NativePermissions.openUsageAccessSettings();
+        // Optional card — opening Settings is enough; the tick picks it
+        // up on return (see permissionsRefreshTickProvider).
+        return;
+      case PermissionKind.overlayPermission:
+        await NativePermissions.openOverlaySettings();
         // Optional card — opening Settings is enough; the tick picks it
         // up on return (see permissionsRefreshTickProvider).
         return;

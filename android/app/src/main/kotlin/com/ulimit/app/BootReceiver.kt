@@ -7,6 +7,9 @@ import android.os.Build
 
 /**
  * Restores scheduled work after a reboot:
+ *  - restarts the standalone blocking enforcement service when any
+ *    restriction is configured (app blocking works immediately after
+ *    boot, without opening Ulimit);
  *  - restarts the local VPN when it was active before the shutdown
  *    (firewall/filter state is re-derived from the persisted snapshot);
  *  - re-arms the bedtime alarms from the persisted schedule.
@@ -19,6 +22,9 @@ class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+
+        // App blocking first — it must not depend on anything else.
+        BlockGuardService.ensureStarted(context)
 
         val prefs = PolicySnapshot.prefs(context)
 

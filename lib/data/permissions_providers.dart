@@ -54,6 +54,11 @@ final usageAccessGrantedProvider = FutureProvider<bool>((ref) {
   return NativePermissions.isUsageAccessGranted();
 });
 
+final overlayGrantedProvider = FutureProvider<bool>((ref) {
+  ref.watch(permissionsRefreshTickProvider);
+  return NativePermissions.isOverlayGranted();
+});
+
 /// Device Admin is requested during onboarding but never *required* —
 /// tapping "Allow" opens the system dialog once; whatever the user
 /// decides there, onboarding treats the card as handled so it never
@@ -66,7 +71,15 @@ final deviceAdminAcknowledgedProvider = StateProvider<bool>((ref) => false);
 /// One combined item type the onboarding screen renders from — keeps
 /// the widget dumb (map over a list) instead of five near-identical
 /// card widgets hand-wired to five different providers.
-enum PermissionKind { accessibility, vpn, deviceAdmin, notificationListener, biometric, usageAccess }
+enum PermissionKind {
+  accessibility,
+  vpn,
+  deviceAdmin,
+  notificationListener,
+  biometric,
+  usageAccess,
+  overlayPermission,
+}
 
 class PermissionStatus {
   const PermissionStatus({required this.kind, required this.granted, required this.loading});
@@ -82,6 +95,7 @@ final allPermissionsProvider = Provider<List<PermissionStatus>>((ref) {
   final notifications = ref.watch(notificationListenerEnabledProvider);
   final biometric = ref.watch(biometricAvailableProvider);
   final usageAccess = ref.watch(usageAccessGrantedProvider);
+  final overlay = ref.watch(overlayGrantedProvider);
 
   final deviceAdminAcknowledged = ref.watch(deviceAdminAcknowledgedProvider);
 
@@ -108,6 +122,9 @@ final allPermissionsProvider = Provider<List<PermissionStatus>>((ref) {
     // from UsageStatsManager (Digital Wellbeing's source) for the
     // dashboard charts. Never blocks app access.
     build(PermissionKind.usageAccess, usageAccess),
+    // Optional hardening, not required: lets the standalone blocking
+    // service draw the block screen itself when accessibility is off.
+    build(PermissionKind.overlayPermission, overlay),
   ];
 });
 
@@ -129,6 +146,7 @@ final requiredPermissionsGrantedProvider = Provider<bool>((ref) {
     PermissionKind.biometric,
     PermissionKind.deviceAdmin,
     PermissionKind.vpn,
+    PermissionKind.overlayPermission,
   };
   return all.where((p) => !notRequired.contains(p.kind)).every((p) => p.granted);
 });

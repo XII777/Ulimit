@@ -274,5 +274,10 @@ _RecoveryLabel _label(PermissionKind kind) {
         'Usage Access',
         'Exact per-app screen time from the system for the dashboard charts.',
       );
+    case PermissionKind.overlayPermission:
+      return const _RecoveryLabel(
+        'Display Over Apps',
+        'Optional hardening — block screen even when accessibility is off.',
+      );
   }
 }

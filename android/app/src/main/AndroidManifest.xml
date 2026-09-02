@@ -39,6 +39,13 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
+    <!-- Fallback blocking overlay ("Display over other apps", user
+         granted in system Settings): when the accessibility service is
+         disabled, BlockGuardService draws the block pop-layer itself
+         with TYPE_APPLICATION_OVERLAY. Optional enhancement — the
+         accessibility overlay works without it. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <application
         android:label="Ulimit"
         android:name=".UlimitApplication"
@@ -66,9 +73,10 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
-        <!-- Accessibility Service — the core enforcement engine. Detects
-             foreground app changes (usage tracking, limit enforcement)
-             and draws the blocking overlay directly. -->
+        <!-- Accessibility Service — the fast-path detector (instant
+             foreground changes) and the only component that can press
+             BACK/HOME to eject a blocked app. Detection keeps working
+             through BlockGuardService even when this is off. -->
         <service
             android:name=".UlimitAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
@@ -79,6 +87,18 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- Standalone blocking enforcement: persistent foreground
+             service hosting the UsageStats launch poll, independent of
+             the accessibility service, the VPN, and the app UI. -->
+        <service
+            android:name=".BlockGuardService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="App blocking enforcement watchdog" />
         </service>
 
         <!-- Device Admin — blocks uninstall/force-stop as a bypass route. -->

@@ -63,6 +63,16 @@ class NativePermissions {
   static Future<void> openUsageAccessSettings() =>
       _channel.invokeMethod('openUsageAccessSettings');
 
+  /// "Display over other apps" (SYSTEM_ALERT_WINDOW): lets the
+  /// standalone blocking service draw the block pop-layer itself when
+  /// the accessibility service is disabled. Optional enhancement.
+  static Future<bool> isOverlayGranted() async {
+    return await _channel.invokeMethod<bool>('isOverlayGranted') ?? false;
+  }
+
+  static Future<void> openOverlaySettings() =>
+      _channel.invokeMethod('openOverlaySettings');
+
   /// Per-package daily foreground seconds for the last [days] days from
   /// UsageStatsManager; decoded as [{packageName, day, screenTime}].
   static Future<List<Map<String, dynamic>>> fetchDeviceUsageForDays(int days) async {

@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -11,16 +12,28 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * Shows and dismisses the full-screen "blocked" alert overlay — Mindful's
- * `OverlayManager` role. It only owns the overlay window: deciding whether
- * an app is restricted and ejecting it (BACK/HOME) is the caller's job.
+ * Shows and dismisses the full-screen "blocked" alert pop-layer — the
+ * same visual the app has always shown (app icon, name, restriction
+ * reason, remaining time). It only owns the overlay window: deciding
+ * whether an app is restricted and ejecting it is [BlockEngine]'s job,
+ * and the overlay's LIFETIME is engine-owned too — it stays up exactly
+ * as long as the blocked app is foreground (the old fixed 1400ms
+ * self-dismiss let a failed eject expose a usable blocked app).
  *
- * The window is TYPE_ACCESSIBILITY_OVERLAY (so no "display over other
- * apps" permission — this app adds it from its accessibility service) and
- * touch-blocking; it shows the app icon, app name, restriction reason and
- * the remaining time, and disappears when [dismissOverlay] is called.
+ * Two window types, one host per enforcement layer:
+ *  - TYPE_ACCESSIBILITY_OVERLAY — added by the accessibility service,
+ *    needs no extra permission; the primary host.
+ *  - TYPE_APPLICATION_OVERLAY — added by [BlockGuardService] when
+ *    accessibility is unavailable; needs "Display over other apps".
+ *
+ * Either way the window is touch-absorbing (no FLAG_NOT_TOUCHABLE, no
+ * FLAG_NOT_TOUCH_MODAL on a MATCH_PARENT window), so the blocked app
+ * underneath cannot be interacted with.
  */
-class BlockOverlayManager(private val context: Context) {
+class BlockOverlayManager(
+    private val context: Context,
+    private val windowType: Int,
+) {
 
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private val windowManager: WindowManager
@@ -32,11 +45,18 @@ class BlockOverlayManager(private val context: Context) {
     val currentPackageName: String?
         get() = overlayPackageName
 
+    /** Whether addView can succeed right now: the application-overlay
+     *  host needs "Display over other apps"; the accessibility host
+     *  always can (while its service lives). */
+    val canShow: Boolean
+        get() = windowType != WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY ||
+            Settings.canDrawOverlays(context)
+
     val isShowing: Boolean
         get() = overlayView != null
 
     /** @return `true` if the overlay is now displayed for [packageName]. */
-    fun showOverlay(packageName: String, state: BlockState): Boolean {
+    fun showOverlay(packageName: String, verdict: PolicySnapshot.BlockVerdict): Boolean {
         if (overlayView != null && overlayPackageName == packageName) return true
         dismissOverlay()
 
@@ -96,7 +116,7 @@ class BlockOverlayManager(private val context: Context) {
         }
 
         val reasonView = TextView(context).apply {
-            text = state.reason
+            text = verdict.reason
             setTextColor(Color.parseColor("#A3A3A6"))
             textSize = 14f
             gravity = Gravity.CENTER
@@ -140,7 +160,7 @@ class BlockOverlayManager(private val context: Context) {
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            windowType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
@@ -158,9 +178,15 @@ class BlockOverlayManager(private val context: Context) {
         }
 
         // Remaining-time display drives the bar (0/MAX → manual release).
+        // The countdown only updates text — it NEVER dismisses the
+        // overlay; expiry settles through BlockEngine's recheck loop.
         val now = System.currentTimeMillis()
-        val indefinite = state.timeLeftMillis == Long.MAX_VALUE
-        val totalAtShow = if (indefinite) 0L else state.timeLeftMillis.coerceAtLeast(0L)
+        val indefinite = verdict.untilMillis <= 0L
+        val totalAtShow = if (indefinite) {
+            0L
+        } else {
+            (verdict.untilMillis - now).coerceAtLeast(1L)
+        }
 
         val countdown = object : Runnable {
             override fun run() {
@@ -172,9 +198,9 @@ class BlockOverlayManager(private val context: Context) {
                 }
                 val remaining = totalAtShow - (System.currentTimeMillis() - now)
                 if (remaining <= 0) {
-                    // Time is up — the caller's state refresh handles the
-                    // unblock; just drop the alert.
-                    dismissOverlay()
+                    // Expired — the engine settles; freeze the display.
+                    remainingView.text = "0s"
+                    progressBar.progress = 0
                     return
                 }
                 remainingView.text = formatRemainingTime(remaining)
@@ -219,7 +245,7 @@ class BlockOverlayManager(private val context: Context) {
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 dp(34),
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                windowType,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT

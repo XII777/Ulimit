@@ -243,6 +243,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         PermissionKind.notificationListener => 'Notification access',
         PermissionKind.biometric => 'Biometrics',
         PermissionKind.usageAccess => 'Usage access',
+        PermissionKind.overlayPermission => 'Display over apps',
       };
 
   String _appearanceLabel(String mode) => switch (mode) {
@@ -253,28 +254,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _pickAppearance(BuildContext context, WidgetRef ref) async {
     final themeMode = ref.read(themeModeProvider).valueOrNull ?? 'system';
-    final selected = await showDialog<String>(
+    final selected = await showAppSheet<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-        title: Text('Tile Appearance', style: TextStyle(fontSize: 15.5, color: AppColors.ink)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final (mode, label, sub) in [
-              ('system', 'System', 'Follow the Android appearance'),
-              ('dark', 'Dark', 'AMOLED pure-black theme'),
-              ('white', 'White', 'Monochrome white theme'),
-            ])
-              ListTile(
-                title: Text(label, style: TextStyle(color: AppColors.ink, fontSize: 14)),
-                subtitle: Text(sub, style: TextStyle(fontSize: 11, color: AppColors.inkFaint)),
-                trailing: mode == themeMode ? AppIcon(AppIconName.check, size: 15) : null,
-                onTap: () => Navigator.of(dialogContext).pop(mode),
-              ),
-          ],
-        ),
+      title: 'Tile Appearance',
+      builder: (sheetContext, scrollController) => ListView(
+        controller: scrollController,
+        physics: springScrollPhysics,
+        shrinkWrap: true,
+        padding: const EdgeInsets.only(bottom: 8),
+        children: [
+          for (final (mode, label, sub) in [
+            ('system', 'System', 'Follow the Android appearance'),
+            ('dark', 'Dark', 'AMOLED pure-black theme'),
+            ('white', 'White', 'Monochrome white theme'),
+          ])
+            ListTile(
+              title: Text(label, style: TextStyle(color: AppColors.ink, fontSize: 14)),
+              subtitle: Text(sub, style: TextStyle(fontSize: 11, color: AppColors.inkFaint)),
+              trailing: mode == themeMode ? AppIcon(AppIconName.check, size: 15) : null,
+              onTap: () => Navigator.of(sheetContext).pop(mode),
+            ),
+        ],
       ),
     );
     if (selected != null && selected != themeMode) {
@@ -330,28 +330,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _deleteAllData(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-        title: Text('Delete all data?', style: TextStyle(fontSize: 15.5, color: AppColors.ink)),
-        content: Text(
-          'Usage history, focus sessions, limits, restrictions, groups, '
+    final confirmed = await showAppConfirmSheet(
+      context,
+      title: 'Delete all data?',
+      message: 'Usage history, focus sessions, limits, restrictions, groups, '
           'bedtime settings, websites and downloaded lists will be '
           'permanently removed from this device.',
-          style: TextStyle(fontSize: 12.5, color: AppColors.inkDim, height: 1.5),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text('Cancel', style: TextStyle(color: AppColors.inkDim))),
-          TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: Text('Delete everything',
-                  style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600))),
-        ],
-      ),
+      confirmLabel: 'Delete everything',
     );
     if (confirmed == true) {
       await ref.read(databaseProvider).wipeAllData();
@@ -645,39 +630,62 @@ class _CrashLogsContentState extends State<_CrashLogsContent> {
   Future<void> _viewLog(BuildContext context, File file) async {
     final content = await file.readAsString();
     if (!context.mounted) return;
-    await showDialog<void>(
+    await showAppSheet<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
-        title: Text(_prettyName(file.uri.pathSegments.last),
-            style: TextStyle(fontSize: 14, color: AppColors.ink)),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: 320,
-          child: SingleChildScrollView(
-            physics: springScrollPhysics,
-            child: SelectableText(
-              content,
-              style: TextStyle(fontSize: 10.5, color: AppColors.inkDim, height: 1.45),
+      title: _prettyName(file.uri.pathSegments.last),
+      initialSize: 0.85,
+      minSize: 0.4,
+      builder: (sheetContext, scrollController) => Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              controller: scrollController,
+              physics: springScrollPhysics,
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+              child: SelectableText(
+                content,
+                style: TextStyle(fontSize: 10.5, color: AppColors.inkDim, height: 1.45),
+              ),
             ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: content));
-              showAppSnack(dialogContext, 'Copied to clipboard');
-            },
-            child: Text('Copy', style: TextStyle(color: AppColors.ink)),
-          ),
-          TextButton(
-            onPressed: () async {
-              await NativePermissions.exportFile(content);
-              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
-            },
-            child: Text('Save to Downloads',
-                style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: content));
+                      showAppSnack(sheetContext, 'Copied to clipboard');
+                    },
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.all(14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.md)),
+                    ),
+                    child: Text('Copy', style: TextStyle(color: AppColors.ink)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextButton(
+                    onPressed: () async {
+                      await NativePermissions.exportFile(content);
+                      if (sheetContext.mounted) Navigator.of(sheetContext).pop();
+                    },
+                    style: TextButton.styleFrom(
+                      backgroundColor: AppColors.ink,
+                      foregroundColor: AppColors.bg,
+                      padding: const EdgeInsets.all(14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.md)),
+                    ),
+                    child: Text('Save to Downloads',
+                        style: TextStyle(color: AppColors.bg, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
