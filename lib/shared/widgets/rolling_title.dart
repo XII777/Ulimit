@@ -10,6 +10,24 @@ import '../../core/router/app_router.dart';
 /// switch, so a plain `initState` animation would only ever play once.
 final currentRouteProvider = StateProvider<String>((ref) => Routes.home);
 
+/// The shared rolling animation config across the app.
+///
+/// Tuned for butter-smooth, non-clipping rolls:
+///  - `bounce: 0.2` — a gentle spring: no overshoot, so a per-second live
+///    counter glides instead of vibrating (the default 0.6/0.8 looks
+///    jittery on timers and overshoots the cell, clipping the glyph).
+///  - `fadeEdges: 0.15` — fades the top/bottom of each character cell so
+///    the roll reads as a smooth odometer instead of a hard clip.
+///  - `stagger: 30ms` + `duration: 260ms` — the ripple settles well
+///    inside a 1-second tick, so consecutive updates never interrupt.
+const RollingTextOptions kRollingTextOptions = RollingTextOptions(
+  direction: RollingDirection.up,
+  stagger: Duration(milliseconds: 30),
+  duration: Duration(milliseconds: 260),
+  bounce: 0.2,
+  fadeEdges: 0.15,
+);
+
 /// A staggered, direction-aware rolling heading (the `rolling_text`
 /// package) used for screen titles. It rolls in when mounted and replays
 /// every time [route] becomes the active route — the "change screen, the
@@ -54,11 +72,7 @@ class _RollingTitleState extends ConsumerState<RollingTitle> {
       text: widget.text,
       spacing: 2.0,
       style: widget.style ?? Theme.of(context).textTheme.headlineSmall!,
-      options: const RollingTextOptions(
-        direction: RollingDirection.up,
-        stagger: Duration(milliseconds: 40),
-        bounce: 0.8,
-      ),
+      options: kRollingTextOptions,
     );
   }
 }

@@ -10,6 +10,7 @@ import '../../core/theme/tokens.dart';
 import '../../data/apps_repository.dart';
 import '../../data/providers.dart';
 import '../../shared/widgets/hourly_bar_chart.dart';
+import '../../shared/widgets/rolling_title.dart' show kRollingTextOptions;
 import '../../shared/widgets/spring_scroll.dart';
 
 /// Screen Time detail page. A horizontal DATE STRIP (today →
@@ -98,11 +99,7 @@ class _ScreenTimeScreenState extends ConsumerState<ScreenTimeScreen> {
                       ? formatDurationHMS(Duration(seconds: dayTotalSeconds))
                       : 'No data',
                   spacing: 2.0,
-                  options: const RollingTextOptions(
-                    direction: RollingDirection.up,
-                    stagger: Duration(milliseconds: 40),
-                    bounce: 0.8,
-                  ),
+                  options: kRollingTextOptions,
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
                 ),
                 const SizedBox(height: 10),
