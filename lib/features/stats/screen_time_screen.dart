@@ -8,7 +8,6 @@ import '../../core/theme/premium_components.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/apps_repository.dart';
 import '../../data/providers.dart';
-import '../../shared/widgets/counter_roll.dart';
 import '../../shared/widgets/hourly_bar_chart.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
@@ -93,8 +92,8 @@ class _ScreenTimeScreenState extends ConsumerState<ScreenTimeScreen> {
                   ],
                 ),
                 const SizedBox(height: 4),
-                RollingCounter(
-                  text: dayTotalSeconds > 0
+                Text(
+                  dayTotalSeconds > 0
                       ? formatDurationHMS(Duration(seconds: dayTotalSeconds))
                       : 'No data',
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),

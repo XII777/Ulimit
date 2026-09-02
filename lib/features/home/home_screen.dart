@@ -14,8 +14,6 @@ import '../../data/permissions_providers.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_selector.dart';
-import '../../shared/widgets/counter_roll.dart'
-    show kCounterRollOptions, kCounterRollSpacing, RollingCounter;
 import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/spring_scroll.dart';
 import '../../shared/widgets/trend_chart.dart';
@@ -167,8 +165,8 @@ class _ScreenTimeCard extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Center(
-            child: RollingCounter(
-              text: formatDurationHMS(Duration(seconds: seconds)),
+            child: Text(
+              formatDurationHMS(Duration(seconds: seconds)),
               style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -228,8 +226,8 @@ class _FocusTimeCard extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
             Center(
-              child: RollingCounter(
-                text: formatDurationHMS(Duration(seconds: seconds)),
+              child: Text(
+                formatDurationHMS(Duration(seconds: seconds)),
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -385,8 +383,8 @@ class _WeeklyTrendCard extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 4),
-          RollingCounter(
-            text: hasData || todaySeconds > 0
+          Text(
+            hasData || todaySeconds > 0
                 ? formatDurationHMS(Duration(seconds: todaySeconds))
                 : 'No data yet',
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
@@ -471,8 +469,8 @@ class _MiniTrendCard extends StatelessWidget {
           const SizedBox(height: 6),
           Sparkline(values: values, color: AppColors.ink),
           const SizedBox(height: 6),
-          RollingCounter(
-            text: valueText,
+          Text(
+            valueText,
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
           ),
           if (delta.hasData) ...[
