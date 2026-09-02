@@ -103,10 +103,13 @@ class UlimitAccessibilityService : AccessibilityService() {
             )
         }
         if (reason != null) {
-            showOverlay(packageName, reason)
-        } else if (overlayPackageName == packageName) {
-            // Only clear our own overlay; another package's event must
-            // not hide an overlay that is still valid for it.
+            showOverlay(packageName, reason.reason, reason.untilMillis, now)
+        } else if (overlayPackageName != null && overlayPackageName != packageName) {
+            // The user navigated to a non-blocked app — dismiss our
+            // overlay. If the overlay is for THIS package the block just
+            // expired here, so we leave it to the overlay's own 5s
+            // closing pill (a stray same-app event must not cut the pill
+            // short and unblock the app before the grace period ends).
             hideOverlay()
         }
 
@@ -151,7 +154,7 @@ class UlimitAccessibilityService : AccessibilityService() {
     // Blocking overlay
     // ------------------------------------------------------------------
 
-    private fun showOverlay(packageName: String, reason: String) {
+    private fun showOverlay(packageName: String, reason: String, untilMillis: Long, nowMillis: Long) {
         if (overlayView != null && overlayPackageName == packageName) return
         hideOverlay()
 
@@ -251,7 +254,7 @@ class UlimitAccessibilityService : AccessibilityService() {
 
         // --- Byline ------------------------------------------------------
         val byline = TextView(this).apply {
-            text = "Blocked by Ulimit · closing in 5s"
+            text = "Blocked by Ulimit"
             setTextColor(Color.parseColor("#6B6B6F"))
             textSize = 12f
             gravity = Gravity.CENTER
@@ -288,33 +291,72 @@ class UlimitAccessibilityService : AccessibilityService() {
             return
         }
 
-        // --- 5s countdown + auto-close ------------------------------------
-        // Remaining time ticks down on the bar; when it hits zero we
-        // back the blocked app out (closing it) and immediately dismiss
-        // the overlay — the user's "5 second close the app and popup".
+        // --- Countdown driven by the REAL restriction time ----------------
+        // The progress bar is the remaining time of the period the user
+        // set (NOT a fixed 5s countdown). The overlay stays up and
+        // touch-blocks the app for the WHOLE restriction: the user cannot
+        // use it until the time is up or the block is lifted. Only when
+        // the restriction time reaches zero do we show a 5s "closing"
+        // pill and then dismiss the overlay, so the app becomes usable
+        // again. A permanent block (untilMillis == 0) never expires, so
+        // the overlay just stays up until the user lifts the restriction.
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-        val startAt = System.currentTimeMillis()
-        val totalMillis = 5000L
+        val indefinite = untilMillis <= 0L
+        val totalAtShow = if (indefinite) 0L else (untilMillis - nowMillis).coerceAtLeast(0L)
+        val closePillMillis = 5000L
+        var closePillAt = -1L
 
         val countdown = object : Runnable {
             override fun run() {
                 if (!isShownFor(packageName)) return
-                val remaining = totalMillis - (System.currentTimeMillis() - startAt)
-                if (remaining <= 0) {
-                    // Time's up: close the blocked app, then the popup.
-                    performGlobalAction(GLOBAL_ACTION_BACK)
-                    performGlobalAction(GLOBAL_ACTION_HOME)
-                    hideOverlay()
+                val now = System.currentTimeMillis()
+
+                if (indefinite) {
+                    // Permanent: full bar, no countdown — stays up until
+                    // the user lifts the restriction.
+                    progressBar.progress = 100
+                    remainingView.text = "Until manually removed"
                     return
                 }
-                val seconds = (remaining + 999) / 1000
-                remainingView.text = "${seconds}s left"
-                progressBar.progress =
-                    (remaining * 100 / totalMillis).toInt().coerceIn(0, 100)
-                mainHandler.postDelayed(this, 100)
+
+                val remaining = untilMillis - now
+                if (remaining > 0) {
+                    closePillAt = -1L
+                    remainingView.text = formatRemainingTime(remaining)
+                    progressBar.progress =
+                        ((remaining * 100) / totalAtShow).toInt().coerceIn(0, 100)
+                    mainHandler.postDelayed(this, 200)
+                } else {
+                    // Restriction time is up → 5s closing pill, then
+                    // dismiss the overlay (the app is no longer blocked).
+                    if (closePillAt < 0) closePillAt = now
+                    val pillRemaining = closePillMillis - (now - closePillAt)
+                    if (pillRemaining <= 0) {
+                        hideOverlay()
+                        return
+                    }
+                    val secs = (pillRemaining + 999) / 1000
+                    byline.text = "Blocked by Ulimit · closing in ${secs}s"
+                    progressBar.progress =
+                        ((pillRemaining * 100) / closePillMillis).toInt().coerceIn(0, 100)
+                    mainHandler.postDelayed(this, 200)
+                }
             }
         }
         mainHandler.postDelayed(countdown, 100)
+    }
+
+    /** "2h 5m" / "34m 12s" / "9s" — the overlay's remaining-time text. */
+    private fun formatRemainingTime(millis: Long): String {
+        val totalSec = (millis / 1000).coerceAtLeast(0L)
+        val h = totalSec / 3600
+        val m = (totalSec % 3600) / 60
+        val s = totalSec % 60
+        return when {
+            h > 0 -> "${h}h ${m}m"
+            m > 0 -> "${m}m ${s}s"
+            else -> "${s}s"
+        }
     }
 
     /** True while [packageName] is still the overlay's target. */

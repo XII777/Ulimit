@@ -231,18 +231,39 @@ object PolicySnapshot {
         return "%04d-%02d-%02d".format(c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1, c.get(java.util.Calendar.DAY_OF_MONTH))
     }
 
+    /** Next local midnight in epoch millis — a daily/group limit lasts
+     *  until the day resets, mirroring the engine's endOfDayFor. */
+    private fun endOfTodayMillis(nowMillis: Long): Long {
+        val cal = java.util.Calendar.getInstance().apply {
+            timeInMillis = nowMillis
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            add(java.util.Calendar.DAY_OF_YEAR, 1)
+        }
+        return cal.timeInMillis
+    }
+
     // ---------------------------------------------------------------------
     // The one decision native makes per foreground app.
     // ---------------------------------------------------------------------
 
-    fun shouldBlock(context: Context, pkg: String, nowMillis: Long): String? {
+    /** Result of a block evaluation: the reason plus WHEN it ends, so
+     *  the overlay can drive its progress bar from the real remaining
+     *  time of the restriction (0 = indefinite/until-unrestricted). */
+    data class BlockVerdict(val reason: String, val untilMillis: Long)
+
+    fun shouldBlock(context: Context, pkg: String, nowMillis: Long): BlockVerdict? {
         val snapshot = read(context) ?: return null
 
         // Fast path: Dart's engine already decided this package is
         // blocked. Re-validate the expiry here so a stale snapshot can
         // never block longer than the engine intended, then enforce.
         snapshot.blockedNow[pkg]?.let { (reason, untilMillis) ->
-            if (untilMillis == 0L || untilMillis > nowMillis) return reason
+            if (untilMillis == 0L || untilMillis > nowMillis) {
+                return BlockVerdict(reason, untilMillis)
+            }
         }
 
         // Structural fallback — covers state that changed while Ulimit
@@ -254,29 +275,36 @@ object PolicySnapshot {
 
         for (rule in snapshot.manual) {
             if (rule.pkg != pkg) continue
-            if (rule.permanent) return "Blocked"
-            if (rule.untilMillis > nowMillis) return "Blocked"
+            if (rule.permanent) return BlockVerdict("Blocked", 0L)
+            if (rule.untilMillis > nowMillis) return BlockVerdict("Blocked", rule.untilMillis)
         }
 
         val usage = usageSeconds(context)
         val limit = snapshot.limits[pkg]
-        if (limit != null && limit > 0 && (usage[pkg] ?: 0) >= limit) return "Daily limit reached"
+        if (limit != null && limit > 0 && (usage[pkg] ?: 0) >= limit) {
+            // Daily limit: block until the end of the day.
+            return BlockVerdict("Daily limit reached", endOfTodayMillis(nowMillis))
+        }
 
         for (group in snapshot.groups) {
             if (pkg !in group.packages) continue
             var used = 0
             for (member in group.packages) used += usage[member] ?: 0
-            if (group.limitSeconds > 0 && used >= group.limitSeconds) return "Group limit reached"
+            if (group.limitSeconds > 0 && used >= group.limitSeconds) {
+                return BlockVerdict("Group limit reached", endOfTodayMillis(nowMillis))
+            }
         }
 
         val focus = snapshot.focus
         if (focus != null && focus.untilMillis > nowMillis && pkg in focus.packages) {
-            return "Focus session"
+            return BlockVerdict("Focus session", focus.untilMillis)
         }
 
         val bedtime = snapshot.bedtime
-        if (bedtime != null && bedtime.pauseApps && pkg in bedtime.packages && inWindow(nowMin, bedtime.startMinutes, bedtime.endMinutes)) {
-            return "Bedtime"
+        if (bedtime != null && bedtime.pauseApps && pkg in bedtime.packages &&
+            inWindow(nowMin, bedtime.startMinutes, bedtime.endMinutes)
+        ) {
+            return BlockVerdict("Bedtime", 0L)
         }
 
         return null
