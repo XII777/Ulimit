@@ -35,6 +35,24 @@ class UlimitAccessibilityService : AccessibilityService() {
     private var overlayView: View? = null
     private var overlayPackageName: String? = null
 
+    // Continuous foreground enforcement. The block decision here is
+    // re-evaluated on a timer, not only on window-state events, so a
+    // block that ENGAGES while the target app is already in the
+    // foreground (a daily/group limit crossed mid-session, a focus or
+    // bedtime window opening, a manual block, or a snapshot that landed
+    // a moment earlier) is applied immediately instead of being silently
+    // skipped until the user switches apps.
+    private val enforceHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val enforceIntervalMs = 1000L
+    private var enforceLoopRunning = false
+    private val enforceForeground = object : Runnable {
+        override fun run() {
+            if (!enforceLoopRunning) return
+            enforceCurrentForeground()
+            enforceHandler.postDelayed(this, enforceIntervalMs)
+        }
+    }
+
     // Adult-content screen scanning state: while the adult filter is
     // enabled we read the visible text of the current browser app and,
     // if it contains a domain from the blocked set, back out
@@ -137,17 +155,60 @@ class UlimitAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {
         // Required override; nothing to clean up — the overlay is torn
         // down in onServiceConnected/onUnbind paths instead.
+        stopEnforcementLoop()
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         lastPackageName = null
         lastEventTimestamp = 0
+        startEnforcementLoop()
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
+        stopEnforcementLoop()
         hideOverlay()
         return super.onUnbind(intent)
+    }
+
+    // ------------------------------------------------------------------
+    // Continuous foreground enforcement
+    // ------------------------------------------------------------------
+
+    private fun startEnforcementLoop() {
+        if (enforceLoopRunning) return
+        enforceLoopRunning = true
+        enforceHandler.removeCallbacks(enforceForeground)
+        enforceHandler.post(enforceForeground)
+    }
+
+    private fun stopEnforcementLoop() {
+        enforceLoopRunning = false
+        enforceHandler.removeCallbacks(enforceForeground)
+    }
+
+    /** Re-evaluates the policy for whatever is genuinely in front right
+     *  now (via [rootInActiveWindow], independent of window-state events)
+     *  and shows/hides the blocking overlay accordingly. */
+    private fun enforceCurrentForeground() {
+        val pkg = rootInActiveWindow?.packageName?.toString() ?: return
+        // Never act on our own window (covers devices that report the
+        // accessibility overlay as the active window) and leave the
+        // Home/recents escape — system UI — reachable.
+        if (pkg == this.packageName) return
+        if (pkg.startsWith("com.android.systemui")) {
+            hideOverlay()
+            return
+        }
+        val now = System.currentTimeMillis()
+        val reason = PolicySnapshot.shouldBlock(this, pkg, now)
+        if (reason != null) {
+            showOverlay(pkg, reason.reason, reason.untilMillis, now)
+        } else if (overlayPackageName != null && overlayPackageName != pkg) {
+            // Foreground is a different, non-blocked app (or the block
+            // lifted) — drop an overlay that no longer applies.
+            hideOverlay()
+        }
     }
 
     // ------------------------------------------------------------------
@@ -287,7 +348,8 @@ class UlimitAccessibilityService : AccessibilityService() {
             overlayView = root
             overlayPackageName = packageName
         } catch (_: Exception) {
-            // Window token problems — retry on the next event.
+            // Window token problems — the continuous enforcement loop
+            // retries on its next tick, so the block is never lost.
             return
         }
 
