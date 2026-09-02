@@ -235,10 +235,11 @@ class UlimitAccessibilityService : AccessibilityService() {
     }
 
     /** Single enforcement decision shared by the event handler and the
-     *  loop. Skips this app and system UI (neither may hide the blocker),
-     *  shows the overlay for a blocked foreground, and only clears it when
-     *  a genuinely different, non-blocked app is in front (the Home /
-     *  another-app escape). */
+     *  loop. Skips this app and system UI, and for a blocked foreground:
+     *  1. shows the full-screen alert overlay over the blocked app,
+     *  2. closes the app — BACK first, HOME if BACK left it on screen,
+     *  3. drops the overlay after ~1.4s so the user is back on Home.
+     *  A genuinely different, non-blocked app clears it instantly. */
     private fun enforceForPackage(pkg: String, now: Long) {
         if (pkg == this.packageName) return
         if (pkg.startsWith("com.android.systemui")) return
@@ -247,12 +248,26 @@ class UlimitAccessibilityService : AccessibilityService() {
             Log.d("UlimitBlock", "foreground=$pkg blocked=${reason != null} reason=$reason")
         }
         if (reason != null) {
-            // Show the touch-blocking overlay. If it can't be displayed,
-            // hard-guarantee the app can't be used by ejecting it instead:
-            // a broken overlay must never leave a blocked app usable.
-            if (!showOverlay(pkg, reason.reason, reason.untilMillis, now)) {
-                performGlobalAction(GLOBAL_ACTION_HOME)
-            }
+            // 1) Alert popup over the blocked app.
+            showOverlay(pkg, reason.reason, reason.untilMillis, now)
+
+            // 2) Close the application and return to the home screen.
+            //    performGlobalAction does not depend on the overlay
+            //    rendering, so the eject is guaranteed even when the
+            //    overlay can't be displayed on a given device.
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            enforceHandler.postDelayed({
+                // If BACK didn't fully leave the app, eject to Home.
+                val current = currentForegroundFromUsageStats()
+                    ?: rootInActiveWindow?.packageName?.toString()
+                if (current == pkg) {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                }
+            }, 250)
+
+            // 3) The alert has been on screen long enough — drop it so
+            //    the home screen is usable again.
+            enforceHandler.postDelayed({ hideOverlay() }, 1400)
         } else if (overlayPackageName != null && overlayPackageName != pkg) {
             hideOverlay()
         }
@@ -263,8 +278,8 @@ class UlimitAccessibilityService : AccessibilityService() {
     // ------------------------------------------------------------------
 
     /** @return `true` if the overlay is now displayed for [packageName],
-     *  `false` if it could not be shown (the caller must then eject the
-     *  app so the block is never a no-op). */
+     *  `false` if it could not be shown (the caller still closes the app
+     *  via GLOBAL_ACTION, so the block is never a no-op). */
     private fun showOverlay(packageName: String, reason: String, untilMillis: Long, nowMillis: Long): Boolean {
         if (overlayView != null && overlayPackageName == packageName) return true
         hideOverlay()
