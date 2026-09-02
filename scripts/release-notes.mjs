@@ -3,8 +3,12 @@
 //
 // Classification: conventional-commit prefixes first (feat/fix/perf/
 // docs/chore/...), keyword fallback for plain messages ("Add ...",
-// "Fix ...", ...). Every entry cites its short SHA, which GitHub
-// renders as a commit link.
+// "Fix ...", ...).
+//
+// Each change is written out in FULL — its subject plus the complete
+// commit body — grouped under a categorical tag header (🚀 Features,
+// 🐛 Bug Fixes, ...). No commit SHAs/links are emitted: the notes are
+// self-contained so the release page reads directly.
 //
 // Env: GITHUB_TOKEN, GITHUB_REPOSITORY ("owner/repo"), GITHUB_SHA.
 // The previous release tag is discovered via the Releases API; if none
@@ -42,10 +46,12 @@ const sections = [
 ];
 
 function classify(message) {
-  const firstLine = message.split('\n', 1)[0].trim();
-  const breakingFooter = /breaking change/i.test(message) || /^BREAKING CHANGE/m.test(message);
+  const normalized = (message ?? '').replace(/\r\n/g, '\n').trim();
+  const lines = normalized.split('\n');
+  const firstLine = lines[0] ?? '';
+  const breakingFooter = /breaking change/i.test(normalized) || /^BREAKING CHANGE/m.test(normalized);
 
-  let subject = firstLine;
+  let subject = firstLine.trim();
   let kind = null;
   const conventional = subject.match(/^(\w+)(\([^)]*\))?(!)?:\s+(.*)$/);
   if (conventional) {
@@ -79,12 +85,29 @@ function classify(message) {
     else kind = 'improvement';
   }
 
-  // User-facing one-liner: strip prefix noise, cap length, tidy ending.
-  let line = subject.replace(/\s+/g, ' ').trim();
-  if (line.length > 120) line = `${line.slice(0, 117)}…`;
-  line = line.replace(/[.]+$/, '');
-  line = line.charAt(0).toUpperCase() + line.slice(1);
-  return { kind: breakingFooter ? 'breaking' : kind, line };
+  // User-facing subject: strip prefix noise, cap length, tidy ending.
+  let title = subject.replace(/\s+/g, ' ').trim();
+  if (title.length > 120) title = `${title.slice(0, 117)}…`;
+  title = title.replace(/[.]+$/, '');
+  title = title.charAt(0).toUpperCase() + title.slice(1);
+
+  // Complete body: everything after the subject line, kept whole.
+  const body = lines.slice(1).join('\n').trim();
+
+  return { kind: breakingFooter ? 'breaking' : kind, title, body };
+}
+
+// A change renders as a bold subject line with its full note indented
+// beneath it, so it stays in the same list item.
+function formatEntry(entry) {
+  let markdown = `- **${entry.title}**`;
+  if (entry.body) {
+    markdown += `\n${entry.body
+      .split('\n')
+      .map((l) => (l.trim() === '' ? '' : '  ' + l))
+      .join('\n')}`;
+  }
+  return markdown;
 }
 
 try {
@@ -111,13 +134,12 @@ try {
 
   for (const c of commits) {
     const message = c.commit?.message ?? '';
-    const { kind, line } = classify(message);
-    const short = String(c.sha).slice(0, 7);
-    const dedupeKey = line.toLowerCase();
+    const { kind, title, body } = classify(message);
+    const dedupeKey = title.toLowerCase();
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
     if (!buckets.has(kind)) buckets.set(kind, []);
-    buckets.get(kind).push(`- ${line} (${short})`);
+    buckets.get(kind).push({ title, body });
   }
 
   const out = [];
@@ -126,7 +148,7 @@ try {
     if (entries.length === 0) continue;
     out.push(`## ${label}`);
     out.push('');
-    out.push(...entries);
+    for (const e of entries) out.push(formatEntry(e));
     out.push('');
   }
 
@@ -135,7 +157,7 @@ try {
   }
 
   if (prevTag) {
-    out.push(`---`, '', `**Full changelog:** https://github.com/${owner}/${repo}/compare/${prevTag}...${sha}`, '');
+    out.push(`---`, '', `**Commits:** https://github.com/${owner}/${repo}/compare/${prevTag}...${sha}`, '');
   }
 
   process.stdout.write(out.join('\n'));
