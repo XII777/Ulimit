@@ -9,7 +9,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/crash/crash_collector.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/native/permissions_channel.dart';
-import '../../core/router/app_router.dart';
 import '../../core/theme/premium_components.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/db/app_database.dart';
@@ -20,7 +19,6 @@ import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/pressable_scale.dart';
-import '../../shared/widgets/rolling_title.dart';
 import '../../shared/widgets/spring_scroll.dart';
 import '../../shared/widgets/session_tag_editor.dart';
 
@@ -60,7 +58,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           20, 16, 20,
           ref.watch(hideNavBarProvider).valueOrNull == true ? navBarHiddenInset : navBarPillInset),
       children: [
-          RollingTitle(text: 'Settings', route: Routes.settings),
+          Text('Settings', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 4),
           Text('Local profile · not synced',
               style: TextStyle(fontSize: AppText.body, color: AppColors.inkDim)),

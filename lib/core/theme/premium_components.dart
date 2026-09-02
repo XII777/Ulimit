@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:rolling_text/rolling_text.dart';
 import '../../shared/widgets/pressable_scale.dart';
-import '../../shared/widgets/rolling_title.dart' show kRollingTextOptions;
 import '../icons/app_icons.dart';
 import 'tokens.dart';
 
@@ -209,13 +207,9 @@ class PremiumHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              RollingText(
-                text: title,
-                spacing: 2.0,
-                style: TextStyle(
-                    fontSize: AppText.headline, fontWeight: FontWeight.w600, color: AppColors.ink),
-                options: kRollingTextOptions,
-              ),
+              Text(title,
+                  style: TextStyle(
+                      fontSize: AppText.headline, fontWeight: FontWeight.w600, color: AppColors.ink)),
               if (subtitle != null) ...[
                 const SizedBox(height: 2),
                 Text(subtitle!, style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),

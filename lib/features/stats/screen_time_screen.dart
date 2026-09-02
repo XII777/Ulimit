@@ -9,8 +9,8 @@ import '../../core/theme/premium_components.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/apps_repository.dart';
 import '../../data/providers.dart';
+import '../../shared/widgets/counter_roll.dart' show kCounterRollOptions, kCounterRollSpacing;
 import '../../shared/widgets/hourly_bar_chart.dart';
-import '../../shared/widgets/rolling_title.dart' show kRollingTextOptions;
 import '../../shared/widgets/spring_scroll.dart';
 
 /// Screen Time detail page. A horizontal DATE STRIP (today →
@@ -98,8 +98,8 @@ class _ScreenTimeScreenState extends ConsumerState<ScreenTimeScreen> {
                   text: dayTotalSeconds > 0
                       ? formatDurationHMS(Duration(seconds: dayTotalSeconds))
                       : 'No data',
-                  spacing: 2.0,
-                  options: kRollingTextOptions,
+                  spacing: kCounterRollSpacing,
+                  options: kCounterRollOptions,
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
                 ),
                 const SizedBox(height: 10),

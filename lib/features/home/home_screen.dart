@@ -15,8 +15,8 @@ import '../../data/permissions_providers.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_selector.dart';
+import '../../shared/widgets/counter_roll.dart' show kCounterRollOptions, kCounterRollSpacing;
 import '../../shared/widgets/pressable_scale.dart';
-import '../../shared/widgets/rolling_title.dart';
 import '../../shared/widgets/spring_scroll.dart';
 import '../../shared/widgets/trend_chart.dart';
 
@@ -120,12 +120,9 @@ class _Header extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        RollingTitle(
-          text: greeting,
-          route: Routes.home,
-          style: TextStyle(
-              fontSize: 26, fontWeight: FontWeight.w600, color: AppColors.ink, letterSpacing: -0.3),
-        ),
+        Text(greeting,
+            style: TextStyle(
+                fontSize: 26, fontWeight: FontWeight.w600, color: AppColors.ink, letterSpacing: -0.3)),
         const SizedBox(height: 2),
         Text(_formattedDate(), style: TextStyle(fontSize: AppText.body, color: AppColors.inkDim)),
       ],
@@ -172,8 +169,8 @@ class _ScreenTimeCard extends ConsumerWidget {
           Center(
             child: RollingText(
               text: formatDurationHMS(Duration(seconds: seconds)),
-              spacing: 2.0,
-              options: kRollingTextOptions,
+                spacing: kCounterRollSpacing,
+              options: kCounterRollOptions,
               style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -235,8 +232,8 @@ class _FocusTimeCard extends ConsumerWidget {
             Center(
               child: RollingText(
                 text: formatDurationHMS(Duration(seconds: seconds)),
-                spacing: 2.0,
-                options: kRollingTextOptions,
+              spacing: kCounterRollSpacing,
+                options: kCounterRollOptions,
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -396,8 +393,8 @@ class _WeeklyTrendCard extends ConsumerWidget {
             text: hasData || todaySeconds > 0
                 ? formatDurationHMS(Duration(seconds: todaySeconds))
                 : 'No data yet',
-            spacing: 2.0,
-            options: kRollingTextOptions,
+            spacing: kCounterRollSpacing,
+            options: kCounterRollOptions,
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
           ),
           const SizedBox(height: 8),
@@ -482,8 +479,8 @@ class _MiniTrendCard extends StatelessWidget {
           const SizedBox(height: 6),
           RollingText(
             text: valueText,
-            spacing: 2.0,
-            options: kRollingTextOptions,
+            spacing: kCounterRollSpacing,
+            options: kCounterRollOptions,
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
           ),
           if (delta.hasData) ...[
