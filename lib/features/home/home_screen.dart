@@ -14,7 +14,8 @@ import '../../data/permissions_providers.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_selector.dart';
-import '../../shared/widgets/counter_roll.dart';
+import '../../shared/widgets/counter_roll.dart'
+    show kCounterRollOptions, kCounterRollSpacing, RollingCounter;
 import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/spring_scroll.dart';
 import '../../shared/widgets/trend_chart.dart';

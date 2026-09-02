@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:rolling_text/rolling_text.dart';
 
 /// Shared config for the rolling duration numbers.
@@ -19,20 +19,45 @@ const RollingTextOptions kCounterRollOptions = RollingTextOptions(
 /// Kept wide so digits/letters never touch or clip at the slot edge.
 const double kCounterRollSpacing = 4.0;
 
-/// A rolling duration number with the app's counter config.
+/// A [RollingText] duration counter that auto-shrinks to fit whatever
+/// width its container gives it — and only ever shrinks, never grows.
 ///
-/// Pins [TextScaler] to noScaling: the package measures each character
-/// cell from the RAW font metrics (height: 1.0, unscaled) but renders the
-/// glyphs with the ambient MediaQuery text scaler — so on a device with an
-/// enlarged system font-scale the glyphs are drawn taller than the cell
-/// and get clipped top/bottom (the "rounded/cut" look). Forcing the same
-/// (unscaled) scale at render time makes the measured cell and the drawn
-/// glyph agree, removing the clip.
+/// The counters on Home sit in half-width `PremiumCard`s sized for a
+/// typical value. A long one ("8h 10m 0s") is wider than what the card
+/// reserves and would overflow the card's right edge; a short one
+/// ("0s") must NOT be blown up to fill the space, since that reads as
+/// broken/jumpy against its neighboring card as the value changes
+/// length tick to tick. `BoxFit.scaleDown` gives exactly that: it
+/// scales the rolling text down when it doesn't fit, and leaves it at
+/// its natural size otherwise — it never scales past 1.0.
+///
+/// It also pins [TextScaler] to noScaling: the package measures each
+/// character cell from the RAW font metrics (unscaled) but renders the
+/// glyphs with the ambient MediaQuery text scaler, so on a device with an
+/// enlarged system font-scale every glyph is drawn wider AND taller than
+/// its cell — the next character covers its right side and the cell clip
+/// cuts the top/bottom. Forcing the same (unscaled) scale at render time
+/// makes the measured cell and the drawn glyph agree.
 class RollingCounter extends StatelessWidget {
-  const RollingCounter({super.key, required this.text, required this.style});
+  const RollingCounter({
+    super.key,
+    required this.text,
+    required this.style,
+    this.spacing = kCounterRollSpacing,
+    this.options = kCounterRollOptions,
+    this.alignment = Alignment.centerLeft,
+  });
 
+  /// The formatted duration text, e.g. via `formatDurationHMS`.
   final String text;
   final TextStyle style;
+  final double spacing;
+  final RollingTextOptions options;
+
+  /// Where the (possibly shrunk) counter sits within the space it's
+  /// given. Left-aligned by default so a shrinking counter doesn't
+  /// visually drift toward the card's center as it gets shorter.
+  final Alignment alignment;
 
   @override
   Widget build(BuildContext context) {
@@ -40,17 +65,13 @@ class RollingCounter extends StatelessWidget {
     return MediaQuery(
       data: media.copyWith(textScaler: TextScaler.noScaling),
       child: FittedBox(
-        // A wide timestamp ("8h 10m 0s" with the counter spacing) can
-        // be wider than the half-width cards it lives in (Screen Time /
-        // Focus time on Home, the hourly chart header). scaleDown keeps
-        // the full string INSIDE the container — it only shrinks when it
-        // must, and never grows — so no character is ever cut off.
         fit: BoxFit.scaleDown,
+        alignment: alignment,
         child: RollingText(
           text: text,
-          spacing: kCounterRollSpacing,
+          spacing: spacing,
+          options: options,
           style: style,
-          options: kCounterRollOptions,
         ),
       ),
     );
