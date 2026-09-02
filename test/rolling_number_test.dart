@@ -21,7 +21,6 @@ void main() {
       ),
     );
 
-    final text = tester.widget<Text>(find.byType(Text).first);
     final effective = DefaultTextStyle.of(tester.element(find.byType(RollingNumber)))
         .style
         .merge(style);

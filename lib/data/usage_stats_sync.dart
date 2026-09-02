@@ -87,7 +87,6 @@ class UsageStatsSyncCoordinator {
 
   static final UsageStatsSyncCoordinator instance = UsageStatsSyncCoordinator._();
 
-  Timer? _timer;
   bool _started = false;
 
   void start(WidgetRef ref) {
@@ -97,7 +96,7 @@ class UsageStatsSyncCoordinator {
     WidgetsBinding.instance.addObserver(AppLifecycleObserver((state) {
       if (state == AppLifecycleState.resumed) sync.syncHistory();
     }));
-    _timer = Timer.periodic(const Duration(seconds: 30), (_) => sync.syncHistory());
+    Timer.periodic(const Duration(seconds: 30), (_) => sync.syncHistory());
     // Kick immediately too (first frame after boot).
     sync.syncHistory();
   }

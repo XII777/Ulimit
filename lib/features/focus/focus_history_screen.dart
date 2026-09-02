@@ -3,11 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/engine/restriction_engine.dart';
 import '../../core/icons/app_icons.dart';
-import '../../core/theme/premium_components.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/db/app_database.dart';
 import '../../data/focus_providers.dart';
-import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
 /// Focus Time history: all completed sessions grouped by local calendar

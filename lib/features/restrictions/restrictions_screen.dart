@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/engine/restriction_engine.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/native/permissions_channel.dart';
 import '../../core/theme/premium_components.dart';
@@ -165,7 +164,7 @@ class RestrictionsScreen extends ConsumerWidget {
 
     await ref.read(databaseProvider).blockApp(
           packageName: pkg,
-          duration: permanent ? null : expiresAt?.difference(DateTime.now()),
+          duration: permanent ? null : expiresAt.difference(DateTime.now()),
           permanent: permanent,
           invincible: invincible,
         );

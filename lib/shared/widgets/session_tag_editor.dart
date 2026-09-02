@@ -1,10 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/tokens.dart';
-import '../../data/focus_tags_provider.dart';
 import '../../shared/widgets/app_sheet.dart';
 
 /// The palette shown in the tag color picker — one row per page of the
@@ -301,7 +299,7 @@ class _HoldToEditChipState extends State<HoldToEditChip> {
     // Selected + colored: the tag's own color fills the chip.
     // Selected + monochrome: the usual ink fill.
     final bg = widget.selected
-        ? (colored ? color! : AppColors.ink)
+        ? (colored ? color : AppColors.ink)
         : AppColors.surface;
 
     return GestureDetector(

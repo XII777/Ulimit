@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:drift/drift.dart' hide Column;
-import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,7 +11,6 @@ import '../../data/db/app_database.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../data/website_providers.dart';
-import '../../shared/widgets/app_sheet.dart';
 
 /// Live matches for the Add Website field: as the user types, existing
 /// entries from every category (custom + downloaded lists) are searched
@@ -29,7 +27,6 @@ class _AddSuggestions extends ConsumerStatefulWidget {
 
 class _AddSuggestionsState extends ConsumerState<_AddSuggestions> {
   Timer? _debounce;
-  String? _lastQuery;
   List<WebsiteRule> _matches = const [];
   bool _loaded = false;
   bool _searched = false;
@@ -75,7 +72,6 @@ class _AddSuggestionsState extends ConsumerState<_AddSuggestions> {
       _matches = rows;
       _loaded = true;
       _searched = true;
-      _lastQuery = raw;
     });
   }
 

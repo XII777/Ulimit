@@ -31,7 +31,6 @@ class _RollingNumberState extends State<RollingNumber> {
   // counters. The style (and its merged DefaultTextStyle) only changes
   // on theme/text-scale changes, so measure once and reuse.
   double? _cachedSlotHeight;
-  TextStyle? _measuredStyle;
   TextScaler? _measuredScaler;
 
   @override

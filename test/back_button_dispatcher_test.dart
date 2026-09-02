@@ -76,7 +76,7 @@ void main() {
       routes: [
         ShellRoute(
           builder: (context, state, child) => Scaffold(
-            body: child ?? const SizedBox.shrink(),
+            body: child,
           ),
           routes: [
             GoRoute(

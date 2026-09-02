@@ -13,7 +13,6 @@ import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../data/website_providers.dart';
 import '../../shared/widgets/app_selector.dart';
-import 'add_suggestions.dart';
 import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/spring_scroll.dart';

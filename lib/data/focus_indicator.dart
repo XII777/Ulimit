@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/native/enforcement_channel.dart';
-import 'db/app_database.dart';
 import 'focus_providers.dart';
 import 'providers.dart';
 

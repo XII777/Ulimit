@@ -22,7 +22,7 @@ class TrendAreaChart extends StatelessWidget {
   final Color color;
   final bool showAverageLine;
 
-  Color get effectiveColor => color ?? AppColors.accent;
+  Color get effectiveColor => color;
 
   @override
   Widget build(BuildContext context) {

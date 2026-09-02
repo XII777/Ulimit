@@ -12,9 +12,7 @@ import '../../data/apps_repository.dart';
 import '../../data/db/app_database.dart';
 import '../../data/focus_providers.dart';
 import '../../data/focus_tags_provider.dart';
-import '../../data/permissions_providers.dart';
 import '../../data/providers.dart';
-import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_selector.dart';
 import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/limit_ring.dart';
@@ -311,8 +309,6 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
   // ---------------------------------------------------------------------
   // Custom tags
   // ---------------------------------------------------------------------
-
-  int? get _selectedTagId => _selectedTag?.id;
 
   Future<void> _createTag(BuildContext context) async {
     await showTagEditor(
@@ -687,37 +683,6 @@ class _TodaysSessionsDots extends ConsumerWidget {
           ],
         ),
       ],
-    );
-  }
-}
-
-class _Chip extends StatelessWidget {
-  const _Chip({required this.label, required this.selected, required this.onTap});
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return PressableScale(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.ink : AppColors.surface,
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          border: selected ? null : Border.all(color: AppColors.stroke),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w600,
-            color: selected ? AppColors.bg : AppColors.inkDim,
-          ),
-        ),
-      ),
     );
   }
 }
