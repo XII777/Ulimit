@@ -39,11 +39,19 @@ class RollingCounter extends StatelessWidget {
     final media = MediaQuery.of(context);
     return MediaQuery(
       data: media.copyWith(textScaler: TextScaler.noScaling),
-      child: RollingText(
-        text: text,
-        spacing: kCounterRollSpacing,
-        style: style,
-        options: kCounterRollOptions,
+      child: FittedBox(
+        // A wide timestamp ("8h 10m 0s" with the counter spacing) can
+        // be wider than the half-width cards it lives in (Screen Time /
+        // Focus time on Home, the hourly chart header). scaleDown keeps
+        // the full string INSIDE the container — it only shrinks when it
+        // must, and never grows — so no character is ever cut off.
+        fit: BoxFit.scaleDown,
+        child: RollingText(
+          text: text,
+          spacing: kCounterRollSpacing,
+          style: style,
+          options: kCounterRollOptions,
+        ),
       ),
     );
   }
