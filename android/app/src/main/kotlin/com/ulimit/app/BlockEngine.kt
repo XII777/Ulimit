@@ -113,6 +113,7 @@ object BlockEngine {
         sb.append("snapshot: ${if (snapshot == null) "MISSING" else "pushed ${java.util.Date(snapshot.pushedAtMillis)}"}\n")
         sb.append("policy: ${if (PolicySnapshot.hasActivePolicy(context)) "active" else "none"}\n")
         sb.append("blockedNow: ${snapshot?.blockedNow?.keys?.joinToString() ?: "-"}\n")
+        sb.append("manual: ${snapshot?.manual?.joinToString { it.pkg }?.ifEmpty { "-" } ?: "-"}\n")
         sb.append("a11y actuator: ${if (ejector != null) "yes" else "NO"}\n")
         sb.append("a11y overlay: ${if (a11yOverlay != null) "ready" else "-"}\n")
         sb.append("guard service: ${if (BlockGuardService.isRunning) "running" else "NOT RUNNING"}\n")

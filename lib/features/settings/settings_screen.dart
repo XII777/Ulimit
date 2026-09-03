@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/crash/crash_collector.dart';
+import '../../core/constants/build_info.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/native/enforcement_channel.dart';
 import '../../core/native/permissions_channel.dart';
@@ -375,12 +376,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await showAppSheet<void>(
       context: context,
       title: 'Blocking diagnostics',
-      subtitle: 'Live state of the native enforcement engine. '
-          'Reproduce a block, then check what happened here.',
+      subtitle: 'Live state of the enforcement chain: Dart policy → '
+          'native snapshot → engine. Reproduce a block, then reopen.',
       initialSize: 0.8,
       minSize: 0.35,
       builder: (_, scrollController) => FutureBuilder<String>(
-        future: EnforcementChannel.enforcementStatus(),
+        future: _blockDiagnosticsText(),
         builder: (context, snapshot) {
           final text = snapshot.data;
           if (text == null) {
@@ -410,9 +411,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                'Open a blocked app now, come back and reopen this sheet — '
-                'a BLOCKED line under "recent events" means detection fired; '
-                'its absence means the launch never reached the engine.',
+                'Chain: a restriction row (DART) must appear in a push '
+                '(SYNC) and in native blockedNow (NATIVE). The first '
+                'broken stage is the failing layer.',
                 style: TextStyle(fontSize: 11.5, color: AppColors.inkFaint, height: 1.5),
               ),
             ],
@@ -420,6 +421,46 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         },
       ),
     );
+  }
+
+  Future<String> _blockDiagnosticsText() async {
+    final db = ref.read(databaseProvider);
+    final manual = await db.select(db.appRestrictions).get();
+    final now = DateTime.now();
+    final activeRows = manual
+        .where((r) =>
+            r.enabled && (r.permanent || (r.expiresAt?.isAfter(now) ?? false)))
+        .toList();
+    final decisions = ref.read(restrictionDecisionsProvider);
+    final blockedDecisions = decisions.entries
+        .where((e) => e.value.appBlocked)
+        .map((e) => '${e.key} (${e.value.reason?.label ?? "Blocked"})')
+        .toList();
+    final native = await EnforcementChannel.enforcementStatus();
+
+    final sb = StringBuffer();
+    sb.writeln('build: $buildLabel');
+    sb.writeln('now: $now');
+    sb.writeln('--- DART ---');
+    sb.writeln('db rows (all): ${manual.length}');
+    for (final r in manual.take(8)) {
+      sb.writeln(
+          '  #${r.id} ${r.packageName} enabled=${r.enabled} '
+          'permanent=${r.permanent} expires=${r.expiresAt}');
+    }
+    sb.writeln('db rows (active): ${activeRows.length}');
+    sb.writeln('engine decisions (blocked): ${blockedDecisions.length}');
+    for (final d in blockedDecisions.take(8)) {
+      sb.writeln('  $d');
+    }
+    sb.writeln('--- SYNC ---');
+    sb.writeln(EnforcementSync.lastPushSummary);
+    if (EnforcementSync.lastPushError != null) {
+      sb.writeln('error: ${EnforcementSync.lastPushError}');
+    }
+    sb.writeln('--- NATIVE ---');
+    sb.write(native);
+    return sb.toString();
   }
 }
 

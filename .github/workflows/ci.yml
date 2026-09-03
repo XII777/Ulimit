@@ -46,12 +46,12 @@ jobs:
 
       - name: Build release APK (split per ABI)
         run: |
-          flutter build apk --release --split-per-abi
+          flutter build apk --release --split-per-abi --dart-define=BUILD_LABEL=v1.0.${{ github.run_number }}
           # Also a universal APK (all ABIs in one) for sideload/family use.
-          flutter build apk --release
+          flutter build apk --release --dart-define=BUILD_LABEL=v1.0.${{ github.run_number }}
 
       - name: Build debug APK
-        run: flutter build apk --debug
+        run: flutter build apk --debug --dart-define=BUILD_LABEL=debug-v1.0.${{ github.run_number }}
 
       # Categorized notes from the commits included in this release
       # (conventional prefixes + keyword fallback) — see

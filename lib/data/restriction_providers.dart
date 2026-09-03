@@ -316,12 +316,27 @@ class EnforcementSync {
   Timer? _debounce;
   DomainFilterSync? _domainSync;
 
+  // Push bookkeeping — surfaced by Settings → Blocking diagnostics so a
+  // broken sync chain is visible instead of silent.
+  static String lastPushSummary = 'no push yet this session';
+  static String? lastPushError;
+
   void _schedulePush() {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 250), push);
   }
 
   Future<void> push() async {
+    try {
+      await _pushInternal();
+      lastPushError = null;
+    } catch (e) {
+      lastPushError = e.toString();
+      lastPushSummary = 'PUSH FAILED @ ${DateTime.now().toIso8601String()}';
+    }
+  }
+
+  Future<void> _pushInternal() async {
     final ref = _ref;
     // Never write an EMPTY snapshot over a full one: the headless engine
     // (the Focus-indicator foreground service) starts a second container
@@ -332,6 +347,7 @@ class EnforcementSync {
     // fresh push the moment they load, so skipping here is safe.
     if (ref.read(manualRestrictionsProvider).valueOrNull == null ||
         ref.read(appLimitsProvider).valueOrNull == null) {
+      lastPushSummary = 'skipped (streams not ready)';
       return;
     }
     final manual = ref.read(manualRestrictionsProvider).valueOrNull ?? const [];
@@ -350,6 +366,10 @@ class EnforcementSync {
     // remains as the fallback for state that changes while Ulimit is
     // closed.
     final decisions = ref.read(restrictionDecisionsProvider);
+    final blockedCount = decisions.values.where((d) => d.appBlocked).length;
+    lastPushSummary =
+        'pushed ${now.toIso8601String()} · manual=${manual.length} '
+        'limits=${limits.length} blockedNow=$blockedCount';
 
     final snapshot = <String, dynamic>{
       'blockedSnapshotAtMillis': now.millisecondsSinceEpoch,
