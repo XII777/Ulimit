@@ -142,6 +142,10 @@ extension AppRestrictionsActions on AppDatabase {
       permanent: Value(permanent),
       invincible: Value(invincible),
     ));
+    // Enforcement sync: the manualRestrictions watch (kept alive by
+    // enforcementSyncProvider) invalidates on this write and re-pushes
+    // the native snapshot within ~250ms — no explicit push needed here,
+    // and pushing directly would race ahead of the stream emission.
   }
 
   Future<void> removeRestriction(int id) async {
@@ -273,7 +277,15 @@ AppDecision? decisionFor(Ref ref, String packageName) =>
 /// tick, focus start/stop) produces a fresh push; the push is cheap and
 /// idempotent, so correctness doesn't depend on catching every single
 /// transition — only on re-running whenever inputs change.
+///
+/// keepAlive is load-bearing: this provider is only ever `ref.read()`
+/// (never watched by the UI), and Riverpod 2 disposes unwatched
+/// providers at the end of the frame. Without it, every policy listen
+/// created in the constructor dies with it — a block added mid-session
+/// NEVER reaches native, and blocking silently does nothing while the
+/// UI still shows the restriction as active.
 final enforcementSyncProvider = Provider<EnforcementSync>((ref) {
+  ref.keepAlive();
   final sync = EnforcementSync(ref);
 
   // Re-evaluate on the tick too, so expiries propagate to native
