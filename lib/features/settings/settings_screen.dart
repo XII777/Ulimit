@@ -172,21 +172,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
           // Permissions: one tile that opens the full sheet — why each
           // permission is needed, plus Allow/Block actions that open
-          // the right system screen so they can change any time.
-          Text('PERMISSIONS',
-              style: TextStyle(
-                  fontSize: AppText.overline,
-                  color: AppColors.inkFaint,
-                  letterSpacing: 0.6,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          PremiumCard(
-            padding: EdgeInsets.zero,
-            child: PremiumListTile(
-              label: 'App permissions',
-              sublabel: _permissionsSummary(permissions),
-              trailing: AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
-              onTap: () => _showPermissionsSheet(context),
+          // the right system screen so they can change any time. Same
+          // collapsible section pattern as every other Settings tab.
+          CollapsibleSection(
+            label: 'PERMISSIONS',
+            icon: AppIconName.shield,
+            expanded: _expanded == 'PERMISSIONS',
+            onToggle: () => _toggle('PERMISSIONS'),
+            child: PremiumCard(
+              padding: EdgeInsets.zero,
+              child: PremiumListTile(
+                label: 'App permissions',
+                sublabel: _permissionsSummary(permissions),
+                trailing: AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
+                onTap: () => _showPermissionsSheet(context),
+              ),
             ),
           ),
           const SizedBox(height: 20),

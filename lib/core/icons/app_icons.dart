@@ -56,8 +56,7 @@ enum AppIconName {
   star('star'),
   haptics('smartphone-vibration'),
   trend('graph-up'),
-  userBlock('user-block'),
-  expand('maximize');
+  userBlock('user-block');
 
   const AppIconName(this.asset);
   final String asset;

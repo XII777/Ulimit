@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -470,11 +472,11 @@ class _RunningFocusView extends ConsumerWidget {
               Row(
                 children: [
                   Expanded(
-                    flex: 2,
                     child: OutlinedButton(
                       onPressed: () => _confirmEndEarly(context, ref),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.all(14),
+                        minimumSize: const Size(0, 48),
                         backgroundColor: AppColors.surface2,
                         side: BorderSide(color: AppColors.stroke),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
@@ -484,16 +486,16 @@ class _RunningFocusView extends ConsumerWidget {
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: OutlinedButton.icon(
+                    child: OutlinedButton(
                       onPressed: () => _enterFullScreen(context),
-                      icon: AppIcon(AppIconName.expand, size: 15, color: AppColors.inkDim),
-                      label: Text('Full screen', style: TextStyle(color: AppColors.inkDim)),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.all(14),
+                        minimumSize: const Size(0, 48),
                         backgroundColor: AppColors.surface2,
                         side: BorderSide(color: AppColors.stroke),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       ),
+                      child: Text('Full screen', style: TextStyle(color: AppColors.inkDim)),
                     ),
                   ),
                 ],
@@ -598,9 +600,10 @@ Future<void> confirmEndFocusSession(
 }
 
 /// Distraction-free fullscreen countdown: no nav pill, no swipe, no
-/// system bars (immersive) — just the giant centered counter and three
-/// pill controls at the very bottom. Entering/exiting manages the
-/// system UI mode; leaving the route restores it.
+/// system bars — just the giant centered counter and three pill
+/// controls that auto-hide after a few seconds and return on any tap.
+/// Landscape by design; entering/exiting manages orientation and the
+/// system UI mode, and leaving the route restores both.
 class _FullScreenFocusView extends ConsumerStatefulWidget {
   const _FullScreenFocusView({required this.session});
 
@@ -611,17 +614,48 @@ class _FullScreenFocusView extends ConsumerStatefulWidget {
 }
 
 class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
+  static const _autoHideAfter = Duration(seconds: 4);
+
+  Timer? _hideTimer;
+  bool _controlsVisible = true;
+
   @override
   void initState() {
     super.initState();
-    // Fill the display edge to edge — status bar included.
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    // Landscape full-screen clock; status bar + nav bars fully hidden
+    // (not sticky-transparent — the display is ours edge to edge).
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ));
+    _scheduleHide();
   }
 
   @override
   void dispose() {
+    _hideTimer?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
+  }
+
+  void _poke() {
+    if (!_controlsVisible) setState(() => _controlsVisible = true);
+    _scheduleHide();
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(_autoHideAfter, () {
+      if (mounted) setState(() => _controlsVisible = false);
+    });
   }
 
   void _exit() => Navigator.of(context).pop();
@@ -634,106 +668,116 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
 
     return Container(
       color: AppColors.bg,
-      child: Column(
-        children: [
-          Expanded(
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // The counter — as large as the display allows.
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: untimed
-                        ? Text(
-                            'UNTIMED',
-                            style: GoogleFonts.spaceGrotesk(
-                              fontSize: 180,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.ink,
+      // Any touch brings the controls back; they auto-hide again.
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _poke,
+        child: Column(
+          children: [
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // The counter — as large as the display allows.
+                    // Heading font (Space Grotesk) at the same weight the
+                    // app's headings use — no late font swaps.
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: untimed
+                          ? Text(
+                              'UNTIMED',
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 180,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.ink,
+                              ),
+                            )
+                          : DurationFlow(
+                              Duration(seconds: remaining.inSeconds),
+                              showSeconds: true,
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 180,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.ink,
+                                fontFeatures: const [FontFeature.tabularFigures()],
+                              ),
                             ),
-                          )
-                        : DurationFlow(
-                            Duration(seconds: remaining.inSeconds),
-                            showSeconds: true,
-                            style: GoogleFonts.spaceGrotesk(
-                              fontSize: 180,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.ink,
-                              fontFeatures: const [FontFeature.tabularFigures()],
-                            ),
-                          ),
-                  ),
-                  if (paused) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      '${widget.session.label} · PAUSED',
-                      style: TextStyle(fontSize: 12, letterSpacing: 1.5, color: AppColors.inkDim),
                     ),
+                    if (paused) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        '${widget.session.label} · PAUSED',
+                        style: TextStyle(fontSize: 12, letterSpacing: 1.5, color: AppColors.inkDim),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-          // Three pill controls pinned to the very bottom.
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _FullScreenPill(
-                      onTap: () => paused
-                          ? ref.read(focusControllerProvider).resume()
-                          : ref.read(focusControllerProvider).pause(),
-                      filled: true,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          AppIcon(paused ? AppIconName.play : AppIconName.pause,
-                              size: 14, color: AppColors.bg),
-                          const SizedBox(width: 6),
-                          Text(
-                            paused ? 'Resume' : 'Pause',
-                            style: TextStyle(
-                                fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.bg),
+            // Three pill controls at the very bottom, auto-hidden.
+            AnimatedSlide(
+              duration: const Duration(milliseconds: 240),
+              curve: _controlsVisible ? Curves.easeOutCubic : Curves.easeInCubic,
+              offset: _controlsVisible ? Offset.zero : const Offset(0, 1.2),
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 220),
+                opacity: _controlsVisible ? 1.0 : 0.0,
+                child: IgnorePointer(
+                  ignoring: !_controlsVisible,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _FullScreenPill(
+                            onTap: () => paused
+                                ? ref.read(focusControllerProvider).resume()
+                                : ref.read(focusControllerProvider).pause(),
+                            filled: true,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AppIcon(paused ? AppIconName.play : AppIconName.pause,
+                                    size: 14, color: AppColors.bg),
+                                const SizedBox(width: 6),
+                                Text(
+                                  paused ? 'Resume' : 'Pause',
+                                  style: TextStyle(
+                                      fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.bg),
+                                ),
+                              ],
+                            ),
                           ),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _FullScreenPill(
+                            onTap: () => confirmEndFocusSession(
+                              context,
+                              ref,
+                              widget.session,
+                              onEnded: _exit,
+                            ),
+                            child:
+                                Text('End', style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _FullScreenPill(
+                            onTap: _exit,
+                            child: Text('Exit', style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _FullScreenPill(
-                      onTap: () => confirmEndFocusSession(
-                        context,
-                        ref,
-                        widget.session,
-                        onEnded: _exit,
-                      ),
-                      child: Text('End', style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _FullScreenPill(
-                      onTap: _exit,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          AppIcon(AppIconName.expand, size: 13, color: AppColors.inkDim),
-                          const SizedBox(width: 6),
-                          Text('Exit', style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

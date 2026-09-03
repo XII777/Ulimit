@@ -14,7 +14,11 @@ final class AppTheme {
   static ThemeData get light => _build(lightPalette);
 
   static ThemeData _build(AppPalette c) {
-    final display = GoogleFonts.spaceGrotesk();
+    // Weight set on the constructor, NOT via copyWith: GoogleFonts only
+    // registers the variant file for the weight requested here — a
+    // copyWith'd weight on a regular base silently renders with the
+    // 400 file (the "bold sometimes, normal sometimes" flicker).
+    final display = GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w600);
     final body = GoogleFonts.inter();
     final dark = c.brightness == Brightness.dark;
 
@@ -50,7 +54,6 @@ final class AppTheme {
       textTheme: TextTheme(
         headlineSmall: display.copyWith(
           fontSize: AppText.headline,
-          fontWeight: FontWeight.w600,
           color: c.ink,
           letterSpacing: -0.2,
         ),
@@ -84,7 +87,6 @@ final class AppTheme {
         ),
         titleTextStyle: display.copyWith(
           fontSize: AppText.headline,
-          fontWeight: FontWeight.w600,
           color: c.ink,
         ),
       ),
