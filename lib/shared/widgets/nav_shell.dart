@@ -32,7 +32,8 @@ class NavShell extends ConsumerStatefulWidget {
   ConsumerState<NavShell> createState() => _NavShellState();
 }
 
-class _NavShellState extends ConsumerState<NavShell> {
+class _NavShellState extends ConsumerState<NavShell>
+    with SingleTickerProviderStateMixin {
   static const _tabs = [
     (Routes.home, AppIconName.home, 'Home'),
     (Routes.focus, AppIconName.focus, 'Focus'),
@@ -68,15 +69,31 @@ class _NavShellState extends ConsumerState<NavShell> {
   bool _navVisible = true;
   int _lastRouteIndex = -1;
 
+  /// Drives the nav highlight's glide: taps JUMP the page instantly
+  /// (no intermediate screen is ever built) but the ink pill glides to
+  /// the destination with an iOS-like ease, so the switch still reads
+  /// as one motion. Swipes bypass this — the highlight rides the
+  /// finger via the page position.
+  late final AnimationController _glide = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 320),
+  );
+  double _glideFrom = 0;
+  double _glideTo = 0;
+
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
+    _glide.addStatusListener((status) {
+      if (status == AnimationStatus.completed) setState(() {});
+    });
   }
 
   @override
   void dispose() {
     _pageController.dispose();
+    _glide.dispose();
     super.dispose();
   }
 
@@ -105,6 +122,19 @@ class _NavShellState extends ConsumerState<NavShell> {
   // build; swipes never set it, so they keep their slide behavior.
   bool _jumpOnNextRouteChange = false;
 
+  /// Current on-screen highlight position in page units: glides toward
+  /// its target while a tap-driven glide plays, otherwise tracks the
+  /// live page value (finger 1:1).
+  double _pillPosition() {
+    if (_glide.isAnimating) {
+      final t = Curves.easeOutCubic.transform(_glide.value);
+      return _glideFrom + (_glideTo - _glideFrom) * t;
+    }
+    return _pageController.hasClients
+        ? (_pageController.page ?? _lastRouteIndex.clamp(0, _tabs.length - 1).toDouble())
+        : _lastRouteIndex.clamp(0, _tabs.length - 1).toDouble();
+  }
+
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.path;
@@ -127,12 +157,18 @@ class _NavShellState extends ConsumerState<NavShell> {
         (!_pageController.hasClients || _pageController.page?.round() != routeIndex)) {
       if (_jumpOnNextRouteChange) {
         // Nav-item tap: direct jump — the page change is instant and no
-        // intermediate screen is ever built or laid out. Deferred past
-        // the build phase: jumpToPage in build() would fire
-        // onPageChanged synchronously mid-build (and therefore
-        // context.go mid-build), corrupting the router. Post-frame it
-        // is equivalent, and a tap is always post-frame anyway.
+        // intermediate screen is ever built or laid out. The ink pill
+        // covers the jump with its glide. Deferred past the build
+        // phase: jumpToPage in build() would fire onPageChanged
+        // synchronously mid-build (and therefore context.go mid-build),
+        // corrupting the router. Post-frame it is equivalent, and a tap
+        // is always post-frame anyway.
         final target = routeIndex;
+        _glideFrom = _pillPosition();
+        _glideTo = target.toDouble();
+        if ((_glideTo - _glideFrom).abs() > 0.001) {
+          _glide.forward(from: 0);
+        }
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (_pageController.hasClients) _pageController.jumpToPage(target);
         });
@@ -199,6 +235,8 @@ class _NavShellState extends ConsumerState<NavShell> {
               tabs: _tabs,
               routeIndex: routeIndex,
               pageController: _pageController,
+              pillPosition: _pillPosition,
+              glide: _glide,
               visible: _navVisible,
               onTap: goToTab,
             ),
@@ -236,6 +274,8 @@ class _FloatingNavContainer extends StatelessWidget {
     required this.tabs,
     required this.routeIndex,
     required this.pageController,
+    required this.pillPosition,
+    required this.glide,
     required this.visible,
     required this.onTap,
   });
@@ -243,6 +283,11 @@ class _FloatingNavContainer extends StatelessWidget {
   final List<(String, AppIconName, String)> tabs;
   final int routeIndex;
   final PageController pageController;
+
+  /// Current on-screen highlight position in page units (recomputed by
+  /// the shell on every glide tick and page tick).
+  final double Function() pillPosition;
+  final Animation<double> glide;
   final bool visible;
   final ValueChanged<int> onTap;
 
@@ -263,24 +308,17 @@ class _FloatingNavContainer extends StatelessWidget {
           child: IgnorePointer(
             ignoring: !visible,
             child: AnimatedBuilder(
-              animation: pageController,
+              // The shell recomputes pillPosition per glide tick; the
+              // page controller ticks drive the swipe tracking.
+              animation: Listenable.merge([pageController, glide]),
               builder: (context, _) {
-                // Selection follows the swipe gesture CONTINUOUSLY (like
-                // iOS tab bars): nearest tab during/drag settles at the
-                // page boundary. The old page.round() held each tab
-                // until the swipe crossed 50% then jumped to the next —
-                // the jump is what made horizontal swipes feel stuttery.
                 final page = pageController.hasClients
                     ? (pageController.page ?? routeIndex.toDouble())
                     : routeIndex.toDouble();
-                final activeIndex = page.round().clamp(0, tabs.length - 1);
-                // Fractional 0..1 "flow" toward the next tab drives the
-                // pill's position so it glides in sync with the finger.
-                final flow = (page - activeIndex).clamp(-0.5, 0.5);
                 return _FloatingNavBar(
                   tabs: tabs,
-                  activeIndex: activeIndex,
-                  flow: flow,
+                  pillPosition: pillPosition(),
+                  page: page,
                   onTap: onTap,
                 );
               },
@@ -292,25 +330,30 @@ class _FloatingNavContainer extends StatelessWidget {
   }
 }
 
+/// The floating pill bar with one CONTINUOUS ink highlight: it glides
+/// with the live page position during swipes (finger 1:1, like an iOS
+/// segmented control) and, on nav-item taps, glides to the destination
+/// while the page jumps underneath — one motion, no teleporting.
 class _FloatingNavBar extends StatelessWidget {
   const _FloatingNavBar({
     required this.tabs,
-    required this.activeIndex,
-    this.flow = 0,
+    required this.pillPosition,
+    required this.page,
     required this.onTap,
   });
 
   final List<(String, AppIconName, String)> tabs;
-  final int activeIndex;
 
-  /// Fractional progress (0..0.5) beyond [activeIndex]: during a swipe,
-  /// the outgoing pill eases slightly toward the incoming tab position
-  /// so the pill tracks the finger instead of jumping at 50%.
-  final double flow;
+  /// Highlight position in page units (glide-aware, from the shell).
+  final double pillPosition;
+
+  /// Live page value — drives the icon/label state flip.
+  final double page;
   final ValueChanged<int> onTap;
 
   @override
   Widget build(BuildContext context) {
+    final activeIndex = page.round().clamp(0, tabs.length - 1);
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -325,34 +368,51 @@ class _FloatingNavBar extends StatelessWidget {
           ),
         ],
       ),
-      child: Transform.translate(
-        // The pill group itself shifts a few px toward the next tab
-        // during a swipe — subtle, finger-tracking, settles to 0.
-        offset: Offset(28 * flow, 0),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: List.generate(tabs.length, (i) {
-            final isActive = i == activeIndex;
-            final (_, icon, label) = tabs[i];
-            return _NavItem(
-              icon: icon,
-              label: label,
-              isActive: isActive,
-              onTap: () => onTap(i),
-            );
-          }),
-        ),
-      ),
+      child: LayoutBuilder(builder: (context, constraints) {
+        // Inside the 8px padding each tab slot is an exact fifth.
+        final slotWidth = constraints.maxWidth / tabs.length;
+        return SizedBox(
+          height: 38,
+          child: Stack(
+            children: [
+              // The gliding ink highlight behind the items.
+              Positioned(
+                left: slotWidth * pillPosition.clamp(0.0, tabs.length - 1.0),
+                width: slotWidth,
+                top: 0,
+                bottom: 0,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.ink,
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                  ),
+                ),
+              ),
+              // Hit targets + icons/labels on top.
+              Row(
+                children: [
+                  for (var i = 0; i < tabs.length; i++)
+                    Expanded(
+                      child: _NavItem(
+                        icon: tabs[i].$2,
+                        label: tabs[i].$3,
+                        isActive: i == activeIndex,
+                        onTap: () => onTap(i),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        );
+      }),
     );
   }
 }
 
-/// The morph: an AnimatedContainer widens from an icon-only circle into
-/// an icon+label pill. AnimatedContainer is the right tool here — it's
-/// implicitly driven by the widget tree diff, so there's no
-/// AnimationController to leak or forget to dispose, and Flutter batches
-/// the size/color tween into a single compositor-friendly pass.
+/// The nav item: icon (+ label when active), drawn ON TOP of the
+/// gliding ink highlight — the item paints no background of its own so
+/// the highlight can slide freely underneath.
 class _NavItem extends StatelessWidget {
   const _NavItem({
     required this.icon,
@@ -371,37 +431,23 @@ class _NavItem extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        height: 38,
-        padding: EdgeInsets.symmetric(horizontal: isActive ? 14 : 0),
-        decoration: BoxDecoration(
-          color: isActive ? AppColors.ink : Colors.transparent,
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-        ),
-        alignment: Alignment.center,
+      child: Center(
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-              width: 38,
-              child: Center(
-                child: AppIcon(
-                  icon,
-                  size: 19,
-                  color: isActive ? AppColors.bg : AppColors.inkDim,
-                ),
-              ),
+            AppIcon(
+              icon,
+              size: 19,
+              color: isActive ? AppColors.bg : AppColors.inkDim,
             ),
             // AnimatedSize + fade avoids laying out invisible text every
-            // frame for the four inactive tabs — cheaper than always
-            // building the label and toggling opacity to zero.
+            // frame for the inactive tabs — cheaper than always building
+            // the label and toggling opacity to zero.
             AnimatedSize(
               duration: const Duration(milliseconds: 200),
               child: isActive
                   ? Padding(
-                      padding: const EdgeInsets.only(right: 2),
+                      padding: const EdgeInsets.only(left: 7, right: 3),
                       child: Text(
                         label,
                         style: TextStyle(
