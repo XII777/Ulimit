@@ -330,10 +330,14 @@ class _FloatingNavContainer extends StatelessWidget {
   }
 }
 
-/// The floating pill bar with one CONTINUOUS ink highlight: it glides
-/// with the live page position during swipes (finger 1:1, like an iOS
-/// segmented control) and, on nav-item taps, glides to the destination
-/// while the page jumps underneath — one motion, no teleporting.
+/// The floating pill bar with one CONTINUOUS ink highlight that hugs
+/// the active item (icon + label, symmetric padding) while idle slots
+/// stay icon-only. Slot widths are a pure function of the highlight's
+/// continuous position `x` (0..tabCount-1): they expand toward the
+/// active measure and shrink toward the icon measure as `x` moves, and
+/// the ink pill covers the interpolated active slot. Every frame
+/// interpolates — no discrete state flips — so the motion is one
+/// smooth flow: swipes ride the finger, taps glide.
 class _FloatingNavBar extends StatelessWidget {
   const _FloatingNavBar({
     required this.tabs,
@@ -351,9 +355,56 @@ class _FloatingNavBar extends StatelessWidget {
   final double page;
   final ValueChanged<int> onTap;
 
+  // Geometry (dp). All slots share one fixed height — only widths
+  // redistribute, so the bar never changes height and nothing overlaps.
+  static const _itemHeight = 38.0;
+  static const _iconSize = 20.0;
+  static const _iconGap = 7.0; // icon → label gap inside the active item
+  static const _itemPadH = 12.0; // ink pill horizontal padding
+  static const _labelFontSize = 12.0;
+  static const _idleSlotWidth = 44.0; // icon-only slot
+
+  /// Width of slot [index] at highlight position [x]: the icon-only
+  /// measure blended toward the full active measure (icon + gap +
+  /// label + symmetric padding). The blend weight peaks at 1.0 when
+  /// the highlight centers on this slot and decays toward neighbors —
+  /// widths crossfade, never snap.
+  double _slotWidth(int index, double x, Map<String, double> labelWidths) {
+    final w = (1.0 - (x - index).abs()).clamp(0.0, 1.0);
+    final eased = Curves.easeOutCubic.transform(w);
+    final active =
+        _iconSize + _iconGap + 2 * _itemPadH + (labelWidths[tabs[index].$3] ?? 0.0);
+    return _idleSlotWidth + (active - _idleSlotWidth) * eased;
+  }
+
+  /// Exact label widths, measured once from the real text style — the
+  /// label set is static, so this cache never invalidates.
+  static final Map<String, double> _labelWidthCache = {
+    for (final t in _staticTabs)
+      t.$3: () {
+        final tp = TextPainter(
+          text: TextSpan(
+            text: t.$3,
+            style: TextStyle(fontSize: _labelFontSize, fontWeight: FontWeight.w600),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        return tp.width;
+      }(),
+  };
+
+  static const _staticTabs = [
+    ('home', AppIconName.home, 'Home'),
+    ('focus', AppIconName.focus, 'Focus'),
+    ('limits', AppIconName.limits, 'Limits'),
+    ('bedtime', AppIconName.bedtime, 'Bedtime'),
+    ('settings', AppIconName.settings, 'Settings'),
+  ];
+
   @override
   Widget build(BuildContext context) {
     final activeIndex = page.round().clamp(0, tabs.length - 1);
+    final x = pillPosition.clamp(0.0, tabs.length - 1.0);
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -368,17 +419,35 @@ class _FloatingNavBar extends StatelessWidget {
           ),
         ],
       ),
-      child: LayoutBuilder(builder: (context, constraints) {
-        // Inside the 8px padding each tab slot is an exact fifth.
-        final slotWidth = constraints.maxWidth / tabs.length;
-        return SizedBox(
-          height: 38,
-          child: Stack(
+      child: SizedBox(
+        height: _itemHeight,
+        child: LayoutBuilder(builder: (context, constraints) {
+          final widths = [
+            for (var i = 0; i < tabs.length; i++) _slotWidth(i, x, _labelWidthCache),
+          ];
+
+          // Ink pill geometry: left edge and width both interpolate
+          // across slot boundaries — the pill slides AND breathes in
+          // one continuous motion.
+          final leftIndex = x.floor().clamp(0, tabs.length - 1);
+          final frac = (x - leftIndex).clamp(0.0, 1.0);
+          final leftEdge = widths.sublist(0, leftIndex).fold(0.0, (a, b) => a + b);
+          final nextIndex = (leftIndex + 1).clamp(0, tabs.length - 1);
+          final inkLeft = leftEdge + widths[leftIndex] * frac;
+          final inkWidth = widths[leftIndex] * (1 - frac) + widths[nextIndex] * frac;
+
+          // Distribute leftover width evenly so the bar always fills
+          // its capsule — slack shrinks as items expand.
+          final total = widths.fold(0.0, (a, b) => a + b);
+          final slack = ((constraints.maxWidth - total) / tabs.length)
+              .clamp(0.0, double.infinity);
+
+          return Stack(
             children: [
               // The gliding ink highlight behind the items.
               Positioned(
-                left: slotWidth * pillPosition.clamp(0.0, tabs.length - 1.0),
-                width: slotWidth,
+                left: inkLeft,
+                width: inkWidth,
                 top: 0,
                 bottom: 0,
                 child: Container(
@@ -388,42 +457,54 @@ class _FloatingNavBar extends StatelessWidget {
                   ),
                 ),
               ),
-              // Hit targets + icons/labels on top.
+              // Hit targets + icons/labels on top, laid out with the
+              // same interpolated widths as the ink underneath.
               Row(
                 children: [
                   for (var i = 0; i < tabs.length; i++)
-                    Expanded(
+                    SizedBox(
+                      width: widths[i] + slack,
+                      height: _itemHeight,
                       child: _NavItem(
                         icon: tabs[i].$2,
                         label: tabs[i].$3,
                         isActive: i == activeIndex,
+                        expanded: widths[i] > _idleSlotWidth + 1,
                         onTap: () => onTap(i),
                       ),
                     ),
                 ],
               ),
             ],
-          ),
-        );
-      }),
+          );
+        }),
+      ),
     );
   }
 }
 
-/// The nav item: icon (+ label when active), drawn ON TOP of the
+/// The nav item: icon (+ label when expanded), drawn ON TOP of the
 /// gliding ink highlight — the item paints no background of its own so
-/// the highlight can slide freely underneath.
+/// the highlight can slide freely underneath. The label shows only
+/// while the item's slot is expanded (i.e. it IS the active item):
+/// intermediate slots during a glide stay icon-only, so no text ever
+/// squishes or flickers mid-flight.
 class _NavItem extends StatelessWidget {
   const _NavItem({
     required this.icon,
     required this.label,
     required this.isActive,
+    required this.expanded,
     required this.onTap,
   });
 
   final AppIconName icon;
   final String label;
   final bool isActive;
+
+  /// True while this item's slot is (near) fully expanded — only then
+  /// is the label shown.
+  final bool expanded;
   final VoidCallback onTap;
 
   @override
@@ -437,19 +518,21 @@ class _NavItem extends StatelessWidget {
           children: [
             AppIcon(
               icon,
-              size: 19,
+              size: 20,
               color: isActive ? AppColors.bg : AppColors.inkDim,
             ),
-            // AnimatedSize + fade avoids laying out invisible text every
-            // frame for the inactive tabs — cheaper than always building
-            // the label and toggling opacity to zero.
+            // AnimatedSize absorbs the label's appearance/disappearance
+            // as an implicit size tween — no per-frame layout jumps.
             AnimatedSize(
-              duration: const Duration(milliseconds: 200),
-              child: isActive
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.centerLeft,
+              child: expanded
                   ? Padding(
                       padding: const EdgeInsets.only(left: 7, right: 3),
                       child: Text(
                         label,
+                        maxLines: 1,
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -465,3 +548,4 @@ class _NavItem extends StatelessWidget {
     );
   }
 }
+
