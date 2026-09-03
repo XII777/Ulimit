@@ -17,9 +17,11 @@ import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
-/// Internet & Sites: local VPN status, per-app internet blocking,
-/// custom domain rules, and the downloadable StevenBlack/hosts
-/// block-list categories with per-site toggles.
+/// Internet & Sites: local VPN protection plus three swipeable columns —
+/// Filters (downloadable block lists), Custom (hand-added domains) and
+/// Apps (per-app internet blocking) — driven by one wide search bar and
+/// a floating action pill that morphs into a plus button whenever the
+/// typed text is not in the visible list.
 class InternetSitesScreen extends ConsumerStatefulWidget {
   const InternetSitesScreen({super.key});
 
@@ -29,15 +31,26 @@ class InternetSitesScreen extends ConsumerStatefulWidget {
 
 class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
     with WidgetsBindingObserver {
+  final PageController _pageController = PageController();
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+  String _query = '';
+  int _column = 0;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _searchController.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    _searchFocus.dispose();
+    _pageController.dispose();
     super.dispose();
   }
 
@@ -49,62 +62,308 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
     }
   }
 
+  void _onSearchChanged() {
+    setState(() => _query = _searchController.text);
+  }
+
+  void _goToColumn(int index) {
+    FocusScope.of(context).unfocus();
+    if (index == _column) return;
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _onPageChanged(int page) {
+    setState(() => _column = page);
+    // Each column gets a fresh search context.
+    if (_searchController.text.isNotEmpty) _searchController.clear();
+    FocusScope.of(context).unfocus();
+  }
+
+  // -- Floating action ------------------------------------------------------
+
+  Future<void> _addTypedDomain() async {
+    final ok = await ref.read(databaseProvider).addCustomDomain(_query);
+    if (!ok) {
+      if (mounted) showAppSnack(context, 'Enter a valid domain, e.g. example.com');
+      return;
+    }
+    ref.read(enforcementSyncProvider).push();
+    if (mounted) {
+      _searchController.clear();
+      FocusScope.of(context).unfocus();
+    }
+  }
+
+  Future<void> _openAppPicker({String withQuery = ''}) async {
+    final pkg = await showAppSelector(
+      context,
+      title: 'Block internet for',
+      initialQuery: withQuery,
+    );
+    if (pkg is! String) return;
+    await ref.read(databaseProvider).setInternetBlocked(pkg, true);
+    ref.read(enforcementSyncProvider).push();
+  }
+
+  /// Resolves the floating action for the visible column. The pill only
+  /// morphs into a plus when the typed text is NOT in the current list —
+  /// on Custom that plus adds the domain directly, on Apps it opens the
+  /// picker pre-filled with the query.
+  ({String? label, bool plus, VoidCallback? onTap}) _resolveFab() {
+    final q = _query.trim();
+
+    if (_column == 1) {
+      final rules = ref.watch(customWebsiteRulesProvider).valueOrNull ?? const <WebsiteRule>[];
+      if (q.isEmpty) {
+        return (label: 'Add site', plus: false, onTap: () => _searchFocus.requestFocus());
+      }
+      final present = rules.any((r) => r.domain.contains(q.toLowerCase()));
+      final domain = normalizeDomain(q);
+      if (!present && domain.isNotEmpty) {
+        return (label: null, plus: true, onTap: _addTypedDomain);
+      }
+      // Present in the list, or not a plausible domain — nothing to add.
+      return (label: null, plus: false, onTap: null);
+    }
+
+    if (_column == 2) {
+      final blocks = ref.watch(internetBlocksProvider).valueOrNull ?? const <InternetBlock>[];
+      final catalog = ref.watch(appsCatalogProvider).valueOrNull;
+      final present = blocks.any((b) =>
+          (catalog?.nameFor(b.packageName) ?? b.packageName).toLowerCase().contains(q.toLowerCase()));
+      if (q.isNotEmpty && !present) {
+        return (label: null, plus: true, onTap: () => _openAppPicker(withQuery: q));
+      }
+      return (label: 'Add app', plus: false, onTap: () => _openAppPicker());
+    }
+
+    // Filters column: downloads happen per-list, no add action.
+    return (label: null, plus: false, onTap: null);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final fab = _resolveFab();
+
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(
-        child: ListView(
-          physics: springScrollPhysics,
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+        bottom: false,
+        child: Stack(
           children: [
-            PremiumHeader(
-              title: 'Internet & Sites',
-              subtitle: 'Local, on-device filtering — no remote proxy',
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: PremiumHeader(
+                    title: 'Internet & Sites',
+                    subtitle: 'Local, on-device filtering — no remote proxy',
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const _VpnCard(),
+                const SizedBox(height: 20),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: _ColumnPills(
+                          controller: _pageController,
+                          activeIndex: _column,
+                          onTap: _goToColumn,
+                        ),
+                      ),
+                      // The pills and the search bar never touch.
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: _SearchBar(
+                          controller: _searchController,
+                          focusNode: _searchFocus,
+                        ),
+                      ),
+                      Expanded(
+                        child: PageView(
+                          controller: _pageController,
+                          onPageChanged: _onPageChanged,
+                          children: [
+                            _FiltersColumn(query: _query),
+                            _CustomColumn(query: _query),
+                            _AppsColumn(query: _query),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 18),
-
-            _VpnCard(),
-            const SizedBox(height: 20),
-
-            // ACTIVE BLOCKS always comes first: every downloaded block
-            // list whose filter is currently enabled.
-            Text('ACTIVE BLOCKS',
-                style: TextStyle(
-                    fontSize: AppText.overline,
-                    color: AppColors.inkFaint,
-                    letterSpacing: 0.6,
-                    fontWeight: FontWeight.w600)),
-            const SizedBox(height: 10),
-             _ActiveBlocksSection(),
-            const SizedBox(height: 20),
-
-            Text('APP INTERNET ACCESS',
-                style: TextStyle(
-                    fontSize: AppText.overline,
-                    color: AppColors.inkFaint,
-                    letterSpacing: 0.6,
-                    fontWeight: FontWeight.w600)),
-            const SizedBox(height: 10),
-            _InternetBlocksSection(),
-            const SizedBox(height: 20),
-
-            // CUSTOM SITES: individually added domains, always below
-            // ACTIVE BLOCKS, with the add controls after the list.
-            Text('CUSTOM SITES',
-                style: TextStyle(
-                    fontSize: AppText.overline,
-                    color: AppColors.inkFaint,
-                    letterSpacing: 0.6,
-                    fontWeight: FontWeight.w600)),
-            const SizedBox(height: 10),
-             _CustomSitesSection(),
-            const SizedBox(height: 20),
-
-            // Browse/download the remaining categories.
-            _BrowseBlockListsTile(),
+            // Floating above the nav pill, mirroring the snackbar inset.
+            Positioned(
+              right: 20,
+              bottom: 96,
+              child: _ActionFab(label: fab.label, plus: fab.plus, onTap: fab.onTap),
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Column pills
+// ---------------------------------------------------------------------------
+
+/// The three horizontal column selectors in one capsule. The ink-filled
+/// pill tracks the swipe like the floating nav pill does, so tapping a
+/// pill and swiping share one motion language.
+class _ColumnPills extends StatelessWidget {
+  const _ColumnPills({
+    required this.controller,
+    required this.activeIndex,
+    required this.onTap,
+  });
+
+  final PageController controller;
+  final int activeIndex;
+  final ValueChanged<int> onTap;
+
+  static const _labels = ['Filters', 'Custom', 'Apps'];
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final page = controller.hasClients
+            ? (controller.page ?? activeIndex.toDouble())
+            : activeIndex.toDouble();
+        final settled = page.round().clamp(0, _labels.length - 1);
+        final flow = (page - settled).clamp(-0.5, 0.5);
+        return Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: AppColors.surface2,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            border: Border.all(color: AppColors.stroke),
+          ),
+          child: Row(
+            children: [
+              for (var i = 0; i < _labels.length; i++)
+                Expanded(
+                  child: _Pill(
+                    label: _labels[i],
+                    active: i == settled,
+                    flow: flow,
+                    onTap: () => onTap(i),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  const _Pill({
+    required this.label,
+    required this.active,
+    required this.flow,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool active;
+
+  /// Fractional progress (-0.5..0.5) beyond the settled column: the
+  /// pill group drifts a few px toward the swipe, then settles at 0.
+  final double flow;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Transform.translate(
+        offset: Offset(10 * flow, 0),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: active ? AppColors.ink : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+          child: AnimatedDefaultTextStyle(
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeOutCubic,
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+              color: active ? AppColors.bg : AppColors.inkDim,
+            ),
+            child: Text(label, maxLines: 1),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Search bar
+// ---------------------------------------------------------------------------
+
+class _SearchBar extends StatelessWidget {
+  const _SearchBar({required this.controller, required this.focusNode});
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      focusNode: focusNode,
+      style: TextStyle(color: AppColors.ink, fontSize: 14),
+      decoration: InputDecoration(
+        hintText: 'Search sites, filters or apps…',
+        hintStyle: TextStyle(color: AppColors.inkFaint, fontSize: 13),
+        prefixIcon: Padding(
+          padding: const EdgeInsets.all(12),
+          child: AppIcon(AppIconName.search, size: 16, color: AppColors.inkFaint),
+        ),
+        suffixIcon: ValueListenableBuilder<TextEditingValue>(
+          valueListenable: controller,
+          builder: (context, value, _) {
+            if (value.text.isEmpty) return const SizedBox.shrink();
+            return IconButton(
+              padding: EdgeInsets.zero,
+              visualDensity: VisualDensity.compact,
+              icon: AppIcon(AppIconName.close, size: 15, color: AppColors.inkFaint),
+              onPressed: controller.clear,
+            );
+          },
+        ),
+        filled: true,
+        fillColor: AppColors.surface,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          borderSide: BorderSide.none,
+        ),
+        contentPadding: const EdgeInsets.symmetric(vertical: 13),
       ),
     );
   }
@@ -115,96 +374,170 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
 // ---------------------------------------------------------------------------
 
 class _VpnCard extends ConsumerWidget {
-   _VpnCard();
+  const _VpnCard();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final status = ref.watch(vpnStatusProvider);
-    final settings = ref.watch(ulimitSettingsProvider).valueOrNull;
     final running = status.valueOrNull?.running ?? false;
 
-    return PremiumCard(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: running ? AppColors.ink : AppColors.surface2,
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                ),
-                child: AppIcon(
-                  AppIconName.internet,
-                  size: 18,
-                  color: running ? AppColors.bg : AppColors.inkDim,
-                ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: PremiumCard(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: running ? AppColors.ink : AppColors.surface2,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(running ? 'Network protection active' : 'Network protection inactive',
-                        style: TextStyle(
-                            fontSize: AppText.title, fontWeight: FontWeight.w600, color: AppColors.ink)),
-                    Text(
-                      running
-                          ? 'Internet blocks and website filters are enforced'
-                          : 'Turn on to enforce internet & website rules',
-                      style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim),
-                    ),
-                  ],
-                ),
+              child: AppIcon(
+                AppIconName.internet,
+                size: 18,
+                color: running ? AppColors.bg : AppColors.inkDim,
               ),
-              Switch(
-                value: running,
-                onChanged: (v) async {
-                  if (v) {
-                    final ok = await EnforcementChannel.startVpn();
-                    if (ok) {
-                      await ref.read(settingsControllerProvider).setVpnEnabled(true);
-                    }
-                    // reflect the requested state even if the user must
-                    // grant consent next launch; the permission card
-                    // handles the consent flow.
-                    if (!ok && context.mounted) {
-                      showAppSnack(context, 'VPN permission required — approve it in Permissions.');
-                    }
-                  } else {
-                    await EnforcementChannel.stopVpn();
-                    await ref.read(settingsControllerProvider).setVpnEnabled(false);
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text('Protection',
+                  style: TextStyle(
+                      fontSize: AppText.title, fontWeight: FontWeight.w600, color: AppColors.ink)),
+            ),
+            Switch(
+              value: running,
+              onChanged: (v) async {
+                if (v) {
+                  final ok = await EnforcementChannel.startVpn();
+                  if (ok) {
+                    await ref.read(settingsControllerProvider).setVpnEnabled(true);
                   }
-                  ref.invalidate(vpnStatusProvider);
-                  // Re-sync the domain filter with the new VPN session.
-                  ref.read(enforcementSyncProvider).push();
-                },
-              ),
-            ],
-          ),
-          if ((settings?.vpnEnabled ?? false) && !running) ...[
-            const SizedBox(height: 10),
-            Text(
-              'Ulimit will reconnect the VPN automatically after a restart.',
-              style: TextStyle(fontSize: 11, color: AppColors.inkFaint),
+                  // Reflect the requested state even if the user must
+                  // grant consent next launch; the permission card
+                  // handles the consent flow.
+                  if (!ok && context.mounted) {
+                    showAppSnack(context, 'VPN permission required — approve it in Permissions.');
+                  }
+                } else {
+                  await EnforcementChannel.stopVpn();
+                  await ref.read(settingsControllerProvider).setVpnEnabled(false);
+                }
+                ref.invalidate(vpnStatusProvider);
+                // Re-sync the domain filter with the new VPN session.
+                ref.read(enforcementSyncProvider).push();
+              },
             ),
           ],
-        ],
+        ),
       ),
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Per-app internet blocks
+// Column 1 — Filters: downloadable block lists
 // ---------------------------------------------------------------------------
 
-class _InternetBlocksSection extends ConsumerWidget {
-   _InternetBlocksSection();
+class _FiltersColumn extends ConsumerWidget {
+  const _FiltersColumn({required this.query});
+  final String query;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final categories = ref.watch(blockListCategoriesProvider);
+
+    return categories.when(
+      data: (list) {
+        final q = query.trim().toLowerCase();
+        final filtered = list
+            .where((v) =>
+                q.isEmpty ||
+                v.template.title.toLowerCase().contains(q) ||
+                v.template.description.toLowerCase().contains(q))
+            .toList();
+        // Active (downloaded + enabled) lists float to the top so the
+        // column reads active-first.
+        final ordered = [
+          ...filtered.where((v) => v.downloaded && v.enabled),
+          ...filtered.where((v) => !(v.downloaded && v.enabled)),
+        ];
+        if (ordered.isEmpty) {
+          return ListView(
+            physics: springScrollPhysics,
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
+            children: const [_EmptyHint(text: 'No filters match this search')],
+          );
+        }
+        return ListView.builder(
+          physics: springScrollPhysics,
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
+          itemCount: ordered.length,
+          itemBuilder: (context, i) => Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: _BlockListTile(view: ordered[i]),
+          ),
+        );
+      },
+      loading: () => const _ColumnSpinner(),
+      error: (e, _) => _ColumnError(message: 'Could not load filters: $e'),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Column 2 — Custom: manually added domains
+// ---------------------------------------------------------------------------
+
+class _CustomColumn extends ConsumerWidget {
+  const _CustomColumn({required this.query});
+  final String query;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final rules = ref.watch(customWebsiteRulesProvider);
+
+    return rules.when(
+      data: (rows) {
+        final q = query.trim().toLowerCase();
+        final filtered = rows
+            .where((r) => q.isEmpty || r.domain.toLowerCase().contains(q))
+            .toList();
+        if (filtered.isEmpty) {
+          return ListView(
+            physics: springScrollPhysics,
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
+            children: [
+              _EmptyHint(
+                text: q.isEmpty
+                    ? 'No custom sites yet.\nType a domain in the search bar and tap + to add it.'
+                    : 'No custom sites match this search',
+              ),
+            ],
+          );
+        }
+        return ListView.builder(
+          physics: springScrollPhysics,
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
+          itemCount: filtered.length,
+          itemBuilder: (context, i) => _SiteTile(rule: filtered[i]),
+        );
+      },
+      loading: () => const _ColumnSpinner(),
+      error: (e, _) => _ColumnError(message: 'Could not load sites: $e'),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Column 3 — Apps: per-app internet blocks
+// ---------------------------------------------------------------------------
+
+class _AppsColumn extends ConsumerWidget {
+  const _AppsColumn({required this.query});
+  final String query;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -212,51 +545,202 @@ class _InternetBlocksSection extends ConsumerWidget {
     final catalog = ref.watch(appsCatalogProvider);
 
     return blocks.when(
-      data: (rows) => Column(
-        children: [
-          for (final row in rows) ...[
-            _InternetBlockRow(
-              packageName: row.packageName,
-              appName: catalog.valueOrNull?.nameFor(row.packageName) ?? row.packageName,
-            ),
-            const SizedBox(height: 8),
-          ],
-          PressableScale(
-            onTap: () async {
-              final pkg = await showAppSelector(context, title: 'Block internet for');
-              if (pkg == null) return;
-              await ref.read(databaseProvider).setInternetBlocked(pkg, true);
-              ref.read(enforcementSyncProvider).push();
-            },
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                border: Border.all(color: AppColors.stroke),
-                borderRadius: BorderRadius.circular(AppRadius.lg),
+      data: (rows) {
+        final q = query.trim().toLowerCase();
+        final filtered = rows
+            .where((r) =>
+                q.isEmpty ||
+                (catalog.valueOrNull?.nameFor(r.packageName) ?? r.packageName)
+                    .toLowerCase()
+                    .contains(q))
+            .toList();
+        if (filtered.isEmpty) {
+          return ListView(
+            physics: springScrollPhysics,
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
+            children: [
+              _EmptyHint(
+                text: q.isEmpty
+                    ? 'No apps blocked from the internet yet.\nTap "Add app" to pick one.'
+                    : 'No apps match this search',
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  AppIcon(AppIconName.add, size: 15, color: AppColors.inkDim),
-                  const SizedBox(width: 8),
-                  Text('Add app',
-                      style: TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.inkDim)),
-                ],
-              ),
+            ],
+          );
+        }
+        return ListView.builder(
+          physics: springScrollPhysics,
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
+          itemCount: filtered.length,
+          itemBuilder: (context, i) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _InternetBlockRow(
+              packageName: filtered[i].packageName,
+              appName:
+                  catalog.valueOrNull?.nameFor(filtered[i].packageName) ?? filtered[i].packageName,
             ),
           ),
-        ],
-      ),
-      loading: () => const SizedBox(
-          height: 60, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
-      error: (e, _) => Text('Could not load: $e',
-          style: TextStyle(fontSize: 12, color: AppColors.inkFaint)),
+        );
+      },
+      loading: () => const _ColumnSpinner(),
+      error: (e, _) => _ColumnError(message: 'Could not load apps: $e'),
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Column scaffolding
+// ---------------------------------------------------------------------------
+
+class _ColumnSpinner extends StatelessWidget {
+  const _ColumnSpinner();
+
+  @override
+  Widget build(BuildContext context) =>
+      const Center(child: CircularProgressIndicator(strokeWidth: 2));
+}
+
+class _ColumnError extends StatelessWidget {
+  const _ColumnError({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(message,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: AppColors.inkFaint)),
+        ),
+      );
+}
+
+class _EmptyHint extends StatelessWidget {
+  const _EmptyHint({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.stroke),
+      ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 12, color: AppColors.inkFaint, height: 1.5),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Floating action pill
+// ---------------------------------------------------------------------------
+
+/// The floating action: a labeled pill ("Add app" / "Add site") that
+/// morphs into a 48px round plus button via iOS-style fade+scale when
+/// the search query is not in the visible list. Null label + no plus
+/// hides it.
+class _ActionFab extends StatelessWidget {
+  const _ActionFab({this.label, this.plus = false, this.onTap});
+
+  final String? label;
+  final bool plus;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = plus || label != null;
+    return IgnorePointer(
+      ignoring: !visible,
+      child: AnimatedOpacity(
+        opacity: visible ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        child: AnimatedScale(
+          scale: visible ? 1.0 : 0.6,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutBack,
+          child: PressableScale(
+            onTap: visible ? onTap : null,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 260),
+              switchInCurve: Curves.easeOutBack,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.7, end: 1.0).animate(animation),
+                  child: child,
+                ),
+              ),
+              child: plus
+                  ? _FabShell(
+                      key: const ValueKey('plus'),
+                      width: 48,
+                      child: AppIcon(AppIconName.add, size: 22, color: AppColors.bg),
+                    )
+                  : _FabShell(
+                      key: ValueKey('label-$label'),
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AppIcon(AppIconName.add, size: 16, color: AppColors.bg),
+                          const SizedBox(width: 8),
+                          Text(label ?? '',
+                              style: TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.bg)),
+                        ],
+                      ),
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FabShell extends StatelessWidget {
+  const _FabShell({super.key, this.width, this.padding, required this.child});
+
+  final double? width;
+  final EdgeInsetsGeometry? padding;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: 48,
+      padding: padding,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.ink,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rows
+// ---------------------------------------------------------------------------
 
 class _InternetBlockRow extends ConsumerWidget {
   const _InternetBlockRow({required this.packageName, required this.appName});
@@ -298,105 +782,6 @@ class _InternetBlockRow extends ConsumerWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Custom sites
-// ---------------------------------------------------------------------------
-
-class _CustomSitesSection extends ConsumerStatefulWidget {
-   _CustomSitesSection();
-
-  @override
-  ConsumerState<_CustomSitesSection> createState() => _CustomSitesSectionState();
-}
-
-class _CustomSitesSectionState extends ConsumerState<_CustomSitesSection> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final rules = ref.watch(customWebsiteRulesProvider);
-
-    return rules.when(
-      data: (rows) => Column(
-        children: [
-          if (rows.isEmpty)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(AppRadius.lg),
-                border: Border.all(color: AppColors.stroke),
-              ),
-              child: Text(
-                'No custom sites yet.\nAdd any domain — every site you add gets its own toggle.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: AppColors.inkFaint, height: 1.5),
-              ),
-            )
-          else
-            for (final rule in rows)
-              _SiteTile(rule: rule),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _controller,
-                  onChanged: (_) => setState(() {}),
-                  style: TextStyle(color: AppColors.ink, fontSize: 13.5),
-                  decoration: InputDecoration(
-                    hintText: 'Add a website, e.g. example.com',
-                    hintStyle: TextStyle(color: AppColors.inkFaint, fontSize: 12.5),
-                    filled: true,
-                    fillColor: AppColors.surface,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              PressableScale(
-                onTap: _addDomain,
-                child: Container(
-                  padding: const EdgeInsets.all(13),
-                  decoration: BoxDecoration(
-                    color: AppColors.ink,
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                  ),
-                  child: AppIcon(AppIconName.add, size: 18, color: AppColors.bg),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-      loading: () => const SizedBox.shrink(),
-      error: (e, _) => Text('Could not load sites: $e',
-          style: TextStyle(fontSize: 12, color: AppColors.inkFaint)),
-    );
-  }
-
-  Future<void> _addDomain() async {
-    final db = ref.read(databaseProvider);
-    final ok = await db.addCustomDomain(_controller.text);
-    _controller.clear();
-    if (!ok && mounted) {
-      showAppSnack(context, 'Enter a valid domain, e.g. example.com');
-    }
-    ref.read(enforcementSyncProvider).push();
-  }
-}
-
 /// The per-site row: a long horizontal tile with no border — domain on
 /// the left, its own enable/disable toggle on the right. Used for every
 /// site in every list (custom + downloaded categories).
@@ -431,7 +816,7 @@ class _SiteTile extends ConsumerWidget {
               ref.read(enforcementSyncProvider).push();
             },
             activeTrackColor: AppColors.ink,
-            activeColor: AppColors.bg,
+            activeThumbColor: AppColors.bg,
           ),
         ],
       ),
@@ -442,126 +827,6 @@ class _SiteTile extends ConsumerWidget {
 // ---------------------------------------------------------------------------
 // Block lists
 // ---------------------------------------------------------------------------
-
-class _BlockListSection extends ConsumerWidget {
-   _BlockListSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final categories = ref.watch(blockListCategoriesProvider);
-
-    return categories.when(
-      // Only categories that are not yet active appear in the browse
-      // list — enabled ones live under ACTIVE BLOCKS at the top.
-      data: (list) => Column(
-        children: [
-          for (final view in list)
-            if (!(view.downloaded && view.enabled)) ...[
-              _BlockListTile(view: view),
-              const SizedBox(height: 6),
-            ],
-        ],
-      ),
-      loading: () => const SizedBox.shrink(),
-      error: (e, _) => Text('Could not load lists: $e',
-          style: TextStyle(fontSize: 12, color: AppColors.inkFaint)),
-    );
-  }
-}
-
-/// ACTIVE BLOCKS: every downloaded block list whose filter is
-/// currently enabled. Toggling one off removes it from this section
-/// immediately and disables its filter; tapping opens its site list.
-class _ActiveBlocksSection extends ConsumerWidget {
-   _ActiveBlocksSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final categories = ref.watch(blockListCategoriesProvider);
-
-    return categories.when(
-      data: (list) {
-        final active = list.where((v) => v.downloaded && v.enabled).toList();
-        if (active.isEmpty) {
-          return Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              border: Border.all(color: AppColors.stroke),
-            ),
-            child: Text(
-              'No active block lists yet.\nBrowse the lists below to enable one.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: AppColors.inkFaint, height: 1.5),
-            ),
-          );
-        }
-        return Column(
-          children: [
-            for (final view in active) ...[
-              _BlockListTile(view: view),
-              const SizedBox(height: 6),
-            ],
-          ],
-        );
-      },
-      loading: () => const SizedBox.shrink(),
-      error: (e, _) => Text('Could not load lists: $e',
-          style: TextStyle(fontSize: 12, color: AppColors.inkFaint)),
-    );
-  }
-}
-
-/// Opens the browse sheet with the categories that are not currently
-/// active (download, enable, remove from there).
-class _BrowseBlockListsTile extends StatelessWidget {
-   _BrowseBlockListsTile();
-
-  @override
-  Widget build(BuildContext context) {
-    return PressableScale(
-      onTap: () {
-        showAppSheet<void>(
-          context: context,
-          title: 'Block Lists',
-          subtitle:
-              'Curated domain lists by category. Download a list, toggle '
-              'individual sites on or off. Enabled lists move to ACTIVE BLOCKS.',
-          initialSize: 0.92,
-          minSize: 0.4,
-          builder: (_, scrollController) => SingleChildScrollView(
-            controller: scrollController,
-            physics: springScrollPhysics,
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-            child:  _BlockListSection(),
-          ),
-        );
-      },
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 15),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          border: Border.all(color: AppColors.stroke),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppIcon(AppIconName.filter, size: 15, color: AppColors.inkDim),
-            const SizedBox(width: 8),
-            Text('Browse all block lists',
-                style: TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.inkDim)),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _BlockListTile extends ConsumerWidget {
   const _BlockListTile({required this.view});
@@ -673,7 +938,7 @@ class _BlockListTile extends ConsumerWidget {
         GestureDetector(
           onTap: () => _openSites(context, ref),
           child: Padding(
-            padding: EdgeInsets.only(top: 2),
+            padding: const EdgeInsets.only(top: 2),
             child: Text('View sites',
                 style: TextStyle(fontSize: 10, color: AppColors.inkFaint)),
           ),
@@ -692,12 +957,12 @@ class _BlockListTile extends ConsumerWidget {
                 ref.read(enforcementSyncProvider).push();
               }
             },
-          child: Padding(
-            padding: EdgeInsets.only(top: 4),
-            child: Text('Remove list',
-                style: TextStyle(fontSize: 10, color: AppColors.inkFaint)),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('Remove list',
+                  style: TextStyle(fontSize: 10, color: AppColors.inkFaint)),
+            ),
           ),
-        ),
       ],
     );
   }

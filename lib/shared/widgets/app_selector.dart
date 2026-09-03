@@ -68,6 +68,7 @@ Future<dynamic> showAppSelector(
   required String title,
   bool multiSelect = false,
   Set<String> initiallySelected = const {},
+  String initialQuery = '',
 }) {
   return showAppSheet<dynamic>(
     context: context,
@@ -76,6 +77,7 @@ Future<dynamic> showAppSelector(
     builder: (_, scrollController) => _AppSelectorSheet(
       multiSelect: multiSelect,
       initiallySelected: initiallySelected,
+      initialQuery: initialQuery,
       scrollController: scrollController,
     ),
   );
@@ -85,11 +87,13 @@ class _AppSelectorSheet extends ConsumerStatefulWidget {
   const _AppSelectorSheet({
     required this.multiSelect,
     required this.initiallySelected,
+    required this.initialQuery,
     required this.scrollController,
   });
 
   final bool multiSelect;
   final Set<String> initiallySelected;
+  final String initialQuery;
 
   /// The sheet system's controller — MUST be attached to the list so
   /// at-top downward drags hand off to dragging the sheet.
@@ -100,13 +104,13 @@ class _AppSelectorSheet extends ConsumerStatefulWidget {
 }
 
 class _AppSelectorSheetState extends ConsumerState<_AppSelectorSheet> {
-  String _query = '';
-  late Set<String> _selected;
+  late String _query;
+  late final Set<String> _selected = {...widget.initiallySelected};
 
   @override
   void initState() {
     super.initState();
-    _selected = {...widget.initiallySelected};
+    _query = widget.initialQuery;
   }
 
   @override
@@ -358,5 +362,6 @@ Future<DateTime?> showDurationSelector(BuildContext context, String appLabel) as
     ),
   );
   if (choice == null) return null;
+  if (!context.mounted) return null;
   return resolveChoiceEnd(context, choice);
 }
