@@ -11,6 +11,7 @@ import '../../data/db/app_database.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_selector.dart';
+import '../../shared/widgets/duration_flow.dart';
 import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
@@ -233,9 +234,9 @@ class _ActiveRestrictionRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(evaluationTickProvider);
 
-    final until = restriction.permanent
-        ? 'Until manually removed'
-        : 'Until ${_formatExpiry(restriction.expiresAt!)}';
+    // "Until HH:MM" was replaced by a live rolling countdown (see the
+    // FlowDurationText row below); permanent blocks keep the static
+    // label inline.
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -263,11 +264,25 @@ class _ActiveRestrictionRow extends ConsumerWidget {
                       AppIcon(AppIconName.lock, size: 10, color: AppColors.inkDim),
                       const SizedBox(width: 4),
                     ],
-                    Flexible(
-                      child: Text(until,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 11, color: AppColors.inkDim)),
-                    ),
+                    if (restriction.permanent)
+                      Flexible(
+                        child: Text('Until manually removed',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 11, color: AppColors.inkDim)),
+                      )
+                    else
+                      Flexible(
+                        child: FlowDurationText(
+                          _remainingUntil(restriction.expiresAt!),
+                          suffix: ' left',
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.ink),
+                          suffixStyle:
+                              TextStyle(fontSize: 11, color: AppColors.inkDim),
+                        ),
+                      ),
                   ],
                 ),
               ],
@@ -282,17 +297,17 @@ class _ActiveRestrictionRow extends ConsumerWidget {
     );
   }
 
-  String _formatExpiry(DateTime expiresAt) {
-    final now = DateTime.now();
-    final remaining = expiresAt.difference(now);
-    if (remaining.inHours >= 24) {
-      return '${remaining.inDays + 1}d from now';
-    }
-    if (remaining.inHours >= 1) {
-      return '${remaining.inHours}h ${remaining.inMinutes % 60}m';
-    }
-    return '${remaining.inMinutes.clamp(1, 59)}m';
+  /// Live remaining time until this restriction expires, clamped so a
+  /// just-passed expiry never renders as negative.
+  Duration _remainingUntil(DateTime expiresAt) {
+    final remaining = expiresAt.difference(DateTime.now());
+    if (remaining.isNegative) return Duration.zero;
+    // Coarse display: sub-minute blocks read as one minute, same as the
+    // old formatter's clamp(1, 59).
+    if (remaining < const Duration(minutes: 1)) return const Duration(minutes: 1);
+    return remaining;
   }
+
   Future<void> _remove(BuildContext context, WidgetRef ref) async {
     if (restriction.invincible || protectedByBiometric) {
       final ok = await NativePermissions.authenticate(

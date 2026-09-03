@@ -11,6 +11,7 @@ import '../../data/db/app_database.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
 import '../../shared/widgets/app_selector.dart';
+import '../../shared/widgets/duration_flow.dart';
 import '../../shared/widgets/pressable_scale.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
@@ -245,12 +246,19 @@ class _AppLimitRow extends ConsumerWidget {
                       style: TextStyle(
                           fontSize: 13.5, fontWeight: FontWeight.w600, color: AppColors.ink)),
                 ),
-                Text(
-                  over
-                      ? 'Limit reached'
-                      : '${formatDurationShort(Duration(seconds: view.remainingSeconds))} left',
-                  style: TextStyle(fontSize: 11, color: over ? AppColors.ink : AppColors.inkDim),
-                ),
+                over
+                    ? Text('Limit reached',
+                        style: TextStyle(fontSize: 11, color: AppColors.ink))
+                    : FlowDurationText(
+                        Duration(seconds: view.remainingSeconds),
+                        suffix: ' left',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.ink),
+                        suffixStyle: TextStyle(
+                            fontSize: 11, color: AppColors.inkDim),
+                      ),
                 const SizedBox(width: 6),
                 AppIcon(AppIconName.chevronRight, size: 13, color: AppColors.inkFaint),
               ],
@@ -275,10 +283,14 @@ class _AppLimitRow extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                Text(
-                  '${formatDurationShort(Duration(seconds: view.usedSeconds))} / '
-                  '${formatDurationShort(Duration(seconds: view.limitSeconds))}',
-                  style: TextStyle(fontSize: 10.5, color: AppColors.inkFaint),
+                FlowDurationText(
+                  Duration(seconds: view.usedSeconds),
+                  suffix: ' / ${formatDurationShort(Duration(seconds: view.limitSeconds))}',
+                  style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.inkFaint),
+                  suffixStyle: TextStyle(fontSize: 10.5, color: AppColors.inkFaint),
                 ),
               ],
             ),
@@ -366,10 +378,13 @@ class _LimitEditorSheetState extends State<LimitEditorSheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            formatDurationShort(Duration(minutes: _minutes.round())),
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 34, fontWeight: FontWeight.w600, color: AppColors.ink),
+          Center(
+            child: DurationFlow(
+              Duration(minutes: _minutes.round()),
+              showSeconds: false,
+              style: TextStyle(
+                  fontSize: 34, fontWeight: FontWeight.w600, color: AppColors.ink),
+            ),
           ),
           Slider(
             value: _minutes.clamp(5, 360),
@@ -450,13 +465,20 @@ class _GroupCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: AppColors.ink)),
               ),
-              Text(
-                hasLimit
-                    ? '${formatDurationShort(Duration(seconds: group.usedSeconds))} / '
-                        '${formatDurationShort(Duration(seconds: group.limitSeconds))}'
-                    : 'No limit',
-                style: TextStyle(fontSize: 11, color: AppColors.inkDim),
-              ),
+              hasLimit
+                  ? FlowDurationText(
+                      Duration(seconds: group.usedSeconds),
+                      suffix:
+                          ' / ${formatDurationShort(Duration(seconds: group.limitSeconds))}',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.inkDim),
+                      suffixStyle:
+                          TextStyle(fontSize: 11, color: AppColors.inkDim),
+                    )
+                  : Text('No limit',
+                      style: TextStyle(fontSize: 11, color: AppColors.inkDim)),
             ],
           ),
           const SizedBox(height: 10),

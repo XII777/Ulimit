@@ -454,15 +454,27 @@ class _RunningFocusView extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  untimed ? 'UNTIMED' : formatClock(remaining),
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: untimed ? 30 : 40,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.ink,
-                    fontFeatures: const [FontFeature.tabularFigures()],
+                if (!untimed)
+                  DurationFlow(
+                    remaining,
+                    showSeconds: true,
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 40,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.ink,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  )
+                else
+                  Text(
+                    'UNTIMED',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 30,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.ink,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
                   ),
-                ),
                 const SizedBox(height: 6),
                 Text(
                   paused
@@ -676,7 +688,7 @@ class _RollingFocusViewState extends ConsumerState<_RollingFocusView> {
                             ),
                           )
                         : DurationFlow(
-                            duration: Duration(seconds: remaining.inSeconds),
+                            Duration(seconds: remaining.inSeconds),
                             style: TextStyle(
                               fontSize: 200,
                               fontWeight: FontWeight.w700,
@@ -1051,13 +1063,20 @@ class _CustomDurationSheetState extends State<_CustomDurationSheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            valid
-                ? formatDurationShort(Duration(minutes: minutes))
-                : 'Enter 5–720 minutes',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600, color: AppColors.ink),
-          ),
+          valid
+              ? Center(
+                  child: DurationFlow(
+                    Duration(minutes: minutes),
+                    showSeconds: false,
+                    style: TextStyle(
+                        fontSize: 28, fontWeight: FontWeight.w600, color: AppColors.ink),
+                  ),
+                )
+              : Text(
+                  'Enter 5–720 minutes',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600, color: AppColors.ink),
+                ),
           const SizedBox(height: 4),
           Row(
             children: [

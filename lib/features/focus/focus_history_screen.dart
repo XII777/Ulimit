@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/engine/restriction_engine.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/db/app_database.dart';
 import '../../data/focus_providers.dart';
+import '../../shared/widgets/duration_flow.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
 /// Focus Time history: all completed sessions grouped by local calendar
@@ -143,12 +143,15 @@ class _DayGroup extends ConsumerWidget {
             Text(_dayLabel(day),
                 style: TextStyle(
                     fontSize: AppText.title, fontWeight: FontWeight.w600, color: AppColors.ink)),
-            Text(formatDurationHMS(Duration(seconds: totalSeconds)),
-                style: TextStyle(
-                    fontSize: AppText.title,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.ink,
-                    fontFeatures: [FontFeature.tabularFigures()])),
+            FlowDurationText(
+              Duration(seconds: totalSeconds),
+              suffix: '',
+              showSeconds: true,
+              style: TextStyle(
+                  fontSize: AppText.title,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.ink),
+            ),
           ],
         ),
         const SizedBox(height: 2),
@@ -233,12 +236,15 @@ class _SessionTile extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(formatDurationHMS(Duration(seconds: duration)),
-                  style: TextStyle(
-                      fontSize: AppText.body,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.ink,
-                      fontFeatures: [FontFeature.tabularFigures()])),
+              FlowDurationText(
+                Duration(seconds: duration),
+                suffix: '',
+                showSeconds: true,
+                style: TextStyle(
+                    fontSize: AppText.body,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.ink),
+              ),
               const SizedBox(height: 2),
               Text(
                 completed ? 'Completed' : 'Ended early',

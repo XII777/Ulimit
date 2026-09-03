@@ -77,7 +77,12 @@ class HomeScreen extends ConsumerWidget {
             Expanded(
               child: _MiniTrendCard(
                 label: 'Pickups / Day',
-                valueText: _formatPickupsAvg(weeklyPickups.valueOrNull),
+                valueCount: weeklyPickups.valueOrNull == null ||
+                        weeklyPickups.valueOrNull!.isEmpty
+                    ? null
+                    : (weeklyPickups.valueOrNull!.reduce((a, b) => a + b) /
+                            weeklyPickups.valueOrNull!.length)
+                        .round(),
                 values: [
                   for (final v in weeklyPickups.valueOrNull ?? const <int>[]) v.toDouble()
                 ],
@@ -95,11 +100,6 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  String _formatPickupsAvg(List<int>? days) {
-    if (days == null || days.isEmpty) return '—';
-    final avg = days.reduce((a, b) => a + b) / days.length;
-    return avg.round().toString();
-  }
 }
 
 class _Header extends StatelessWidget {
@@ -161,7 +161,7 @@ class _ScreenTimeCard extends ConsumerWidget {
           const SizedBox(height: 8),
           Center(
             child: DurationFlow(
-              duration: Duration(seconds: seconds),
+              Duration(seconds: seconds),
               style: TextStyle(
                   fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
             ),
@@ -219,7 +219,7 @@ class _FocusTimeCard extends ConsumerWidget {
             const SizedBox(height: 8),
             Center(
               child: DurationFlow(
-                duration: Duration(seconds: seconds),
+                Duration(seconds: seconds),
                 style: TextStyle(
                     fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
               ),
@@ -374,7 +374,7 @@ class _WeeklyTrendCard extends ConsumerWidget {
           const SizedBox(height: 4),
           (hasData || todaySeconds > 0)
               ? DurationFlow(
-                  duration: Duration(seconds: todaySeconds),
+                  Duration(seconds: todaySeconds),
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
                 )
               : Text('No data yet',
@@ -437,15 +437,17 @@ class _DayLabel extends StatelessWidget {
 class _MiniTrendCard extends StatelessWidget {
   const _MiniTrendCard({
     required this.label,
-    this.valueText,
     this.valueDuration,
+    this.valueCount,
     required this.values,
     required this.delta,
   });
 
   final String label;
-  final String? valueText;
   final Duration? valueDuration;
+
+  /// Rolling-integer display for count-style trends ("Pickups / Day").
+  final int? valueCount;
   final List<double> values;
   final TrendDelta delta;
 
@@ -463,14 +465,20 @@ class _MiniTrendCard extends StatelessWidget {
           const SizedBox(height: 6),
           valueDuration != null
               ? DurationFlow(
-                  duration: valueDuration!,
+                  valueDuration!,
                   style:
                       TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
                 )
-              : Text(
-                  valueText ?? '',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
-                ),
+              : valueCount != null
+                  ? FlowNumber(
+                      valueCount!,
+                      style: TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
+                    )
+                  : const SizedBox(
+                      height: 19,
+                      width: double.infinity,
+                    ),
           if (delta.hasData) ...[
             const SizedBox(height: 2),
             _DeltaLabel(delta: delta),
