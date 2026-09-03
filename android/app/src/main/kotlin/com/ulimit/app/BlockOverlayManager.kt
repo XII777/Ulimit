@@ -113,13 +113,12 @@ class BlockOverlayManager(
             }
 
         fun centerIcon(holder: android.widget.FrameLayout, icon: android.graphics.drawable.Drawable?, sizeDp: Int) {
-            holder.gravity = Gravity.CENTER
             icon?.let {
                 holder.addView(
                     ImageView(context).apply {
                         setImageDrawable(it)
                         layoutParams = android.widget.FrameLayout.LayoutParams(
-                            dp(sizeDp), dp(sizeDp)
+                            dp(sizeDp), dp(sizeDp), Gravity.CENTER
                         )
                     }
                 )
