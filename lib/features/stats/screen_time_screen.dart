@@ -94,7 +94,7 @@ class _ScreenTimeScreenState extends ConsumerState<ScreenTimeScreen> {
                 const SizedBox(height: 4),
                 dayTotalSeconds > 0
                     ? DurationFlow(
-                        duration: Duration(seconds: dayTotalSeconds),
+                        Duration(seconds: dayTotalSeconds),
                         style: TextStyle(
                             fontSize: 22, fontWeight: FontWeight.w600, color: AppColors.ink),
                       )
