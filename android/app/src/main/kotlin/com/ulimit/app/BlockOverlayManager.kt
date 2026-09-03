@@ -430,7 +430,11 @@ class BlockOverlayManager(
     /**
      * The circular 10s counter inside the pill: a track ring with a
      * depleting progress arc (starts at 12 o'clock) and the live
-     * seconds centered inside.
+     * seconds rolling odometer-style inside — the same springy
+     * vertical roll as the app's NumberFlow rolling digits: on each
+     * tick the old value slides down and out while the new value
+     * springs in from above (decelerating with a slight overshoot),
+     * clipped to the ring's inner circle.
      */
     private class CountdownRing(context: Context) : View(context) {
 
@@ -455,18 +459,41 @@ class BlockOverlayManager(
             textAlign = Paint.Align.CENTER
         }
 
-        /** Remaining fraction 1 → 0. */
+        /** Remaining fraction 1 → 0 for the arc. */
         var progress = 1f
             set(value) {
                 field = value.coerceIn(0f, 1f)
                 invalidate()
             }
 
+        private var currentText = "10s"
+        private var previousText: String? = null
+        private var rollFraction = 1f
+        private var rollAnimator: android.animation.ValueAnimator? = null
+
         var secondsLeft = 10
             set(value) {
                 field = value
-                invalidate()
+                rollTo("${value}s")
             }
+
+        /** Odometer roll: the outgoing value slides down and out while
+         *  the incoming value springs in from above. NumberFlow-style. */
+        private fun rollTo(newText: String) {
+            if (newText == currentText) return
+            previousText = currentText
+            currentText = newText
+            rollAnimator?.cancel()
+            rollAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 340
+                interpolator = OvershootInterpolator(1.2f)
+                addUpdateListener { animation ->
+                    rollFraction = animation.animatedValue as Float
+                    invalidate()
+                }
+                start()
+            }
+        }
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
@@ -476,8 +503,31 @@ class BlockOverlayManager(
             val rect = RectF(cx - r, cy - r, cx + r, cy + r)
             canvas.drawArc(rect, 0f, 360f, false, track)
             canvas.drawArc(rect, -90f, 360f * progress, false, arc)
+
+            // Rolling digits, clipped so they never paint over the ring.
+            val pad = track.strokeWidth + label.textSize * 0.15f
+            canvas.save()
+            canvas.clipRect(cx - r + pad, cy - r + pad, cx + r - pad, cy + r - pad)
+            val prev = previousText
+            // Strict ==1: the overshoot interpolator exceeds 1 briefly —
+            // that overshoot IS the spring bounce and must keep drawing.
+            if (prev == null || rollFraction == 1f) {
+                drawCentered(canvas, cx, cy, currentText, 1f)
+            } else {
+                val roll = label.textSize * 1.05f
+                // Outgoing: center → below (fades out).
+                drawCentered(canvas, cx, cy + rollFraction * roll, prev, 1f - rollFraction)
+                // Incoming: above → center (springs in).
+                drawCentered(canvas, cx, cy - (1f - rollFraction) * roll, currentText, rollFraction)
+            }
+            canvas.restore()
+        }
+
+        private fun drawCentered(canvas: Canvas, cx: Float, cy: Float, text: String, alpha: Float) {
+            label.alpha = (255 * alpha.coerceIn(0f, 1f)).toInt()
             val textY = cy - (label.ascent() + label.descent()) / 2f
-            canvas.drawText("${secondsLeft}s", cx, textY, label)
+            canvas.drawText(text, cx, textY, label)
+            label.alpha = 255
         }
     }
 }
