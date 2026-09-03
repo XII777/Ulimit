@@ -23,7 +23,19 @@ object UlimitChannels {
                     "pushSnapshot" -> {
                         val obj = org.json.JSONObject()
                         @Suppress("UNCHECKED_CAST")
-                        (call.arguments as? Map<String, Any?>)?.forEach { (k, v) -> obj.put(k, v) }
+                        (call.arguments as? Map<String, Any?>)?.forEach { (k, v) ->
+                            // CRITICAL: wrap nested Dart structures. The
+                            // StandardMessageCodec decodes Dart List/Map as
+                            // raw java.util.ArrayList/HashMap, and
+                            // JSONObject.toString() STRINGIFIES raw
+                            // collections instead of emitting JSON — the
+                            // persisted snapshot then parses back with
+                            // EMPTY blockedNow/manual while top-level
+                            // scalars (pushedAtMillis) survive. Blocking
+                            // looked wired but never had a policy. wrap()
+                            // converts them to real JSONArray/JSONObject.
+                            obj.put(k, org.json.JSONObject.wrap(v))
+                        }
                         PolicySnapshot.write(context, obj.toString())
                         // Keep the standalone enforcement service in step
                         // with policy: start it as soon as any restriction

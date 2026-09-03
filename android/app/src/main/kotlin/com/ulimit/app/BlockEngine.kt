@@ -125,6 +125,11 @@ object BlockEngine {
         synchronized(diagEvents) {
             for (e in diagEvents.asReversed()) sb.append(e).append('\n')
         }
+        // Ground truth: the exact persisted snapshot. If blockedNow/manual
+        // look like quoted Java toString output here, the write path is
+        // broken; if they're real JSON, parse is broken.
+        val raw = PolicySnapshot.prefs(context).getString(PolicySnapshot.KEY_SNAPSHOT, null)
+        sb.append("raw snapshot: ${raw?.take(700) ?: "-"}\n")
         return sb.toString()
     }
 
