@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,9 +20,10 @@ import '../../shared/widgets/spring_scroll.dart';
 
 /// Internet & Sites: local VPN protection plus three swipeable columns —
 /// Filters (downloadable block lists), Custom (hand-added domains) and
-/// Apps (per-app internet blocking) — driven by one wide search bar and
-/// a floating action pill that morphs into a plus button whenever the
-/// typed text is not in the visible list.
+/// Apps (per-app internet blocking) — driven by one nav-bar-style
+/// bottom control: the three pills and a "Search" text field share a
+/// single line, anchored with the same bottom inset as the app's
+/// floating nav pill. The active pill moves with a soft jelly stretch.
 class InternetSitesScreen extends ConsumerStatefulWidget {
   const InternetSitesScreen({super.key});
 
@@ -30,12 +32,42 @@ class InternetSitesScreen extends ConsumerStatefulWidget {
 }
 
 class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final PageController _pageController = PageController();
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
   String _query = '';
   int _column = 0;
+
+  /// Jelly controller for the active pill: the pill first SQUASHES
+  /// (stretches along its travel axis, like a water droplet gathering
+  /// momentum), then glides to the target column and relaxes back with
+  /// a springy overshoot. Duration scales with travel distance.
+  late final AnimationController _jelly = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 650),
+  );
+  late final CurvedAnimation _jellyMove = CurvedAnimation(
+    parent: _jelly,
+    // The position lands at 62% of the timeline — in sync with the
+    // PageView's own 380ms arrival — leaving the remaining 38% for the
+    // pure in-place elastic wobble.
+    curve: const Interval(0.0, 0.62, curve: Curves.easeInOutCubic),
+  );
+  late final CurvedAnimation _jellyStretch = CurvedAnimation(
+    parent: _jelly,
+    // The stretch-load happens up front: the pill squashes against its
+    // slot before departing, then relaxes into flight.
+    curve: const Interval(0.0, 0.35, curve: Curves.easeOut),
+  );
+  late final CurvedAnimation _jellySettle = CurvedAnimation(
+    parent: _jelly,
+    // Linear over the landing window; the wobble shape itself (a damped
+    // sine) is computed in the pill builder.
+    curve: const Interval(0.62, 1.0, curve: Curves.linear),
+  );
+  double _jellyFrom = 0;
+  double _jellyTo = 0;
 
   @override
   void initState() {
@@ -47,6 +79,7 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _jelly.dispose();
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     _searchFocus.dispose();
@@ -66,13 +99,20 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
     setState(() => _query = _searchController.text);
   }
 
+  /// Tap on a pill: the jelly animation leads the way (stretch → glide
+  /// → elastic settle) while the PageView follows with a matched ease.
   void _goToColumn(int index) {
     FocusScope.of(context).unfocus();
     if (index == _column) return;
+    _jellyFrom = _column.toDouble();
+    _jellyTo = index.toDouble();
+    _jelly
+      ..reset()
+      ..forward();
     _pageController.animateToPage(
       index,
       duration: const Duration(milliseconds: 380),
-      curve: Curves.easeOutCubic,
+      curve: Curves.easeInOutCubic,
     );
   }
 
@@ -148,125 +188,74 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
   @override
   Widget build(BuildContext context) {
     final fab = _resolveFab();
-
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: Stack(
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    // Rebuild on every jelly tick so the bottom bar's jellyPlaying flag
+    // (and thus the pill's finger/page tracking vs. animation tracking)
+    // stays live.
+    return AnimatedBuilder(
+      animation: _jelly,
+      builder: (context, _) {
+        return Scaffold(
+          backgroundColor: AppColors.bg,
+          // The body scrolls edge-to-edge behind the floating bottom
+          // control, exactly like the nav shell (extendBody + transparent
+          // strip).
+          extendBody: true,
+          body: SafeArea(
+            bottom: false,
+            child: Stack(
               children: [
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
-                  child: PremiumHeader(
-                    title: 'Internet & Sites',
-                    subtitle: 'Local, on-device filtering — no remote proxy',
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
+                      child: PremiumHeader(
+                        title: 'Internet & Sites',
+                        subtitle: 'Local, on-device filtering — no remote proxy',
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    const _VpnCard(),
+                    const SizedBox(height: 20),
+                    Expanded(
+                      child: PageView(
+                        controller: _pageController,
+                        onPageChanged: _onPageChanged,
+                        children: [
+                          _FiltersColumn(query: _query),
+                          _CustomColumn(query: _query),
+                          _AppsColumn(query: _query),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 18),
-                const _VpnCard(),
-                const SizedBox(height: 20),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: _ColumnPills(
-                          controller: _pageController,
-                          activeIndex: _column,
-                          onTap: _goToColumn,
-                        ),
-                      ),
-                      // The pills and the search bar never touch.
-                      const SizedBox(height: 16),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: _SearchBar(
-                          controller: _searchController,
-                          focusNode: _searchFocus,
-                        ),
-                      ),
-                      Expanded(
-                        child: PageView(
-                          controller: _pageController,
-                          onPageChanged: _onPageChanged,
-                          children: [
-                            _FiltersColumn(query: _query),
-                            _CustomColumn(query: _query),
-                            _AppsColumn(query: _query),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                // Floating action pill sits directly ABOVE the bottom
+                // bar — same 96dp strip the snackbar uses.
+                Positioned(
+                  right: 20,
+                  bottom: 96,
+                  child: _ActionFab(label: fab.label, plus: fab.plus, onTap: fab.onTap),
                 ),
               ],
             ),
-            // Floating above the nav pill, mirroring the snackbar inset.
-            Positioned(
-              right: 20,
-              bottom: 96,
-              child: _ActionFab(label: fab.label, plus: fab.plus, onTap: fab.onTap),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Column pills
-// ---------------------------------------------------------------------------
-
-/// The three horizontal column selectors in one capsule. The ink-filled
-/// pill tracks the swipe like the floating nav pill does, so tapping a
-/// pill and swiping share one motion language.
-class _ColumnPills extends StatelessWidget {
-  const _ColumnPills({
-    required this.controller,
-    required this.activeIndex,
-    required this.onTap,
-  });
-
-  final PageController controller;
-  final int activeIndex;
-  final ValueChanged<int> onTap;
-
-  static const _labels = ['Filters', 'Custom', 'Apps'];
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (context, _) {
-        final page = controller.hasClients
-            ? (controller.page ?? activeIndex.toDouble())
-            : activeIndex.toDouble();
-        final settled = page.round().clamp(0, _labels.length - 1);
-        final flow = (page - settled).clamp(-0.5, 0.5);
-        return Container(
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: AppColors.surface2,
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            border: Border.all(color: AppColors.stroke),
           ),
-          child: Row(
-            children: [
-              for (var i = 0; i < _labels.length; i++)
-                Expanded(
-                  child: _Pill(
-                    label: _labels[i],
-                    active: i == settled,
-                    flow: flow,
-                    onTap: () => onTap(i),
-                  ),
-                ),
-            ],
+          // Nav-bar-style floating bottom control: the three column
+          // pills and the Search field share ONE line, anchored with the
+          // same horizontal padding + bottom inset as the app's floating
+          // nav pill (see NavShell: 16 side, 12 above the gesture inset).
+          bottomNavigationBar: _BottomControlBar(
+            pageController: _pageController,
+            activeIndex: _column,
+            jellyFrom: _jellyFrom,
+            jellyTo: _jellyTo,
+            jellyMove: _jellyMove,
+            jellyStretch: _jellyStretch,
+            jellySettle: _jellySettle,
+            jellyPlaying: _jelly.isAnimating,
+            onTap: _goToColumn,
+            searchController: _searchController,
+            searchFocus: _searchFocus,
           ),
         );
       },
@@ -274,8 +263,212 @@ class _ColumnPills extends StatelessWidget {
   }
 }
 
-class _Pill extends StatelessWidget {
-  const _Pill({
+// ---------------------------------------------------------------------------
+// Bottom control bar (nav-style: pills + search on one line)
+// ---------------------------------------------------------------------------
+
+class _BottomControlBar extends StatelessWidget {
+  const _BottomControlBar({
+    required this.pageController,
+    required this.activeIndex,
+    required this.jellyFrom,
+    required this.jellyTo,
+    required this.jellyMove,
+    required this.jellyStretch,
+    required this.jellySettle,
+    required this.jellyPlaying,
+    required this.onTap,
+    required this.searchController,
+    required this.searchFocus,
+  });
+
+  final PageController pageController;
+  final int activeIndex;
+  final double jellyFrom;
+  final double jellyTo;
+  final Animation<double> jellyMove;
+  final Animation<double> jellyStretch;
+  final Animation<double> jellySettle;
+  final bool jellyPlaying;
+  final ValueChanged<int> onTap;
+  final TextEditingController searchController;
+  final FocusNode searchFocus;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.transparent,
+      padding: EdgeInsets.fromLTRB(16, 6, 16, MediaQuery.paddingOf(context).bottom + 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: _ColumnPills(
+              controller: pageController,
+              activeIndex: activeIndex,
+              jellyFrom: jellyFrom,
+              jellyTo: jellyTo,
+              jellyMove: jellyMove,
+              jellyStretch: jellyStretch,
+              jellySettle: jellySettle,
+              jellyPlaying: jellyPlaying,
+              onTap: onTap,
+            ),
+          ),
+          const SizedBox(width: 10),
+          _SearchField(controller: searchController, focusNode: searchFocus),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Column pills — jelly active indicator
+// ---------------------------------------------------------------------------
+
+/// The three horizontal column selectors in one capsule, styled like
+/// the floating nav bar (surface2 fill, hairline stroke). The active
+/// ink pill is a JELLY: a tap first squashes/stretch-loads it on its
+/// travel axis, it then glides to the target column, and lands with an
+/// elastic wobble (overshoot + squash rebound) — a water droplet pulled
+/// from one slot to another. During finger swipes it tracks the page
+/// fraction like the nav pill does.
+class _ColumnPills extends StatelessWidget {
+  const _ColumnPills({
+    required this.controller,
+    required this.activeIndex,
+    required this.jellyFrom,
+    required this.jellyTo,
+    required this.jellyMove,
+    required this.jellyStretch,
+    required this.jellySettle,
+    required this.jellyPlaying,
+    required this.onTap,
+  });
+
+  final PageController controller;
+  final int activeIndex;
+
+  /// Jelly animation state (idle = from == to == activeIndex).
+  final double jellyFrom;
+  final double jellyTo;
+  final Animation<double> jellyMove;
+  final Animation<double> jellyStretch;
+  final Animation<double> jellySettle;
+  final bool jellyPlaying;
+  final ValueChanged<int> onTap;
+
+  static const _labels = ['Filters', 'Custom', 'Apps'];
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([controller, jellyMove]),
+      builder: (context, _) {
+        final page = controller.hasClients
+            ? (controller.page ?? activeIndex.toDouble())
+            : activeIndex.toDouble();
+        final settled = page.round().clamp(0, _labels.length - 1);
+        final swipeFlow = (page - settled).clamp(-0.5, 0.5);
+
+        // ---- Jelly position ----
+        // While the tap-driven jelly animation plays, the pill rides the
+        // eased from→to curve instead of the finger/page position.
+        double pillPos;
+        if (jellyPlaying) {
+          pillPos = jellyFrom + (jellyTo - jellyFrom) * jellyMove.value;
+        } else {
+          pillPos = page.toDouble();
+        }
+
+        // ---- Jelly stretch factor ----
+        // Three phases on the shared 650ms timeline:
+        //  1) LOAD (0–35%): the pill squashes against its slot —
+        //     widens along the travel axis, slims cross-axis — the
+        //     droplet gathering momentum before leaving.
+        //  2) FLIGHT (35–62%): the squash relaxes toward neutral while
+        //     the pill glides to the target.
+        //  3) LAND (62–100%): a damped sine wobble — width overshoots,
+        //     cross-axis counters — decaying to rest. Water settling.
+        final travel = (jellyTo - jellyFrom).abs();
+        var stretchX = 1.0;
+        var stretchY = 1.0;
+        if (jellyPlaying && travel > 0) {
+          final load = jellyStretch.value; // 0 → 1 in the first 35%
+          final flight = 1.0 - load;
+          stretchX = 1.0 + 0.3 * load * flight;
+          stretchY = 1.0 - 0.18 * load * flight;
+
+          final settle = jellySettle.value; // 0 → 1 over the landing window
+          if (settle > 0) {
+            // Damped oscillation: two visible bounces, ~72% decay.
+            final wobble =
+                math.sin(settle * math.pi * 2.5) * math.pow(1 - settle, 1.6).toDouble();
+            stretchX += wobble * 0.16;
+            stretchY -= wobble * 0.10;
+          }
+        }
+
+        return Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: AppColors.surface2,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            border: Border.all(color: AppColors.stroke),
+          ),
+          child: LayoutBuilder(builder: (context, constraints) {
+            // The LayoutBuilder sits inside the container's own 4px
+            // padding, so each slot is exactly a third of this width
+            // and `left` starts at the slot edge (no extra offset).
+            final slotWidth = constraints.maxWidth / _labels.length;
+            return SizedBox(
+              height: 44,
+              child: Stack(
+                children: [
+                  // The jelly ink pill — positioned by animation value,
+                  // scaled by the stretch factors around its center.
+                  Positioned(
+                    left: slotWidth * (pillPos.clamp(0.0, _labels.length - 1.0)),
+                    width: slotWidth,
+                    top: 0,
+                    bottom: 0,
+                    child: Transform(
+                      alignment: Alignment.center,
+                      transform: Matrix4.diagonal3Values(stretchX, stretchY, 1.0),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: AppColors.ink,
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Hit targets + labels on top.
+                  Row(
+                    children: [
+                      for (var i = 0; i < _labels.length; i++)
+                        Expanded(
+                          child: _PillLabel(
+                            label: _labels[i],
+                            active: i == settled,
+                            flow: jellyPlaying ? 0.0 : swipeFlow,
+                            onTap: () => onTap(i),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          }),
+        );
+      },
+    );
+  }
+}
+
+class _PillLabel extends StatelessWidget {
+  const _PillLabel({
     required this.label,
     required this.active,
     required this.flow,
@@ -285,8 +478,8 @@ class _Pill extends StatelessWidget {
   final String label;
   final bool active;
 
-  /// Fractional progress (-0.5..0.5) beyond the settled column: the
-  /// pill group drifts a few px toward the swipe, then settles at 0.
+  /// Fractional progress (-0.5..0.5) beyond the settled column during
+  /// swipes: the labels drift a few px toward the finger, then settle.
   final double flow;
   final VoidCallback onTap;
 
@@ -297,20 +490,12 @@ class _Pill extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: Transform.translate(
         offset: Offset(10 * flow, 0),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutCubic,
-          height: 40,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: active ? AppColors.ink : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-          ),
+        child: Center(
           child: AnimatedDefaultTextStyle(
             duration: const Duration(milliseconds: 260),
             curve: Curves.easeOutCubic,
             style: TextStyle(
-              fontSize: 13.5,
+              fontSize: 13,
               fontWeight: active ? FontWeight.w600 : FontWeight.w500,
               color: active ? AppColors.bg : AppColors.inkDim,
             ),
@@ -323,47 +508,35 @@ class _Pill extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Search bar
+// Search field — pill style, no icon, "Search" label
 // ---------------------------------------------------------------------------
 
-class _SearchBar extends StatelessWidget {
-  const _SearchBar({required this.controller, required this.focusNode});
+class _SearchField extends StatelessWidget {
+  const _SearchField({required this.controller, required this.focusNode});
 
   final TextEditingController controller;
   final FocusNode focusNode;
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      focusNode: focusNode,
-      style: TextStyle(color: AppColors.ink, fontSize: 14),
-      decoration: InputDecoration(
-        hintText: 'Search sites, filters or apps…',
-        hintStyle: TextStyle(color: AppColors.inkFaint, fontSize: 13),
-        prefixIcon: Padding(
-          padding: const EdgeInsets.all(12),
-          child: AppIcon(AppIconName.search, size: 16, color: AppColors.inkFaint),
+    return SizedBox(
+      width: 148,
+      child: TextField(
+        controller: controller,
+        focusNode: focusNode,
+        style: TextStyle(color: AppColors.ink, fontSize: 13.5),
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: 'Search',
+          hintStyle: TextStyle(color: AppColors.inkFaint, fontSize: 13.5),
+          filled: true,
+          fillColor: AppColors.surface,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            borderSide: BorderSide.none,
+          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         ),
-        suffixIcon: ValueListenableBuilder<TextEditingValue>(
-          valueListenable: controller,
-          builder: (context, value, _) {
-            if (value.text.isEmpty) return const SizedBox.shrink();
-            return IconButton(
-              padding: EdgeInsets.zero,
-              visualDensity: VisualDensity.compact,
-              icon: AppIcon(AppIconName.close, size: 15, color: AppColors.inkFaint),
-              onPressed: controller.clear,
-            );
-          },
-        ),
-        filled: true,
-        fillColor: AppColors.surface,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          borderSide: BorderSide.none,
-        ),
-        contentPadding: const EdgeInsets.symmetric(vertical: 13),
       ),
     );
   }
@@ -438,7 +611,7 @@ class _VpnCard extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Column 1 — Filters: downloadable block lists
+// Column 1 — Filters: downloadable block lists (+ in-list site search)
 // ---------------------------------------------------------------------------
 
 class _FiltersColumn extends ConsumerWidget {
@@ -452,39 +625,122 @@ class _FiltersColumn extends ConsumerWidget {
     return categories.when(
       data: (list) {
         final q = query.trim().toLowerCase();
-        final filtered = list
-            .where((v) =>
-                q.isEmpty ||
-                v.template.title.toLowerCase().contains(q) ||
-                v.template.description.toLowerCase().contains(q))
-            .toList();
+
         // Active (downloaded + enabled) lists float to the top so the
         // column reads active-first.
         final ordered = [
-          ...filtered.where((v) => v.downloaded && v.enabled),
-          ...filtered.where((v) => !(v.downloaded && v.enabled)),
+          ...list.where((v) => v.downloaded && v.enabled),
+          ...list.where((v) => !(v.downloaded && v.enabled)),
         ];
-        if (ordered.isEmpty) {
-          return ListView(
-            physics: springScrollPhysics,
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
-            children: const [_EmptyHint(text: 'No filters match this search')],
-          );
-        }
-        return ListView.builder(
+
+        // Site search across downloaded lists: matches render inline,
+        // grouped under their parent category heading.
+        final siteHits = ref.watch(filterSiteSearchProvider(query)).valueOrNull ?? const {};
+        final showSiteHits = q.length >= 2 && siteHits.isNotEmpty;
+
+        final children = <Widget>[
+          if (showSiteHits) ...[
+            const Padding(
+              padding: EdgeInsets.fromLTRB(4, 0, 4, 8),
+              child: _SectionLabel('SITE MATCHES'),
+            ),
+            for (final view in ordered.where((v) => siteHits.containsKey(v.template.id))) ...[
+              _CategoryMatchGroup(
+                view: view,
+                rules: siteHits[view.template.id]!,
+              ),
+              const SizedBox(height: 10),
+            ],
+            const Padding(
+              padding: EdgeInsets.fromLTRB(4, 8, 4, 8),
+              child: _SectionLabel('FILTER LISTS'),
+            ),
+          ],
+          if (ordered.isEmpty && !showSiteHits)
+            const _EmptyHint(text: 'No filters match this search'),
+          for (final view in ordered)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: _BlockListTile(view: view),
+            ),
+        ];
+
+        return ListView(
           physics: springScrollPhysics,
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
-          itemCount: ordered.length,
-          itemBuilder: (context, i) => Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: _BlockListTile(view: ordered[i]),
-          ),
+          padding: EdgeInsets.fromLTRB(20, showSiteHits ? 4 : 18, 20, 160),
+          children: children,
         );
       },
       loading: () => const _ColumnSpinner(),
       error: (e, _) => _ColumnError(message: 'Could not load filters: $e'),
     );
   }
+}
+
+/// One category's site-search matches: a small heading (category name,
+/// tap = open the full category browser) and the matched site rows.
+class _CategoryMatchGroup extends StatelessWidget {
+  const _CategoryMatchGroup({required this.view, required this.rules});
+  final BlockListCategoryView view;
+  final List<WebsiteRule> rules;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.stroke),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            onTap: view.downloaded
+                ? () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => _CategorySitesScreen(view: view),
+                      ),
+                    )
+                : null,
+            child: Row(
+              children: [
+                Flexible(
+                  child: Text(view.template.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                ),
+                const SizedBox(width: 6),
+                AppIcon(AppIconName.chevronRight, size: 11, color: AppColors.inkFaint),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          for (final rule in rules)
+            _SiteTile(rule: rule, dense: true),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Text(
+        text,
+        style: TextStyle(
+          fontSize: AppText.overline,
+          color: AppColors.inkFaint,
+          letterSpacing: 0.6,
+          fontWeight: FontWeight.w600,
+        ),
+      );
 }
 
 // ---------------------------------------------------------------------------
@@ -512,7 +768,7 @@ class _CustomColumn extends ConsumerWidget {
             children: [
               _EmptyHint(
                 text: q.isEmpty
-                    ? 'No custom sites yet.\nType a domain in the search bar and tap + to add it.'
+                    ? 'No custom sites yet.\nType a domain in the Search field and tap + to add it.'
                     : 'No custom sites match this search',
               ),
             ],
@@ -786,13 +1042,16 @@ class _InternetBlockRow extends ConsumerWidget {
 /// the left, its own enable/disable toggle on the right. Used for every
 /// site in every list (custom + downloaded categories).
 class _SiteTile extends ConsumerWidget {
-  const _SiteTile({required this.rule});
+  const _SiteTile({required this.rule, this.dense = false});
   final WebsiteRule rule;
+
+  /// Compact variant for rows inside a search-match group.
+  final bool dense;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1),
+      padding: EdgeInsets.symmetric(vertical: dense ? 0 : 1),
       child: Row(
         children: [
           const SizedBox(width: 4),
@@ -804,19 +1063,22 @@ class _SiteTile extends ConsumerWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: dense ? 12.5 : 13,
                 color: rule.enabled ? AppColors.ink : AppColors.inkFaint,
               ),
             ),
           ),
-          Switch(
-            value: rule.enabled,
-            onChanged: (v) {
-              ref.read(databaseProvider).setRuleEnabled(rule.id, v);
-              ref.read(enforcementSyncProvider).push();
-            },
-            activeTrackColor: AppColors.ink,
-            activeThumbColor: AppColors.bg,
+          SizedBox(
+            height: dense ? 32 : null,
+            child: Switch(
+              value: rule.enabled,
+              onChanged: (v) {
+                ref.read(databaseProvider).setRuleEnabled(rule.id, v);
+                ref.read(enforcementSyncProvider).push();
+              },
+              activeTrackColor: AppColors.ink,
+              activeThumbColor: AppColors.bg,
+            ),
           ),
         ],
       ),
@@ -848,7 +1110,11 @@ class _BlockListTile extends ConsumerWidget {
       child: Row(
         children: [
           Expanded(
+            // Tap = open the site browser. LONG-PRESS = the remove
+            // bottom sheet (replaces the old "View sites"/"Remove list"
+            // text links).
             child: GestureDetector(
+              onLongPress: () => _showRemoveSheet(context, ref),
               onTap: view.downloaded ? () => _openSites(context, ref) : null,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -900,8 +1166,6 @@ class _BlockListTile extends ConsumerWidget {
   }
 
   Widget _buildAction(BuildContext context, WidgetRef ref, BlockListDownloadState state) {
-    final template = view.template;
-
     if (state == BlockListDownloadState.downloading) {
       return const SizedBox(
         width: 22,
@@ -925,46 +1189,48 @@ class _BlockListTile extends ConsumerWidget {
       );
     }
 
-    return Column(
-      children: [
-        // Category enable toggle — for one-way categories this is the
-        // "lock" moment, confirmed by an irreversible dialog.
-        Switch(
-          value: view.enabled,
-          onChanged: view.locked
-              ? null // locked: cannot be disabled anymore
-              : (v) => _setEnabled(context, ref, v),
-        ),
-        GestureDetector(
-          onTap: () => _openSites(context, ref),
-          child: Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Text('View sites',
-                style: TextStyle(fontSize: 10, color: AppColors.inkFaint)),
-          ),
-        ),
-        if (!view.locked && template.id != 'adult')
-          GestureDetector(
-            onTap: () async {
-              final confirmed = await showAppConfirmSheet(
-                context,
-                title: 'Remove "${template.title}"?',
-                message: 'All ${template.title} sites and their toggles will be deleted.',
-                confirmLabel: 'Remove',
-              );
-              if (confirmed == true) {
-                await ref.read(blockListRepositoryProvider).removeCategory(template.id);
-                ref.read(enforcementSyncProvider).push();
-              }
-            },
-            child: Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text('Remove list',
-                  style: TextStyle(fontSize: 10, color: AppColors.inkFaint)),
-            ),
-          ),
-      ],
+    // Category enable toggle — for one-way categories this is the
+    // "lock" moment, confirmed by an irreversible dialog.
+    return Switch(
+      value: view.enabled,
+      onChanged: view.locked
+          ? null // locked: cannot be disabled anymore
+          : (v) => _setEnabled(context, ref, v),
     );
+  }
+
+  /// Long-press bottom sheet: the download/remove surface for a
+  /// downloaded list (locked lists explain why they can't be removed).
+  Future<void> _showRemoveSheet(BuildContext context, WidgetRef ref) async {
+    if (!view.downloaded) return;
+    final template = view.template;
+
+    if (view.locked || template.id == 'adult') {
+      await showAppSheet<void>(
+        context: context,
+        title: template.title,
+        builder: (sheetContext, _) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Text(
+            'This filter is locked. Once adult-content blocking is on, the '
+            'list cannot be removed from this device.',
+            style: TextStyle(fontSize: 12.5, color: AppColors.inkDim, height: 1.5),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showAppConfirmSheet(
+      context,
+      title: 'Remove "${template.title}"?',
+      message: 'All ${template.title} sites and their toggles will be deleted.',
+      confirmLabel: 'Remove',
+    );
+    if (confirmed == true) {
+      await ref.read(blockListRepositoryProvider).removeCategory(template.id);
+      ref.read(enforcementSyncProvider).push();
+    }
   }
 
   Future<void> _download(BuildContext context, WidgetRef ref) async {

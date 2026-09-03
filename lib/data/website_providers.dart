@@ -419,3 +419,24 @@ final siteSearchProvider = FutureProvider.autoDispose
   final db = ref.watch(databaseProvider);
   return querySites(db, category, query, 300);
 });
+
+/// Internet-screen site search across every DOWNLOADED category at
+/// once, grouped by category id — top [perCategory] matches each. Only
+/// downloaded lists participate; not-yet-downloaded catalogs have no
+/// rows to search. The typed query is the family key.
+final filterSiteSearchProvider = FutureProvider.autoDispose
+    .family<Map<String, List<WebsiteRule>>, String>((ref, query) async {
+  final db = ref.watch(databaseProvider);
+  final q = query.trim();
+  if (q.length < 2) return const {};
+  final categories = await (db.select(db.blockListCategories)
+        ..where((t) => t.downloaded.equals(true)))
+      .get();
+  const perCategory = 6;
+  final result = <String, List<WebsiteRule>>{};
+  for (final cat in categories) {
+    final rows = await querySites(db, cat.id, q, perCategory);
+    if (rows.isNotEmpty) result[cat.id] = rows;
+  }
+  return result;
+});
