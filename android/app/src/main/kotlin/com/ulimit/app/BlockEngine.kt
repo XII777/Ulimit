@@ -53,10 +53,6 @@ object BlockEngine {
 
     private const val TAG = "UlimitBlock"
 
-    /** Duplicate enforce calls for the same package inside this window
-     *  are collapsed — the recheck loop owns persistence. */
-    private const val ENFORCE_DEDUPE_MS = 1200L
-
     /** Backoff schedule (ms) for post-eject re-verification. */
     private val RECHECK_DELAYS = longArrayOf(400, 900, 1600, 2600, 4000)
     private const val RECHECK_LATER_MS = 1500L
@@ -86,10 +82,19 @@ object BlockEngine {
 
     // --- enforcement loop state (main thread only) ---
     private var enforcedPkg: String? = null
-    private var lastEnforceAt = 0L
+
+    /** When the sheet's 10s counter reaches zero. While `now` is
+     *  before this, repeated events for the same package must never
+     *  eject early nor restart the countdown. */
+    @Volatile private var graceEndsAt = 0L
     private var recheckStep = 0
     private var laterRechecks = 0
     private val recheckRunnable = Runnable { recheck() }
+    private val graceRunnable = Runnable {
+        // Only a lost/missed countdown reaches here: onGraceEnded zeroed
+        // graceEndsAt, so a user-initiated close never double-fires.
+        if (graceEndsAt > 0L) enforcedPkg?.let { onGraceEnded(it, userInitiated = false) }
+    }
 
     // --- diagnostics ring buffer (mirrors the debug log) ---
     private val diagEvents = ArrayDeque<String>()
@@ -120,6 +125,13 @@ object BlockEngine {
         sb.append("guard overlay: ${guardOverlay?.let { if (it.canShow) "ready" else "no permission" } ?: "-"}\n")
         sb.append("poll foreground: ${trackedForeground() ?: "unknown"}\n")
         sb.append("enforcing: ${enforcedPkg ?: "nothing"}\n")
+        sb.append(
+            "grace: " + when {
+                enforcedPkg == null -> "-"
+                graceEndsAt == 0L -> "ended (ejecting)"
+                else -> "${((graceEndsAt - System.currentTimeMillis()).coerceAtLeast(0) / 1000)}s left"
+            } + "\n"
+        )
         sb.append("last block: ${lastBlockedPkg?.let { "$it @ %tT".format(java.util.Date(lastBlockedAt)) } ?: "never"}\n")
         sb.append("--- recent events ---\n")
         synchronized(diagEvents) {
@@ -156,7 +168,9 @@ object BlockEngine {
             // The system tears the service's overlay windows down with
             // it; state resets so the guard can take over cleanly.
             enforcedPkg = null
+            graceEndsAt = 0
             handler.removeCallbacks(recheckRunnable)
+            handler.removeCallbacks(graceRunnable)
         }
     }
 
@@ -241,38 +255,80 @@ object BlockEngine {
     }
 
     private fun enforce(pkg: String, verdict: PolicySnapshot.BlockVerdict) {
-        val now = System.currentTimeMillis()
-        if (pkg == enforcedPkg && now - lastEnforceAt < ENFORCE_DEDUPE_MS) return
+        // Already enforcing this package: whether the sheet's grace
+        // countdown is running or the post-grace verification loop is
+        // ejecting, repeated events for the SAME package must never
+        // restart the countdown (a fresh 10s every interaction would
+        // defeat the block) nor double-eject. A new grace cycle only
+        // starts after settle() clears the enforcement state.
+        if (pkg == enforcedPkg) return
 
+        // Different app (or re-arm after settle): drop the old sheet.
+        if (enforcedPkg != null) settle()
+
+        val now = System.currentTimeMillis()
         enforcedPkg = pkg
-        lastEnforceAt = now
+        graceEndsAt = now + BlockOverlayManager.GRACE_MS
         recheckStep = 0
         laterRechecks = 0
         lastBlockedPkg = pkg
         lastBlockedAt = now
 
-        showOverlay(pkg, verdict)
+        val a11y = a11yOverlay
+        val guard = guardOverlay
+        val ejectAction: () -> Unit = { onGraceEnded(pkg, userInitiated = true) }
 
-        // 1) First eject. With the accessibility actuator: BACK (most
-        //    apps die instantly). Guard-only (no accessibility): HOME
-        //    via a background activity start — legal because the guard
-        //    overlay path requires "Display over other apps", one of
-        //    Android's documented background-start exemptions.
-        val ejector = ejector
-        if (ejector != null) {
-            diag("eject: BACK (a11y)")
-            ejector.pressBack()
-        } else if (guardOverlay?.canShow == true) {
-            diag("eject: HOME (guard, no a11y)")
-            BlockGuardService.goHome(context())
-        } else {
-            diag("eject: no actuator — notification only")
+        var shown = false
+        if (a11y != null) {
+            shown = a11y.showOverlay(pkg, verdict, ejectAction)
+        }
+        if (!shown && guard != null && guard.canShow) {
+            shown = guard.showOverlay(pkg, verdict, ejectAction)
+        }
+        diag("sheet shown=$shown for $pkg (${verdict.reason}) — 10s grace")
+
+        if (!shown) {
+            // No overlay host can draw: eject immediately (BACK first
+            // with the accessibility actuator), surface a heads-up
+            // notification, and keep the recheck loop verifying so a
+            // stubborn app still gets re-ejected with HOME.
+            diag("no overlay host — immediate eject + notify")
+            val ejector = ejector
+            if (ejector != null) ejector.pressBack() else if (guard?.canShow == true) {
+                BlockGuardService.goHome(context())
+            }
+            BlockGuardService.notifyBlocked(context() ?: return, pkg)
+            recheckStep = 0
+            laterRechecks = 0
+            scheduleRecheck(0)
+            return
         }
 
-        // 2) Relentless verification: while this package is still
-        //    foreground we re-eject with HOME on every tick. The
-        //    overlay is NOT on a timer — it lives until the foreground
-        //    genuinely moves off the blocked app.
+        // Ejection is scheduled by the sheet's countdown; this safety
+        // tick only fires if the callback was somehow lost.
+        handler.removeCallbacks(graceRunnable)
+        handler.postDelayed(graceRunnable, BlockOverlayManager.GRACE_MS + 600)
+    }
+
+    /** Countdown reached zero or the user tapped Close: eject the
+     *  blocked app, then keep the verification loop running until the
+     *  foreground genuinely leaves it. */
+    private fun onGraceEnded(pkg: String, userInitiated: Boolean) {
+        if (enforcedPkg != pkg) return
+        graceEndsAt = 0
+        diag(if (userInitiated) "user tapped close — eject" else "grace ended — eject")
+        val ejector = ejector
+        if (ejector != null) {
+            ejector.pressBack()
+        } else if (guardOverlay?.canShow == true) {
+            BlockGuardService.goHome(context())
+        } else {
+            BlockGuardService.notifyBlocked(context() ?: return, pkg)
+        }
+        // The sheet stays up (ring empty) while the loop verifies; it
+        // is dismissed the moment the foreground moves off the app.
+        recheckStep = 0
+        laterRechecks = 0
         scheduleRecheck(0)
     }
 
@@ -310,7 +366,8 @@ object BlockEngine {
             return
         }
 
-        // Keep the pop-layer honest and in place…
+        // Keep the pop-layer honest and in place (same package → the
+        // sheet is already up; no countdown restart)…
         showOverlay(pkg, verdict)
         // …then eject harder. BACK was already tried; HOME closes even
         // apps that swallow BACK. Repeated HOME presses are idempotent.
@@ -326,24 +383,26 @@ object BlockEngine {
     }
 
     private fun showOverlay(pkg: String, verdict: PolicySnapshot.BlockVerdict) {
-        // Prefer the accessibility host (no extra permission); fall
-        // through to the guard host if the accessibility addView fails,
-        // then to a heads-up notification as the last resort.
+        // Verification-loop refresh: the sheet for this package is
+        // normally already up (early-returned); if it was lost, rebuild
+        // it with the same countdown semantics.
         val a11y = a11yOverlay
-        if (a11y != null && a11y.showOverlay(pkg, verdict)) return
+        if (a11y != null && a11y.showOverlay(pkg, verdict) { onGraceEnded(pkg, userInitiated = true) }) return
         val guard = guardOverlay
-        if (guard != null && guard.canShow && guard.showOverlay(pkg, verdict)) return
-        // No overlay host can draw: surface a heads-up notification so
-        // the user still gets an active signal, not silence.
+        if (guard != null && guard.canShow &&
+            guard.showOverlay(pkg, verdict) { onGraceEnded(pkg, userInitiated = true) }
+        ) return
         BlockGuardService.notifyBlocked(context() ?: return, pkg)
     }
 
     private fun settle() {
         handler.removeCallbacks(recheckRunnable)
+        handler.removeCallbacks(graceRunnable)
         recheckStep = 0
         laterRechecks = 0
         if (enforcedPkg != null) diag("released (foreground left ${enforcedPkg})")
         enforcedPkg = null
+        graceEndsAt = 0
         a11yOverlay?.dismissOverlay()
         guardOverlay?.dismissOverlay()
     }
