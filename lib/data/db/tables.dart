@@ -198,10 +198,9 @@ class UlimitSettings extends Table {
   // ongoing notification with live timer and Pause/End controls).
   BoolColumn get focusIndicatorEnabled => boolean().withDefault(const Constant(true))();
 
-  // Rolling Number Display: during an active focus session, render an
-  // immersive fullscreen landscape countdown (huge rolling digits, the
-  // session name top-left, controls in the bottom) instead of the
-  // default running view.
+  // Legacy: the Rolling Number Display setting was removed from the UI
+  // (replaced by the on-demand fullscreen focus view). The column stays
+  // so no schema migration is needed; nothing reads it anymore.
   BoolColumn get rollingNumberMode => boolean().withDefault(const Constant(false))();
 
   // True once the user completed the permissions onboarding step. Lets

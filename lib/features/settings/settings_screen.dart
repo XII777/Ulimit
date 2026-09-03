@@ -33,7 +33,8 @@ class SettingsScreen extends ConsumerStatefulWidget {
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+class _SettingsScreenState extends ConsumerState<SettingsScreen>
+    with WidgetsBindingObserver {
   // Single-open accordion: the one expanded section, or null when all
   // are collapsed (the default at the start of every visit). Tapping an
   // open section collapses it; tapping another swaps to that one.
@@ -43,6 +44,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   // pushed detail screen) collapses everything again, so each visit to
   // Settings starts fully collapsed.
   String? _lastLocation;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Android gives no callback for "user returned from Settings" — the
+    // only reliable signal is resuming, so re-check every permission
+    // then (the Allow/Block sheet sends users into system screens).
+    if (state == AppLifecycleState.resumed) {
+      ref.read(permissionsRefreshTickProvider.notifier).state++;
+    }
+  }
 
   void _toggle(String section) => setState(() {
         _expanded = _expanded == section ? null : section;
@@ -80,6 +103,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
            CollapsibleSection(
             label: 'GENERAL',
+            icon: AppIconName.settings,
             expanded: _expanded == 'GENERAL',
             onToggle: () => _toggle('GENERAL'),
             child: PremiumCard(
@@ -122,6 +146,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
            CollapsibleSection(
             label: 'FOCUS',
+            icon: AppIconName.focus,
             expanded: _expanded == 'FOCUS',
             onToggle: () => _toggle('FOCUS'),
             child: PremiumCard(
@@ -139,44 +164,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                    },
                  ),
                ),
-               PremiumListTile(
-                 label: 'Rolling Number Display',
-                 sublabel: 'Fullscreen landscape countdown during a session',
-                 trailing: Switch(
-                   value: settings?.rollingNumberMode ?? false,
-                   onChanged: (v) =>
-                       ref.read(settingsControllerProvider).setRollingNumberMode(v),
-                 ),
-               ),
               ],
             ),
           ),
           ),
           const SizedBox(height: 20),
 
-           CollapsibleSection(
-            label: 'PERMISSIONS',
-            expanded: _expanded == 'PERMISSIONS',
-            onToggle: () => _toggle('PERMISSIONS'),
-            child: PremiumCard(
+          // Permissions: one tile that opens the full sheet — why each
+          // permission is needed, plus Allow/Block actions that open
+          // the right system screen so they can change any time.
+          Text('PERMISSIONS',
+              style: TextStyle(
+                  fontSize: AppText.overline,
+                  color: AppColors.inkFaint,
+                  letterSpacing: 0.6,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          PremiumCard(
             padding: EdgeInsets.zero,
-            child: Column(
-              children: [
-                for (final p in permissions) ...[
-                  _PermissionRow(
-                    label: _labelFor(p.kind),
-                    granted: p.granted,
-                    loading: p.loading,
-                  ),
-                ],
-              ],
+            child: PremiumListTile(
+              label: 'App permissions',
+              sublabel: _permissionsSummary(permissions),
+              trailing: AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
+              onTap: () => _showPermissionsSheet(context),
             ),
-          ),
           ),
           const SizedBox(height: 20),
 
            CollapsibleSection(
             label: 'DATA',
+            icon: AppIconName.chart,
             expanded: _expanded == 'DATA',
             onToggle: () => _toggle('DATA'),
             child: PremiumCard(
@@ -220,6 +237,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
            CollapsibleSection(
             label: 'ABOUT',
+            icon: AppIconName.info,
             expanded: _expanded == 'ABOUT',
             onToggle: () => _toggle('ABOUT'),
             child: PremiumCard(
@@ -244,15 +262,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       );
   }
 
-  String _labelFor(PermissionKind kind) => switch (kind) {
-        PermissionKind.accessibility => 'Accessibility',
-        PermissionKind.vpn => 'VPN & network',
-        PermissionKind.deviceAdmin => 'Device admin',
-        PermissionKind.notificationListener => 'Notification access',
-        PermissionKind.biometric => 'Biometrics',
-        PermissionKind.usageAccess => 'Usage access',
-        PermissionKind.overlayPermission => 'Display over apps',
-      };
+  String _permissionsSummary(List<PermissionStatus> permissions) {
+    final granted = permissions.where((p) => p.granted).length;
+    return '$granted of ${permissions.length} granted · allow or revoke anytime';
+  }
+
+  /// The permission sheet: for every permission, what it does (why
+  /// Ulimit needs it), its current state, and an Allow/Block action so
+  /// the user can change it whenever they want. Allow runs the request
+  /// flow (system dialog or the matching settings page); Block opens
+  /// the same system screen — or for device admin, revokes in-app —
+  /// where the grant can be turned off.
+  Future<void> _showPermissionsSheet(BuildContext context) async {
+    await showAppSheet<void>(
+      context: context,
+      title: 'Permissions',
+      subtitle: 'Why each one is needed — allow or block at any time',
+      initialSize: 0.85,
+      minSize: 0.4,
+      builder: (_, scrollController) => ListView(
+        controller: scrollController,
+        physics: springScrollPhysics,
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        children: [
+          for (final p in ref.watch(allPermissionsProvider))
+            _PermissionSheetRow(status: p),
+        ],
+      ),
+    );
+  }
 
   String _appearanceLabel(String mode) => switch (mode) {
         'dark' => 'AMOLED dark',
@@ -464,43 +503,189 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
-class _PermissionRow extends StatelessWidget {
-  const _PermissionRow({required this.label, required this.granted, required this.loading});
-  final String label;
-  final bool granted;
-  final bool loading;
+/// Why each permission exists — the "why we need it" copy shown in the
+/// permissions sheet, matched to the onboarding cards.
+const Map<PermissionKind, (String, String)> _permissionWhy = {
+  PermissionKind.accessibility: (
+    'The core engine',
+    'Detects app usage, enforces limits, and shows the block screen instantly. '
+        'Android only lets you toggle this in system Settings.',
+  ),
+  PermissionKind.vpn: (
+    'Local network filter',
+    'Creates a local, on-device filter that powers internet and website blocking. '
+        'Nothing is routed through any server.',
+  ),
+  PermissionKind.deviceAdmin: (
+    'Tamper protection',
+    'Stops Ulimit from being uninstalled or force-stopped to bypass a limit. '
+        'Can also be revoked right here, in one tap.',
+  ),
+  PermissionKind.notificationListener: (
+    'Focus quiet mode',
+    'Lets Ulimit batch or mute notifications while a focus session runs.',
+  ),
+  PermissionKind.biometric: (
+    'Device capability',
+    'Protects your limits with your fingerprint or face. Availability depends '
+        'on this device — there is nothing to allow or block.',
+  ),
+  PermissionKind.usageAccess: (
+    'Exact screen time',
+    'Reads the per-app usage times from the system (the same source Digital '
+        'Wellbeing uses) for accurate dashboard charts.',
+  ),
+  PermissionKind.overlayPermission: (
+    'Block screen anywhere',
+    'Lets the standalone blocking service draw the block screen itself when '
+        'accessibility is off.',
+  ),
+};
+
+class _PermissionSheetRow extends ConsumerWidget {
+  const _PermissionSheetRow({required this.status});
+
+  final PermissionStatus status;
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final why = _permissionWhy[status.kind]!;
+    final granted = status.granted;
+    final togglable = status.kind != PermissionKind.biometric;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.stroke),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(child: Text(label, style: TextStyle(fontSize: 13, color: AppColors.ink))),
-          if (loading)
-            const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
-          else
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AppIcon(
-                  granted ? AppIconName.check : AppIconName.close,
-                  size: 13,
-                  color: granted ? AppColors.ink : AppColors.inkFaint,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  granted ? 'Granted' : 'Pending',
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _settingsLabel(status.kind),
                   style: TextStyle(
-                      fontSize: 10.5,
-                      color: granted ? AppColors.ink : AppColors.inkDim,
-                      fontWeight: FontWeight.w600),
+                      fontSize: AppText.body, fontWeight: FontWeight.w600, color: AppColors.ink),
                 ),
+              ),
+              if (status.loading)
+                const SizedBox(
+                    width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: granted ? AppColors.ink : AppColors.surface2,
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                    border: granted ? null : Border.all(color: AppColors.stroke),
+                  ),
+                  child: Text(
+                    granted ? 'Granted' : 'Blocked',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: granted ? AppColors.bg : AppColors.inkDim,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(why.$1, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.inkDim)),
+          const SizedBox(height: 2),
+          Text(why.$2, style: TextStyle(fontSize: 11.5, height: 1.45, color: AppColors.inkFaint)),
+          if (togglable) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                if (!granted)
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => _act(context, ref, allow: true),
+                      style: TextButton.styleFrom(
+                        backgroundColor: AppColors.ink,
+                        foregroundColor: AppColors.bg,
+                        padding: const EdgeInsets.all(12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.md)),
+                      ),
+                      child: const Text('Allow',
+                          style: TextStyle(fontWeight: FontWeight.w600)),
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => _act(context, ref, allow: false),
+                      style: TextButton.styleFrom(
+                        backgroundColor: AppColors.surface2,
+                        foregroundColor: AppColors.inkDim,
+                        side: BorderSide(color: AppColors.stroke),
+                        padding: const EdgeInsets.all(12),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.md)),
+                      ),
+                      child: const Text('Block'),
+                    ),
+                  ),
               ],
             ),
+          ],
         ],
       ),
     );
+  }
+
+  String _settingsLabel(PermissionKind kind) => switch (kind) {
+        PermissionKind.accessibility => 'Accessibility',
+        PermissionKind.vpn => 'VPN & network',
+        PermissionKind.deviceAdmin => 'Device admin',
+        PermissionKind.notificationListener => 'Notification access',
+        PermissionKind.biometric => 'Biometrics',
+        PermissionKind.usageAccess => 'Usage access',
+        PermissionKind.overlayPermission => 'Display over apps',
+      };
+
+  /// Allow: trigger the grant flow (system dialog where supported,
+  /// otherwise the matching system Settings page). Block: hand the user
+  /// the screen where the grant can be revoked — device admin is
+  /// deactivated in-app directly.
+  Future<void> _act(BuildContext context, WidgetRef ref, {required bool allow}) async {
+    switch (status.kind) {
+      case PermissionKind.accessibility:
+        await NativePermissions.openAccessibilitySettings();
+      case PermissionKind.notificationListener:
+        await NativePermissions.openNotificationListenerSettings();
+      case PermissionKind.vpn:
+        if (allow) {
+          await NativePermissions.requestVpnPermission();
+        } else {
+          await NativePermissions.openVpnSettings();
+        }
+      case PermissionKind.deviceAdmin:
+        if (allow) {
+          await NativePermissions.requestDeviceAdmin();
+          ref.read(deviceAdminAcknowledgedProvider.notifier).state = true;
+        } else {
+          await NativePermissions.deactivateDeviceAdmin();
+          ref.read(deviceAdminAcknowledgedProvider.notifier).state = false;
+        }
+      case PermissionKind.biometric:
+        return;
+      case PermissionKind.usageAccess:
+        await NativePermissions.openUsageAccessSettings();
+      case PermissionKind.overlayPermission:
+        await NativePermissions.openOverlaySettings();
+    }
+    // The in-app dialogs resolve synchronously enough for an immediate
+    // re-check; system Settings pages refresh on lifecycle resume via
+    // the screen's observer.
+    ref.read(permissionsRefreshTickProvider.notifier).state++;
   }
 }
 

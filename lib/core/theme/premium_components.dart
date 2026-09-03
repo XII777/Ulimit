@@ -115,12 +115,17 @@ class CollapsibleSection extends StatelessWidget {
     required this.expanded,
     required this.onToggle,
     required this.child,
+    this.icon,
   });
 
   final String label;
   final bool expanded;
   final VoidCallback onToggle;
   final Widget child;
+
+  /// Optional small icon rendered before the label — gives each
+  /// Settings tab a recognizable mark.
+  final AppIconName? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -137,6 +142,10 @@ class CollapsibleSection extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 6),
             child: Row(
               children: [
+                if (icon != null) ...[
+                  AppIcon(icon!, size: 13, color: AppColors.inkFaint),
+                  const SizedBox(width: 7),
+                ],
                 Expanded(
                   child: PremiumSectionLabel(label),
                 ),

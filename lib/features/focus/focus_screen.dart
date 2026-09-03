@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -28,17 +26,12 @@ class FocusScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(activeFocusSessionProvider).valueOrNull;
-    final rollingMode = ref.watch(rollingNumberModeProvider).valueOrNull ?? false;
 
     return Container(
       color: AppColors.bg,
       // Top spacing is owned by NavShell's collapsing inset — no
       // SafeArea here, so scrolling expands content to full height.
-      child: session == null
-          ? _IdleFocusView()
-          : rollingMode
-              ? _RollingFocusView(session: session)
-              : _RunningFocusView(session: session),
+      child: session == null ? _IdleFocusView() : _RunningFocusView(session: session),
     );
   }
 }
@@ -174,129 +167,87 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
         Text('APPS TO BLOCK',
             style: TextStyle(fontSize: AppText.overline, color: AppColors.inkFaint, letterSpacing: 0.6)),
         const SizedBox(height: 10),
-        PressableScale(
-          onTap: _pickApps,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              border: Border.all(color: AppColors.stroke),
+        Row(
+          children: [
+            _AppsPill(
+              label: _blockedApps.isEmpty ? 'Block apps' : '${_blockedApps.length} blocked',
+              onTap: _pickApps,
             ),
-            child: _blockedApps.isEmpty
-                ? Row(
-                    children: [
-                      AppIcon(AppIconName.block, size: 16, color: AppColors.inkFaint),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: Text('Choose apps to block during focus',
-                            style: TextStyle(fontSize: AppText.body, color: AppColors.inkDim)),
-                      ),
-                    ],
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          AppIcon(AppIconName.block, size: 14, color: AppColors.inkDim),
-                          const SizedBox(width: 8),
-                          Text('${_blockedApps.length} apps will be blocked',
-                              style: TextStyle(fontSize: AppText.body, color: AppColors.ink)),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _blockedApps.join(' · '),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 11, color: AppColors.inkFaint),
-                      ),
-                    ],
-                  ),
-          ),
+          ],
         ),
+        if (_blockedApps.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          _BlockedAppsCards(
+            packages: _blockedApps,
+            onTapApp: _pickApps,
+          ),
+        ],
         const SizedBox(height: 22),
 
-        Text('POLICIES',
+        Text('CONTROLS',
             style: TextStyle(fontSize: AppText.overline, color: AppColors.inkFaint, letterSpacing: 0.6)),
         const SizedBox(height: 10),
-        _policyCard(context),
+        _ControlsTile(
+          pauseNotifications: _pauseNotifications,
+          blockInternet: _blockInternet,
+          blockWebsites: _blockWebsites,
+          invincible: _invincible,
+          onTap: _pickControls,
+        ),
         const SizedBox(height: 28),
 
-        PressableScale(
-          onTap: _starting ? null : () => _start(),
-          child: Container(
-            height: 52,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AppColors.ink,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            child: _starting
-                ? SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.bg),
-                  )
-                : Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      AppIcon(AppIconName.play, size: 20, color: AppColors.bg),
-                      const SizedBox(width: 10),
-                      Text(
-                        _untimed
-                            ? 'Start focus · untimed'
-                            : 'Start focus · $_minutes min',
-                        style: TextStyle(
-                            fontSize: AppText.body, fontWeight: FontWeight.w600, color: AppColors.bg),
-                      ),
-                    ],
-                  ),
-          ),
+        _SlideToFocus(
+          label: _untimed ? 'Slide to focus · untimed' : 'Slide to focus · $_minutes min',
+          busy: _starting,
+          onConfirmed: _start,
         ),
       ],
     );
   }
 
-  Widget _policyCard(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: AppColors.stroke),
-      ),
-      child: Column(
-        children: [
-          _PolicyToggle(
-            icon: AppIconName.notificationsOff,
-            label: 'Pause notifications',
-            value: _pauseNotifications,
-            onChanged: (v) => setState(() => _pauseNotifications = v),
-          ),
-          Divider(height: 1, color: AppColors.stroke),
-          _PolicyToggle(
-            icon: AppIconName.internet,
-            label: 'Block internet',
-            value: _blockInternet,
-            onChanged: (v) => setState(() => _blockInternet = v),
-          ),
-          Divider(height: 1, color: AppColors.stroke),
-          _PolicyToggle(
-            icon: AppIconName.link,
-            label: 'Block websites',
-            value: _blockWebsites,
-            onChanged: (v) => setState(() => _blockWebsites = v),
-          ),
-          Divider(height: 1, color: AppColors.stroke),
-          _PolicyToggle(
-            icon: AppIconName.lock,
-            label: 'Invincible mode',
-            sublabel: 'Ending early requires authentication',
-            value: _invincible,
-            onChanged: (v) => setState(() => _invincible = v),
-          ),
-        ],
+  /// The CONTROLS tile's bottom sheet — every control this session can
+  /// enforce, live-toggling the parent's state while the sheet is open.
+  Future<void> _pickControls() async {
+    await showAppSheet<void>(
+      context: context,
+      title: 'Session controls',
+      subtitle: 'Everything this focus session enforces while it runs',
+      builder: (sheetContext, scrollController) => SingleChildScrollView(
+        controller: scrollController,
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Column(
+          children: [
+            _PolicyToggle(
+              icon: AppIconName.notificationsOff,
+              label: 'Pause notifications',
+              value: _pauseNotifications,
+              onChanged: (v) => setState(() => _pauseNotifications = v),
+            ),
+            Divider(height: 1, color: AppColors.stroke),
+            _PolicyToggle(
+              icon: AppIconName.internet,
+              label: 'Block internet',
+              value: _blockInternet,
+              onChanged: (v) => setState(() => _blockInternet = v),
+            ),
+            Divider(height: 1, color: AppColors.stroke),
+            _PolicyToggle(
+              icon: AppIconName.link,
+              label: 'Block websites',
+              value: _blockWebsites,
+              onChanged: (v) => setState(() => _blockWebsites = v),
+            ),
+            Divider(height: 1, color: AppColors.stroke),
+            _PolicyToggle(
+              icon: AppIconName.lock,
+              label: 'Invincible mode',
+              sublabel: 'Ending early requires authentication',
+              value: _invincible,
+              onChanged: (v) => setState(() => _invincible = v),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -307,6 +258,7 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
       title: 'Block during focus',
       multiSelect: true,
       initiallySelected: _blockedApps.toSet(),
+      selectedFirst: true,
     );
     if (result is Set<String>) {
       setState(() => _blockedApps = result.toList());
@@ -515,18 +467,36 @@ class _RunningFocusView extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () => _confirmEndEarly(context, ref),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.all(14),
-                    backgroundColor: AppColors.surface2,
-                    side: BorderSide(color: AppColors.stroke),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: OutlinedButton(
+                      onPressed: () => _confirmEndEarly(context, ref),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.all(14),
+                        backgroundColor: AppColors.surface2,
+                        side: BorderSide(color: AppColors.stroke),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                      ),
+                      child: Text('End session early', style: TextStyle(color: AppColors.inkDim)),
+                    ),
                   ),
-                  child: Text('End session early', style: TextStyle(color: AppColors.inkDim)),
-                ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _enterFullScreen(context),
+                      icon: AppIcon(AppIconName.expand, size: 15, color: AppColors.inkDim),
+                      label: Text('Full screen', style: TextStyle(color: AppColors.inkDim)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.all(14),
+                        backgroundColor: AppColors.surface2,
+                        side: BorderSide(color: AppColors.stroke),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -536,15 +506,36 @@ class _RunningFocusView extends ConsumerWidget {
     );
   }
 
+  /// Distraction-free fullscreen: pushed ABOVE the nav shell as an
+  /// opaque route — no swipe, no pill, no status bar (immersive).
+  /// Disposing the view restores the system UI.
+  void _enterFullScreen(BuildContext context) {
+    Navigator.of(context, rootNavigator: true).push(
+      PageRouteBuilder(
+        opaque: true,
+        transitionDuration: const Duration(milliseconds: 280),
+        reverseTransitionDuration: const Duration(milliseconds: 220),
+        pageBuilder: (_, __, ___) => _FullScreenFocusView(session: session),
+        transitionsBuilder: (_, animation, __, child) => FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+          child: child,
+        ),
+      ),
+    );
+  }
+
   Future<void> _confirmEndEarly(BuildContext context, WidgetRef ref) =>
       confirmEndFocusSession(context, ref, session);
 }
 
-/// End-early confirmation shared by the running view and the rolling
+/// End-early confirmation shared by the running view and the fullscreen
 /// countdown: confirm (with biometrics for invincible sessions), then
-/// end and return to the Focus tab.
+/// end. By default returns to the Focus tab; when [onEnded] is given
+/// (fullscreen mode) it is called instead so the caller can pop its
+/// own route.
 Future<void> confirmEndFocusSession(
-    BuildContext context, WidgetRef ref, FocusSession session) async {
+    BuildContext context, WidgetRef ref, FocusSession session,
+    {VoidCallback? onEnded}) async {
   final confirmed = await showAppSheet<bool>(
     context: context,
     title: 'End session early?',
@@ -599,229 +590,176 @@ Future<void> confirmEndFocusSession(
     if (!ok) return;
   }
   await ref.read(focusControllerProvider).endEarly();
-  if (context.mounted) context.go('/focus');
+  if (onEnded != null) {
+    onEnded();
+  } else if (context.mounted) {
+    context.go('/focus');
+  }
 }
 
-/// Immersive rolling-number countdown (Rolling Number Display mode):
-/// landscape fullscreen giant digits, session name top-left, controls in
-/// the bottom — auto-hidden and shown by touch.
-class _RollingFocusView extends ConsumerStatefulWidget {
-  const _RollingFocusView({required this.session});
+/// Distraction-free fullscreen countdown: no nav pill, no swipe, no
+/// system bars (immersive) — just the giant centered counter and three
+/// pill controls at the very bottom. Entering/exiting manages the
+/// system UI mode; leaving the route restores it.
+class _FullScreenFocusView extends ConsumerStatefulWidget {
+  const _FullScreenFocusView({required this.session});
 
   final FocusSession session;
 
   @override
-  ConsumerState<_RollingFocusView> createState() => _RollingFocusViewState();
+  ConsumerState<_FullScreenFocusView> createState() => _FullScreenFocusViewState();
 }
 
-class _RollingFocusViewState extends ConsumerState<_RollingFocusView> {
-  static const _autoHideAfter = Duration(seconds: 3);
-
-  Timer? _hideTimer;
-  bool _controlsVisible = false;
-
+class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
   @override
   void initState() {
     super.initState();
-    // The mode is landscape-fullscreen by design; any other tab stays
-    // itself. Restored on dispose (session end / mode change / browse).
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
-    _scheduleHide();
+    // Fill the display edge to edge — status bar included.
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
   @override
   void dispose() {
-    _hideTimer?.cancel();
-    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
 
-  void _poke() {
-    if (!_controlsVisible) setState(() => _controlsVisible = true);
-    _scheduleHide();
-  }
-
-  void _scheduleHide() {
-    _hideTimer?.cancel();
-    _hideTimer = Timer(_autoHideAfter, () {
-      if (mounted) setState(() => _controlsVisible = false);
-    });
-  }
+  void _exit() => Navigator.of(context).pop();
 
   @override
   Widget build(BuildContext context) {
     final remaining = ref.watch(focusRemainingProvider).valueOrNull ?? Duration.zero;
     final untimed = FocusClock.isUntimed(widget.session);
     final paused = widget.session.pausedAt != null;
-    final safe = MediaQuery.paddingOf(context);
-    final label = widget.session.label;
 
-    return RepaintBoundary(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _poke,
-        child: Stack(
-          children: [
-            // The number itself — ~90% of the display, centered.
-            Positioned.fill(
-              child: Center(
-                child: LayoutBuilder(
-                  builder: (context, constraints) => SizedBox(
-                    width: constraints.maxWidth * 0.9,
-                    height: constraints.maxHeight * 0.9,
+    return Container(
+      color: AppColors.bg,
+      child: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // The counter — as large as the display allows.
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
                     child: untimed
-                        ? Center(
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                'UNTIMED',
-                                style: GoogleFonts.spaceGrotesk(
-                                  fontSize: 200,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.ink,
-                                ),
-                              ),
+                        ? Text(
+                            'UNTIMED',
+                            style: GoogleFonts.spaceGrotesk(
+                              fontSize: 180,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.ink,
                             ),
                           )
                         : DurationFlow(
                             Duration(seconds: remaining.inSeconds),
-                            style: TextStyle(
-                              fontSize: 200,
+                            showSeconds: true,
+                            style: GoogleFonts.spaceGrotesk(
+                              fontSize: 180,
                               fontWeight: FontWeight.w700,
                               color: AppColors.ink,
+                              fontFeatures: const [FontFeature.tabularFigures()],
                             ),
                           ),
                   ),
-                ),
-              ),
-            ),
-
-            // Session name — top-left, auto-hidden with the controls.
-            Positioned(
-              top: safe.top + 14,
-              left: 18,
-              child: _AutoHide(
-                visible: _controlsVisible,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                  if (paused) ...[
+                    const SizedBox(height: 10),
                     Text(
-                      paused ? '$label · PAUSED' : label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.ink,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      untimed ? 'until you turn it off' : 'FOCUS SESSION',
-                      style: TextStyle(fontSize: 10.5, color: AppColors.inkFaint),
+                      '${widget.session.label} · PAUSED',
+                      style: TextStyle(fontSize: 12, letterSpacing: 1.5, color: AppColors.inkDim),
                     ),
                   ],
-                ),
+                ],
               ),
             ),
-
-            // Controls — bottom, auto-hidden; every touch resets the
-            // timer so they stay while the user interacts.
-            Positioned(
-              left: 18,
-              right: 18,
-              bottom: safe.bottom + 14,
-              child: _AutoHide(
-                visible: _controlsVisible,
-                child: Row(
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: PressableScale(
-                        onTap: () => paused
-                            ? ref.read(focusControllerProvider).resume()
-                            : ref.read(focusControllerProvider).pause(),
-                        child: Container(
-                          height: 46,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: AppColors.ink,
-                            borderRadius: BorderRadius.circular(AppRadius.md),
+          ),
+          // Three pill controls pinned to the very bottom.
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _FullScreenPill(
+                      onTap: () => paused
+                          ? ref.read(focusControllerProvider).resume()
+                          : ref.read(focusControllerProvider).pause(),
+                      filled: true,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AppIcon(paused ? AppIconName.play : AppIconName.pause,
+                              size: 14, color: AppColors.bg),
+                          const SizedBox(width: 6),
+                          Text(
+                            paused ? 'Resume' : 'Pause',
+                            style: TextStyle(
+                                fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.bg),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              AppIcon(
-                                paused ? AppIconName.play : AppIconName.pause,
-                                size: 16,
-                                color: AppColors.bg,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                paused ? 'Resume' : 'Pause',
-                                style: TextStyle(
-                                  fontSize: AppText.body,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.bg,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      flex: 2,
-                      child: PressableScale(
-                        onTap: () => confirmEndFocusSession(context, ref, widget.session),
-                        child: Container(
-                          height: 46,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: AppColors.surface2,
-                            borderRadius: BorderRadius.circular(AppRadius.md),
-                            border: Border.all(color: AppColors.stroke),
-                          ),
-                          child: Text(
-                            'End session',
-                            style: TextStyle(fontSize: AppText.body, color: AppColors.inkDim),
-                          ),
-                        ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _FullScreenPill(
+                      onTap: () => confirmEndFocusSession(
+                        context,
+                        ref,
+                        widget.session,
+                        onEnded: _exit,
+                      ),
+                      child: Text('End', style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _FullScreenPill(
+                      onTap: _exit,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AppIcon(AppIconName.expand, size: 13, color: AppColors.inkDim),
+                          const SizedBox(width: 6),
+                          Text('Exit', style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// Fades its child in/out with a slide. The []_AutoHide] wrapper keeps
-/// the invisible subtree participating in layout when hidden.
-class _AutoHide extends StatelessWidget {
-  const _AutoHide({required this.visible, required this.child});
+/// One of the fullscreen view's bottom pills — sized small so the
+/// counter owns the screen.
+class _FullScreenPill extends StatelessWidget {
+  const _FullScreenPill({required this.child, required this.onTap, this.filled = false});
 
-  final bool visible;
   final Widget child;
+  final VoidCallback onTap;
+  final bool filled;
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedOpacity(
-      opacity: visible ? 1.0 : 0.0,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-      child: AnimatedSlide(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        offset: visible ? Offset.zero : const Offset(0, 0.3),
+    return PressableScale(
+      onTap: onTap,
+      child: Container(
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: filled ? AppColors.ink : AppColors.surface2,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: filled ? null : Border.all(color: AppColors.stroke),
+        ),
         child: child,
       ),
     );
@@ -1203,5 +1141,331 @@ class _PolicyToggle extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Idle — apps-to-block pill + selected-app cards
+// ---------------------------------------------------------------------------
+
+/// The "Block apps" pill in the APPS TO BLOCK row — opens the app
+/// picker bottom sheet.
+class _AppsPill extends StatelessWidget {
+  const _AppsPill({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return PressableScale(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: Border.all(color: AppColors.stroke),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppIcon(AppIconName.block, size: 13, color: AppColors.inkDim),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: AppColors.inkDim,
+              ),
+            ),
+            const SizedBox(width: 5),
+            AppIcon(AppIconName.chevronDown, size: 11, color: AppColors.inkFaint),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The selected apps as icon+name cards — at most three fully visible;
+/// a longer list scrolls vertically inside the card.
+class _BlockedAppsCards extends ConsumerWidget {
+  const _BlockedAppsCards({required this.packages, required this.onTapApp});
+
+  final List<String> packages;
+  final VoidCallback onTapApp;
+
+  static const _cardHeight = 50.0;
+  static const _gap = 8.0;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final catalog = ref.watch(appsCatalogProvider).valueOrNull;
+    String nameFor(String pkg) => catalog?.nameFor(pkg) ?? pkg;
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.stroke),
+      ),
+      // Three cards + two gaps fit; anything beyond scrolls here.
+      // (The cap includes the container's own 10px padding on both
+      // sides — constraints apply to the outer box.)
+      constraints: BoxConstraints(
+        maxHeight: 3 * _cardHeight + 2 * _gap + 20,
+      ),
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        child: Column(
+          children: [
+            for (var i = 0; i < packages.length; i++) ...[
+              if (i > 0) const SizedBox(height: _gap),
+              _AppBlockCard(
+                packageName: packages[i],
+                name: nameFor(packages[i]),
+                onTap: onTapApp,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One selected app inside the blocked-apps card. Tapping it reopens
+/// the picker sheet with the currently selected apps shown first.
+class _AppBlockCard extends StatelessWidget {
+  const _AppBlockCard({
+    required this.packageName,
+    required this.name,
+    required this.onTap,
+  });
+
+  final String packageName;
+  final String name;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return PressableScale(
+      onTap: onTap,
+      child: Container(
+        height: 50,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: AppColors.surface2,
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: AppColors.stroke),
+        ),
+        child: Row(
+          children: [
+            AppIconView(packageName: packageName, size: 26, radius: 7),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: AppText.body, color: AppColors.ink),
+              ),
+            ),
+            AppIcon(AppIconName.chevronDown, size: 12, color: AppColors.inkFaint),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Idle — CONTROLS tile
+// ---------------------------------------------------------------------------
+
+/// The CONTROLS tile: a summary of what this session will enforce.
+/// Tapping opens the bottom sheet with every control as a switch.
+class _ControlsTile extends StatelessWidget {
+  const _ControlsTile({
+    required this.pauseNotifications,
+    required this.blockInternet,
+    required this.blockWebsites,
+    required this.invincible,
+    required this.onTap,
+  });
+
+  final bool pauseNotifications;
+  final bool blockInternet;
+  final bool blockWebsites;
+  final bool invincible;
+  final VoidCallback onTap;
+
+  String get _summary {
+    final active = <String>[
+      if (pauseNotifications) 'Notifications paused',
+      if (blockInternet) 'Internet blocked',
+      if (blockWebsites) 'Websites blocked',
+      if (invincible) 'Invincible',
+    ];
+    if (active.isEmpty) return 'Nothing extra — tap to configure';
+    return active.join(' · ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PressableScale(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(color: AppColors.stroke),
+        ),
+        child: Row(
+          children: [
+            AppIcon(AppIconName.shield, size: 16, color: AppColors.inkDim),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Controls',
+                      style: TextStyle(fontSize: AppText.body, color: AppColors.ink)),
+                  const SizedBox(height: 2),
+                  Text(
+                    _summary,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 11, color: AppColors.inkFaint),
+                  ),
+                ],
+              ),
+            ),
+            AppIcon(AppIconName.chevronRight, size: 13, color: AppColors.inkFaint),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Idle — slide-to-focus button
+// ---------------------------------------------------------------------------
+
+/// Slide-to-start control: a big horizontal pill with a draggable knob.
+/// Drag it to the right edge to start the session; release early and it
+/// springs back. Replaces a plain tap button so starting a session is a
+/// deliberate gesture.
+class _SlideToFocus extends StatefulWidget {
+  const _SlideToFocus({
+    required this.label,
+    required this.onConfirmed,
+    this.busy = false,
+  });
+
+  final String label;
+  final VoidCallback onConfirmed;
+  final bool busy;
+
+  @override
+  State<_SlideToFocus> createState() => _SlideToFocusState();
+}
+
+class _SlideToFocusState extends State<_SlideToFocus> {
+  // 0..1 — how far the knob has travelled across the track.
+  double _progress = 0;
+  bool _dragging = false;
+
+  static const _hPadding = 6.0;
+  static const _knobSize = 50.0;
+  static const _height = 62.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final track = constraints.maxWidth - 2 * _hPadding - _knobSize;
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: widget.busy ? null : (_) => _dragging = true,
+          onHorizontalDragUpdate: widget.busy
+              ? null
+              : (d) => setState(() {
+                    _progress = (_progress + d.delta.dx / track).clamp(0.0, 1.0);
+                  }),
+          onHorizontalDragEnd: widget.busy ? null : (_) => _release(),
+          onHorizontalDragCancel: widget.busy ? null : () => _release(),
+          child: Container(
+            height: _height,
+            padding: const EdgeInsets.symmetric(horizontal: _hPadding),
+            decoration: BoxDecoration(
+              color: AppColors.ink,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Label — fades out as the knob approaches the end.
+                IgnorePointer(
+                  child: Opacity(
+                    opacity: (1 - _progress * 1.6).clamp(0.0, 1.0),
+                    child: widget.busy
+                        ? SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.bg),
+                          )
+                        : Text(
+                            widget.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: AppText.body,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.bg,
+                            ),
+                          ),
+                  ),
+                ),
+                // The knob.
+                Align(
+                  alignment: Alignment(-1 + 2 * _progress, 0),
+                  child: AnimatedScale(
+                    scale: _dragging ? 1.06 : 1.0,
+                    duration: const Duration(milliseconds: 140),
+                    child: Container(
+                      width: _knobSize,
+                      height: _knobSize,
+                      decoration: BoxDecoration(
+                        color: AppColors.bg,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: _progress > 0.9
+                            ? AppIcon(AppIconName.check, size: 20, color: AppColors.ink)
+                            : AppIcon(AppIconName.play, size: 20, color: AppColors.ink),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _release() {
+    _dragging = false;
+    final confirmed = _progress >= 0.92;
+    setState(() => _progress = 0);
+    if (confirmed) widget.onConfirmed();
   }
 }

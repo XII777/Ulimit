@@ -190,10 +190,15 @@ final focusControllerProvider = Provider<FocusController>((ref) {
 /// Remaining time of the running session, ticking every second ONLY
 /// while a session exists. async* generators restart cleanly on every
 /// subscription — no hand-managed StreamController lifecycles.
+///
+/// When a timed session's countdown reaches zero, the session is
+/// finalized immediately (marked completed with its planned end as the
+/// end timestamp) — the timer UI closing the session at exactly zero,
+/// instead of waiting for the next 15s evaluation tick.
 final focusRemainingProvider = StreamProvider<Duration>((ref) {
   final session = ref.watch(activeFocusSessionProvider).valueOrNull;
   if (session == null) return Stream.value(Duration.zero);
-  return _remainingStream(session);
+  return _remainingStream(session, () => ref.read(focusControllerProvider).finalizeIfDue());
 });
 
 /// Ticks at 1s in the foreground, 5s when backgrounded. The ticker
@@ -217,7 +222,12 @@ Stream<void> _tickStream() async* {
   }
 }
 
-Stream<Duration> _remainingStream(FocusSession session) async* {
+Stream<Duration> _remainingStream(
+  FocusSession session,
+  Future<void> Function() onDue,
+) async* {
+  var dueHandled = false;
+
   Duration remaining() {
     final seconds = FocusClock.remainingSeconds(session, DateTime.now());
     return Duration(seconds: seconds ?? 0);
@@ -225,7 +235,15 @@ Stream<Duration> _remainingStream(FocusSession session) async* {
 
   yield remaining();
   await for (final _ in _tickStream()) {
-    yield remaining();
+    final value = remaining();
+    // Zero on a running TIMED session means the planned duration is
+    // over — close it now (finalizeIfDue itself re-checks pause and
+    // untimed state, so this is safe to race with the UI).
+    if (!dueHandled && value.inSeconds <= 0 && !FocusClock.isUntimed(session)) {
+      dueHandled = true;
+      await onDue();
+    }
+    yield value;
   }
 }
 

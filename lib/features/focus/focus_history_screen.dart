@@ -8,9 +8,10 @@ import '../../data/focus_providers.dart';
 import '../../shared/widgets/duration_flow.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
-/// Focus Time history: all completed sessions grouped by local calendar
+/// Focus Time history: all sessions grouped by local calendar
 /// date, with per-day totals — date, daily total, then every session's
-/// start, end and duration. Real stored data only.
+/// start, end and duration. Real stored data only; the ongoing session
+/// counts up live (and feeds the day total) while it runs.
 class FocusHistoryScreen extends ConsumerWidget {
   const FocusHistoryScreen({super.key});
 
@@ -101,13 +102,7 @@ class FocusHistoryScreen extends ConsumerWidget {
                       final day = days[i];
                       final daySessions = groups[day]!
                         ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
-                      final totalSeconds = daySessions.fold<int>(
-                          0, (sum, s) => sum + FocusClock.elapsedSeconds(s, s.endedAt ?? DateTime.now()));
-                      return _DayGroup(
-                        day: day,
-                        totalSeconds: totalSeconds,
-                        sessions: daySessions,
-                      );
+                      return _DayGroup(day: day, sessions: daySessions);
                     },
                   );
                 },
@@ -126,23 +121,32 @@ class FocusHistoryScreen extends ConsumerWidget {
 }
 
 class _DayGroup extends ConsumerWidget {
-  const _DayGroup({required this.day, required this.totalSeconds, required this.sessions});
+  const _DayGroup({required this.day, required this.sessions});
 
   final DateTime day;
-  final int totalSeconds;
   final List<FocusSession> sessions;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Ticks every second while a session runs — the day total (and the
+    // ongoing tile below) count up live, running time included.
+    ref.watch(focusRemainingProvider);
+    final now = DateTime.now();
+    final totalSeconds = sessions.fold<int>(
+        0, (sum, s) => sum + FocusClock.elapsedSeconds(s, s.endedAt ?? now));
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(_dayLabel(day),
-                style: TextStyle(
-                    fontSize: AppText.title, fontWeight: FontWeight.w600, color: AppColors.ink)),
+            Expanded(
+              child: Text(_dayLabel(day),
+                  style: TextStyle(
+                      fontSize: AppText.title, fontWeight: FontWeight.w600, color: AppColors.ink)),
+            ),
+            const SizedBox(width: 8),
             FlowDurationText(
               Duration(seconds: totalSeconds),
               suffix: '',
@@ -183,25 +187,32 @@ class _DayGroup extends ConsumerWidget {
   }
 }
 
-class _SessionTile extends StatelessWidget {
+class _SessionTile extends ConsumerWidget {
   const _SessionTile({required this.session});
+
   final FocusSession session;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final running = session.endedAt == null;
+    // Subscribing only while this tile is the ongoing session keeps the
+    // 1s ticker off the finished rows.
+    if (running) ref.watch(focusRemainingProvider);
+
     final start = TimeOfDay.fromDateTime(session.startedAt).format(context);
-    final end = session.endedAt != null
-        ? TimeOfDay.fromDateTime(session.endedAt!).format(context)
-        : '…';
-    final duration = FocusClock.elapsedSeconds(session, session.endedAt ?? DateTime.now());
-    final completed = session.completed;
+    final end = running
+        ? 'now'
+        : TimeOfDay.fromDateTime(session.endedAt!).format(context);
+    final duration =
+        FocusClock.elapsedSeconds(session, session.endedAt ?? DateTime.now());
+    final status = _statusLabel(session);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: AppColors.stroke),
+        border: Border.all(color: running ? AppColors.inkDim : AppColors.stroke),
       ),
       child: Row(
         children: [
@@ -246,14 +257,39 @@ class _SessionTile extends StatelessWidget {
                     color: AppColors.ink),
               ),
               const SizedBox(height: 2),
-              Text(
-                completed ? 'Completed' : 'Ended early',
-                style: TextStyle(fontSize: 10, color: AppColors.inkFaint),
-              ),
+              running
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: AppColors.ink,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(status, style: TextStyle(fontSize: 10, color: AppColors.inkDim)),
+                      ],
+                    )
+                  : Text(status, style: TextStyle(fontSize: 10, color: AppColors.inkFaint)),
             ],
           ),
         ],
       ),
     );
+  }
+
+  /// Completed on time, abandoned before time, or a closed untimed
+  /// session — never conflated.
+  String _statusLabel(FocusSession s) {
+    if (s.endedAt == null) {
+      if (FocusClock.isPaused(s)) return 'Paused';
+      return 'In progress';
+    }
+    if (s.completed) return 'Completed';
+    if (FocusClock.isUntimed(s)) return 'Ended';
+    return 'Ended early';
   }
 }

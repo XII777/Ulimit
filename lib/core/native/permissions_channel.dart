@@ -29,6 +29,11 @@ class NativePermissions {
 
   static Future<void> requestDeviceAdmin() => _channel.invokeMethod('requestDeviceAdmin');
 
+  /// Revokes device admin in-app (no system prompt) so the Settings
+  /// permission sheet can both allow and block it.
+  static Future<void> deactivateDeviceAdmin() =>
+      _channel.invokeMethod('deactivateDeviceAdmin');
+
   static Future<bool> isNotificationListenerEnabled() async {
     return await _channel.invokeMethod<bool>('isNotificationListenerEnabled') ?? false;
   }
@@ -36,11 +41,19 @@ class NativePermissions {
   static Future<void> openNotificationListenerSettings() =>
       _channel.invokeMethod('openNotificationListenerSettings');
 
+  /// The per-app notification settings page — where POST_NOTIFICATIONS
+  /// can be granted *and* revoked by the user at any time.
+  static Future<void> openAppNotificationSettings() =>
+      _channel.invokeMethod('openAppNotificationSettings');
+
   static Future<bool> hasVpnPermission() async {
     return await _channel.invokeMethod<bool>('hasVpnPermission') ?? false;
   }
 
   static Future<void> requestVpnPermission() => _channel.invokeMethod('requestVpnPermission');
+
+  /// The system VPN list — where the app's VPN consent can be revoked.
+  static Future<void> openVpnSettings() => _channel.invokeMethod('openVpnSettings');
 
   static Future<bool> isPostNotificationsGranted() async {
     return await _channel.invokeMethod<bool>('isPostNotificationsGranted') ?? false;

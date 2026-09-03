@@ -63,6 +63,17 @@ class MainActivity : FlutterFragmentActivity() {
                         result.success(null)
                     }
                     "isDeviceAdminActive" -> result.success(isDeviceAdminActive())
+                    "deactivateDeviceAdmin" -> {
+                        try {
+                            val dpm =
+                                getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                            dpm.removeActiveAdmin(deviceAdminComponent())
+                        } catch (_: Exception) {
+                            // Never fatal — the channel call just reports
+                            // whatever state the device ends up in.
+                        }
+                        result.success(null)
+                    }
                     "requestDeviceAdmin" -> {
                         val intent = Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
                             putExtra(
@@ -80,6 +91,25 @@ class MainActivity : FlutterFragmentActivity() {
                     "isNotificationListenerEnabled" -> result.success(isNotificationListenerEnabled())
                     "openNotificationListenerSettings" -> {
                         startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        result.success(null)
+                    }
+                    "openAppNotificationSettings" -> {
+                        try {
+                            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                            }
+                            startActivity(intent)
+                        } catch (_: Exception) {
+                            startActivity(Intent(Settings.ACTION_SETTINGS))
+                        }
+                        result.success(null)
+                    }
+                    "openVpnSettings" -> {
+                        try {
+                            startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
+                        } catch (_: Exception) {
+                            startActivity(Intent(Settings.ACTION_SETTINGS))
+                        }
                         result.success(null)
                     }
                     "hasVpnPermission" -> result.success(android.net.VpnService.prepare(this) == null)

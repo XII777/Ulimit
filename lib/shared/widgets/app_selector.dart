@@ -63,12 +63,15 @@ class _FallbackLetter extends StatelessWidget {
 ///
 /// `multiSelect` flips it into a checkbox picker that returns a set of
 /// package names; otherwise it returns a single package name (or null).
+/// `selectedFirst` sorts the already-selected apps to the top of the
+/// list so re-opening a multi-select shows the current choice first.
 Future<dynamic> showAppSelector(
   BuildContext context, {
   required String title,
   bool multiSelect = false,
   Set<String> initiallySelected = const {},
   String initialQuery = '',
+  bool selectedFirst = false,
 }) {
   return showAppSheet<dynamic>(
     context: context,
@@ -78,6 +81,7 @@ Future<dynamic> showAppSelector(
       multiSelect: multiSelect,
       initiallySelected: initiallySelected,
       initialQuery: initialQuery,
+      selectedFirst: selectedFirst,
       scrollController: scrollController,
     ),
   );
@@ -88,12 +92,14 @@ class _AppSelectorSheet extends ConsumerStatefulWidget {
     required this.multiSelect,
     required this.initiallySelected,
     required this.initialQuery,
+    required this.selectedFirst,
     required this.scrollController,
   });
 
   final bool multiSelect;
   final Set<String> initiallySelected;
   final String initialQuery;
+  final bool selectedFirst;
 
   /// The sheet system's controller — MUST be attached to the list so
   /// at-top downward drags hand off to dragging the sheet.
@@ -158,6 +164,15 @@ class _AppSelectorSheetState extends ConsumerState<_AppSelectorSheet> {
               final apps = data.apps
                   .where((a) => a.displayName.toLowerCase().contains(_query.toLowerCase()))
                   .toList();
+              if (widget.selectedFirst) {
+                // Stable sort: currently-selected apps float to the top
+                // so reopening the picker shows the user's choice first.
+                apps.sort((a, b) {
+                  final aSel = _selected.contains(a.packageName) ? 0 : 1;
+                  final bSel = _selected.contains(b.packageName) ? 0 : 1;
+                  return aSel.compareTo(bSel);
+                });
+              }
               if (apps.isEmpty) {
                 return Center(
                   child: Text('No applications found',
