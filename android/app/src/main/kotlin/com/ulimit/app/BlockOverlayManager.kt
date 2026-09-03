@@ -112,6 +112,20 @@ class BlockOverlayManager(
                 stroke?.let { setStroke(dp(1), Color.parseColor(it)) }
             }
 
+        fun centerIcon(holder: android.widget.FrameLayout, icon: android.graphics.drawable.Drawable?, sizeDp: Int) {
+            holder.gravity = Gravity.CENTER
+            icon?.let {
+                holder.addView(
+                    ImageView(context).apply {
+                        setImageDrawable(it)
+                        layoutParams = android.widget.FrameLayout.LayoutParams(
+                            dp(sizeDp), dp(sizeDp)
+                        )
+                    }
+                )
+            }
+        }
+
         // ---------------- card ----------------
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -131,18 +145,12 @@ class BlockOverlayManager(
         }
 
         val iconHolder = android.widget.FrameLayout(context).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(46), dp(46))
+            layoutParams = LinearLayout.LayoutParams(dp(46), dp(46)).apply {
+                gravity = Gravity.CENTER_VERTICAL
+            }
             background = rounded("#1FFFFFFF", 13f)
-            gravity = Gravity.CENTER
         }
-        appIcon?.let {
-            iconHolder.addView(
-                ImageView(context).apply {
-                    setImageDrawable(it)
-                    layoutParams = android.widget.FrameLayout.LayoutParams(dp(30), dp(30))
-                }
-            )
-        }
+        centerIcon(iconHolder, appIcon, 30)
         header.addView(iconHolder)
 
         header.addView(
@@ -285,7 +293,7 @@ class BlockOverlayManager(
 
         // iOS-style entrance: spring slide-up + fade.
         card.alpha = 0f
-        card.translationY = dp(90)
+        card.translationY = dp(90).toFloat()
         card.post {
             try {
                 card.animate()
