@@ -84,6 +84,22 @@ class BlockGuardService : Service() {
             }
         }
 
+        /** Ejects to the home screen without accessibility. Starting an
+         *  activity from the background is one of Android's documented
+         *  exemptions for apps holding SYSTEM_ALERT_WINDOW — the exact
+         *  permission the guard overlay path requires. */
+        fun goHome(context: Context?) {
+            if (context == null) return
+            try {
+                context.startActivity(
+                    Intent(Intent.ACTION_MAIN)
+                        .addCategory(Intent.CATEGORY_HOME)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (_: Exception) {
+            }
+        }
+
         /** Heads-up fallback when no overlay host can draw. Throttled
          *  per package so a mashing user can't spam the shade. */
         fun notifyBlocked(context: Context, pkg: String) {

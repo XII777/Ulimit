@@ -41,6 +41,7 @@ object UlimitChannels {
                     "getFilterFilePath" -> result.success(
                         java.io.File(context.filesDir, "blocked_domains.txt").absolutePath
                     )
+                    "getEnforcementStatus" -> result.success(BlockEngine.diagnostics(context))
                     "reloadDomainFilter" -> {
                         if (UlimitVpnService.isRunning) {
                             val intent = Intent(context, UlimitVpnService::class.java)

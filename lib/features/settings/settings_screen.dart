@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/crash/crash_collector.dart';
 import '../../core/icons/app_icons.dart';
+import '../../core/native/enforcement_channel.dart';
 import '../../core/native/permissions_channel.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/premium_components.dart';
@@ -200,6 +201,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onTap: () => _showCrashLogs(context),
                 ),
                 PremiumListTile(
+                  label: 'Blocking diagnostics',
+                  sublabel: 'Live status of the enforcement engine',
+                  trailing: AppIcon(AppIconName.info, size: 15, color: AppColors.inkFaint),
+                  onTap: () => _showBlockDiagnostics(context),
+                ),
+                PremiumListTile(
                   label: 'Delete all data',
                   sublabel: 'Usage, focus history, rules and lists — permanent',
                   onTap: () => _deleteAllData(context, ref),
@@ -361,6 +368,57 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
       builder: (_, scrollController) =>
           _CrashLogsContent(scrollController: scrollController, revision: revision),
+    );
+  }
+
+  Future<void> _showBlockDiagnostics(BuildContext context) async {
+    await showAppSheet<void>(
+      context: context,
+      title: 'Blocking diagnostics',
+      subtitle: 'Live state of the native enforcement engine. '
+          'Reproduce a block, then check what happened here.',
+      initialSize: 0.8,
+      minSize: 0.35,
+      builder: (_, scrollController) => FutureBuilder<String>(
+        future: EnforcementChannel.enforcementStatus(),
+        builder: (context, snapshot) {
+          final text = snapshot.data;
+          if (text == null) {
+            return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+          }
+          return ListView(
+            controller: scrollController,
+            physics: springScrollPhysics,
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.surface2,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: SelectableText(
+                  text,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    height: 1.55,
+                    fontFamily: 'monospace',
+                    color: AppColors.ink,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Open a blocked app now, come back and reopen this sheet — '
+                'a BLOCKED line under "recent events" means detection fired; '
+                'its absence means the launch never reached the engine.',
+                style: TextStyle(fontSize: 11.5, color: AppColors.inkFaint, height: 1.5),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }

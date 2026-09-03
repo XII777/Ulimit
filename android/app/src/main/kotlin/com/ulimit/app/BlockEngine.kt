@@ -91,6 +91,42 @@ object BlockEngine {
     private var laterRechecks = 0
     private val recheckRunnable = Runnable { recheck() }
 
+    // --- diagnostics ring buffer (mirrors the debug log) ---
+    private val diagEvents = ArrayDeque<String>()
+    private const val DIAG_MAX = 60
+    private var lastBlockedPkg: String? = null
+    private var lastBlockedAt = 0L
+
+    private fun diag(message: String) {
+        synchronized(diagEvents) {
+            diagEvents.addLast(java.lang.String.format("%tT ", java.util.Date()) + message)
+            while (diagEvents.size > DIAG_MAX) diagEvents.removeFirst()
+        }
+        appContext?.let { if (PolicySnapshot.isDebugBuild(it)) Log.d(TAG, message) }
+    }
+
+    /** Snapshot of the engine's live state + recent events, for the
+     *  in-app diagnostics screen. */
+    fun diagnostics(context: Context): String {
+        val sb = StringBuilder()
+        val snapshot = PolicySnapshot.read(context)
+        sb.append("snapshot: ${if (snapshot == null) "MISSING" else "pushed ${java.util.Date(snapshot.pushedAtMillis)}"}\n")
+        sb.append("policy: ${if (PolicySnapshot.hasActivePolicy(context)) "active" else "none"}\n")
+        sb.append("blockedNow: ${snapshot?.blockedNow?.keys?.joinToString() ?: "-"}\n")
+        sb.append("a11y actuator: ${if (ejector != null) "yes" else "NO"}\n")
+        sb.append("a11y overlay: ${if (a11yOverlay != null) "ready" else "-"}\n")
+        sb.append("guard service: ${if (BlockGuardService.isRunning) "running" else "NOT RUNNING"}\n")
+        sb.append("guard overlay: ${guardOverlay?.let { if (it.canShow) "ready" else "no permission" } ?: "-"}\n")
+        sb.append("poll foreground: ${trackedForeground() ?: "unknown"}\n")
+        sb.append("enforcing: ${enforcedPkg ?: "nothing"}\n")
+        sb.append("last block: ${lastBlockedPkg?.let { "$it @ %tT".format(java.util.Date(lastBlockedAt)) } ?: "never"}\n")
+        sb.append("--- recent events ---\n")
+        synchronized(diagEvents) {
+            for (e in diagEvents.asReversed()) sb.append(e).append('\n')
+        }
+        return sb.toString()
+    }
+
     /** Called once from [UlimitApplication.onCreate]. */
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -103,15 +139,12 @@ object BlockEngine {
     fun attachAccessibility(overlay: BlockOverlayManager, ejector: Ejector) {
         this.ejector = ejector
         this.a11yOverlay = overlay
-        appContext?.let {
-            if (PolicySnapshot.isDebugBuild(it)) {
-                Log.d(TAG, "engine: accessibility actuator attached")
-            }
-        }
+        diag("a11y actuator attached")
     }
 
     fun detachAccessibility(ejector: Ejector) {
         if (this.ejector === ejector) {
+            diag("a11y actuator detached")
             this.ejector = null
             this.a11yOverlay = null
             // The system tears the service's overlay windows down with
@@ -142,6 +175,11 @@ object BlockEngine {
 
     fun onAppLaunch(pkg: String?) {
         if (pkg.isNullOrEmpty()) return
+        // Cheap pre-filter for pure no-ops (evaluate ignores them too):
+        // our own windows and system UI can fire at very high frequency.
+        val ctx = appContext
+        if (ctx != null && pkg == ctx.packageName) return
+        if (pkg.startsWith("com.android.systemui")) return
         handler.post { evaluate(pkg) }
     }
 
@@ -188,10 +226,12 @@ object BlockEngine {
 
         val now = System.currentTimeMillis()
         val verdict = PolicySnapshot.shouldBlock(context, pkg, now)
-        if (PolicySnapshot.isDebugBuild(context)) {
-            Log.d(TAG, "evaluate($pkg): ${verdict?.reason ?: "allowed"}")
+        if (verdict != null) {
+            diag("BLOCKED $pkg (${verdict.reason}) -> enforce")
+            enforce(pkg, verdict)
+        } else {
+            settle()
         }
-        if (verdict != null) enforce(pkg, verdict) else settle()
     }
 
     private fun enforce(pkg: String, verdict: PolicySnapshot.BlockVerdict) {
@@ -202,11 +242,26 @@ object BlockEngine {
         lastEnforceAt = now
         recheckStep = 0
         laterRechecks = 0
+        lastBlockedPkg = pkg
+        lastBlockedAt = now
 
         showOverlay(pkg, verdict)
 
-        // 1) First eject: BACK finishes most apps instantly.
-        ejector?.pressBack()
+        // 1) First eject. With the accessibility actuator: BACK (most
+        //    apps die instantly). Guard-only (no accessibility): HOME
+        //    via a background activity start — legal because the guard
+        //    overlay path requires "Display over other apps", one of
+        //    Android's documented background-start exemptions.
+        val ejector = ejector
+        if (ejector != null) {
+            diag("eject: BACK (a11y)")
+            ejector.pressBack()
+        } else if (guardOverlay?.canShow == true) {
+            diag("eject: HOME (guard, no a11y)")
+            BlockGuardService.goHome(context())
+        } else {
+            diag("eject: no actuator — notification only")
+        }
 
         // 2) Relentless verification: while this package is still
         //    foreground we re-eject with HOME on every tick. The
@@ -219,7 +274,17 @@ object BlockEngine {
         val pkg = enforcedPkg ?: return
         val context = appContext ?: return
 
-        val fg = ejector?.activeWindowPackage() ?: trackedForeground()
+        var fg = ejector?.activeWindowPackage()
+        // CRITICAL: our own windows say nothing about the blocked app.
+        // While the accessibility overlay covers the screen it can
+        // surface as the "active" window (its package = ours), and
+        // treating that as "foreground moved" would dismiss the block
+        // instantly — the blocked app usable again, blocking looking
+        // dead. When the probe reports our own package (or nothing),
+        // fall back to the UsageEvents tracker.
+        if (fg == null || fg == context.packageName) {
+            fg = trackedForeground()
+        }
         if (fg == null || fg.startsWith("com.android.systemui")) {
             // In a transition — wait for the next tick without acting.
             scheduleNext()
@@ -243,21 +308,25 @@ object BlockEngine {
         showOverlay(pkg, verdict)
         // …then eject harder. BACK was already tried; HOME closes even
         // apps that swallow BACK. Repeated HOME presses are idempotent.
-        ejector?.pressHome()
+        val ejector = ejector
+        if (ejector != null) {
+            diag("still foreground — re-eject HOME (a11y)")
+            ejector.pressHome()
+        } else if (guardOverlay?.canShow == true) {
+            diag("still foreground — re-eject HOME (guard)")
+            BlockGuardService.goHome(context())
+        }
         scheduleNext()
     }
 
     private fun showOverlay(pkg: String, verdict: PolicySnapshot.BlockVerdict) {
+        // Prefer the accessibility host (no extra permission); fall
+        // through to the guard host if the accessibility addView fails,
+        // then to a heads-up notification as the last resort.
         val a11y = a11yOverlay
-        if (a11y != null) {
-            a11y.showOverlay(pkg, verdict)
-            return
-        }
+        if (a11y != null && a11y.showOverlay(pkg, verdict)) return
         val guard = guardOverlay
-        if (guard != null && guard.canShow) {
-            guard.showOverlay(pkg, verdict)
-            return
-        }
+        if (guard != null && guard.canShow && guard.showOverlay(pkg, verdict)) return
         // No overlay host can draw: surface a heads-up notification so
         // the user still gets an active signal, not silence.
         BlockGuardService.notifyBlocked(context() ?: return, pkg)
@@ -267,6 +336,7 @@ object BlockEngine {
         handler.removeCallbacks(recheckRunnable)
         recheckStep = 0
         laterRechecks = 0
+        if (enforcedPkg != null) diag("released (foreground left ${enforcedPkg})")
         enforcedPkg = null
         a11yOverlay?.dismissOverlay()
         guardOverlay?.dismissOverlay()

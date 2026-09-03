@@ -56,6 +56,19 @@ class EnforcementChannel {
     }
   }
 
+  /// Live enforcement diagnostics from the native blocking engine:
+  /// snapshot presence, actuator/overlay/service status and a ring
+  /// buffer of recent block/eject events. Debugging aid.
+  static Future<String> enforcementStatus() async {
+    try {
+      return await _channel.invokeMethod<String>('getEnforcementStatus') ?? '';
+    } on PlatformException {
+      return '';
+    } on MissingPluginException {
+      return '';
+    }
+  }
+
   static Future<bool> startVpn() async {
     try {
       return await _channel.invokeMethod<bool>('startVpn') ?? false;
