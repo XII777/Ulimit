@@ -16,6 +16,7 @@ import '../../data/website_providers.dart';
 import '../../shared/widgets/app_selector.dart';
 import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/pressable_scale.dart';
+import '../../shared/widgets/search_field.dart';
 import '../../shared/widgets/spring_scroll.dart';
 
 /// Internet & Sites: local VPN protection plus three swipeable columns —
@@ -38,6 +39,11 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
   final FocusNode _searchFocus = FocusNode();
   String _query = '';
   int _column = 0;
+
+  /// Whether the Search field currently owns the bar (focused): the bar
+  /// lifts above the keyboard and the field expands over the pills.
+  /// System back (or unfocus) restores the original layout.
+  bool _searchFocused = false;
 
   /// Jelly controller for the active pill: the pill first SQUASHES
   /// (stretches along its travel axis, like a water droplet gathering
@@ -69,11 +75,21 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
   double _jellyFrom = 0;
   double _jellyTo = 0;
 
+  /// The page the current/last gesture started from: the pill's glue
+  /// origin during swipes. Updated when a drag begins and after every
+  /// settle.
+  double _lastSettledPage = 0;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _searchController.addListener(_onSearchChanged);
+    _searchFocus.addListener(_onSearchFocusChanged);
+    // Drag lifecycle for the swipe jelly: on drag start, freeze the
+    // pill's glue origin; on drag end (release), play the settle wobble
+    // from wherever the page lands — no jitter, one motion language.
+    _pageController.addListener(_onPageTick);
   }
 
   @override
@@ -81,10 +97,37 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
     WidgetsBinding.instance.removeObserver(this);
     _jelly.dispose();
     _searchController.removeListener(_onSearchChanged);
+    _searchFocus.removeListener(_onSearchFocusChanged);
+    _pageController.removeListener(_onPageTick);
     _searchController.dispose();
     _searchFocus.dispose();
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _onPageTick() {
+    final page = _pageController.hasClients ? (_pageController.page ?? 0) : 0;
+    final settled = page.round();
+    final atRest = (page - settled).abs() < 0.005;
+    if (atRest && settled.toDouble() != _lastSettledPage) {
+      // A swipe finished settling: advance the glue origin and give the
+      // pill its landing wobble from the neighbor slot (unless a
+      // tap-driven jelly is already flying — that one owns the motion).
+      final from = _lastSettledPage;
+      setState(() => _lastSettledPage = settled.toDouble());
+      if ((settled - from).abs() >= 0.5 && !_jelly.isAnimating) {
+        _jellyFrom = from;
+        _jellyTo = settled.toDouble();
+        _jelly
+          ..reset()
+          ..forward();
+      }
+    }
+  }
+
+  void _onSearchFocusChanged() {
+    if (!mounted) return;
+    setState(() => _searchFocused = _searchFocus.hasFocus);
   }
 
   @override
@@ -102,8 +145,9 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
   /// Tap on a pill: the jelly animation leads the way (stretch → glide
   /// → elastic settle) while the PageView follows with a matched ease.
   void _goToColumn(int index) {
-    FocusScope.of(context).unfocus();
+    _searchFocus.unfocus();
     if (index == _column) return;
+    _lastSettledPage = index.toDouble(); // origin follows the tap target
     _jellyFrom = _column.toDouble();
     _jellyTo = index.toDouble();
     _jelly
@@ -120,7 +164,6 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
     setState(() => _column = page);
     // Each column gets a fresh search context.
     if (_searchController.text.isNotEmpty) _searchController.clear();
-    FocusScope.of(context).unfocus();
   }
 
   // -- Floating action ------------------------------------------------------
@@ -139,13 +182,18 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
   }
 
   Future<void> _openAppPicker({String withQuery = ''}) async {
-    final pkg = await showAppSelector(
+    // Multi-select: pick one or many apps, all get blocked on Done.
+    final result = await showAppSelector(
       context,
       title: 'Block internet for',
+      multiSelect: true,
       initialQuery: withQuery,
     );
-    if (pkg is! String) return;
-    await ref.read(databaseProvider).setInternetBlocked(pkg, true);
+    if (result is! Set || result.isEmpty) return;
+    final db = ref.read(databaseProvider);
+    for (final pkg in result) {
+      await db.setInternetBlocked(pkg as String, true);
+    }
     ref.read(enforcementSyncProvider).push();
   }
 
@@ -194,7 +242,12 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
     return AnimatedBuilder(
       animation: _jelly,
       builder: (context, _) {
-        return Scaffold(
+        return PopScope(
+          canPop: !_searchFocused,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _searchFocus.unfocus();
+          },
+          child: Scaffold(
           backgroundColor: AppColors.bg,
           // The body scrolls edge-to-edge behind the floating bottom
           // control, exactly like the nav shell (extendBody + transparent
@@ -230,11 +283,15 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
                     ),
                   ],
                 ),
-                // Floating action pill sits directly ABOVE the bottom
-                // bar — same 96dp strip the snackbar uses.
-                Positioned(
+                // Floating action pill sits above the bottom bar; when
+                // the Search field owns the bar (focused), the bar lifts
+                // above the keyboard — the FAB rises with it so the two
+                // never collide.
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutCubic,
                   right: 20,
-                  bottom: 96,
+                  bottom: _searchFocused ? 168 : 96,
                   child: _ActionFab(label: fab.label, plus: fab.plus, onTap: fab.onTap),
                 ),
               ],
@@ -244,18 +301,24 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
           // pills and the Search field share ONE line, anchored with the
           // same horizontal padding + bottom inset as the app's floating
           // nav pill (see NavShell: 16 side, 12 above the gesture inset).
+          // When the Search field is focused, the bar lifts above the
+          // keyboard (Scaffold resize) and the field expands over the
+          // pills — system back collapses it back to the pill layout.
           bottomNavigationBar: _BottomControlBar(
             pageController: _pageController,
             activeIndex: _column,
+            lastSettledPage: _lastSettledPage,
             jellyFrom: _jellyFrom,
             jellyTo: _jellyTo,
             jellyMove: _jellyMove,
             jellyStretch: _jellyStretch,
             jellySettle: _jellySettle,
             jellyPlaying: _jelly.isAnimating,
+            focused: _searchFocused,
             onTap: _goToColumn,
             searchController: _searchController,
             searchFocus: _searchFocus,
+          ),
           ),
         );
       },
@@ -271,12 +334,14 @@ class _BottomControlBar extends StatelessWidget {
   const _BottomControlBar({
     required this.pageController,
     required this.activeIndex,
+    required this.lastSettledPage,
     required this.jellyFrom,
     required this.jellyTo,
     required this.jellyMove,
     required this.jellyStretch,
     required this.jellySettle,
     required this.jellyPlaying,
+    required this.focused,
     required this.onTap,
     required this.searchController,
     required this.searchFocus,
@@ -284,12 +349,16 @@ class _BottomControlBar extends StatelessWidget {
 
   final PageController pageController;
   final int activeIndex;
+  final double lastSettledPage;
   final double jellyFrom;
   final double jellyTo;
   final Animation<double> jellyMove;
   final Animation<double> jellyStretch;
   final Animation<double> jellySettle;
   final bool jellyPlaying;
+
+  /// Search-focus mode: the field expands over the pills.
+  final bool focused;
   final ValueChanged<int> onTap;
   final TextEditingController searchController;
   final FocusNode searchFocus;
@@ -299,25 +368,56 @@ class _BottomControlBar extends StatelessWidget {
     return Container(
       color: Colors.transparent,
       padding: EdgeInsets.fromLTRB(16, 6, 16, MediaQuery.paddingOf(context).bottom + 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: _ColumnPills(
-              controller: pageController,
-              activeIndex: activeIndex,
-              jellyFrom: jellyFrom,
-              jellyTo: jellyTo,
-              jellyMove: jellyMove,
-              jellyStretch: jellyStretch,
-              jellySettle: jellySettle,
-              jellyPlaying: jellyPlaying,
-              onTap: onTap,
+      child: LayoutBuilder(builder: (context, constraints) {
+        return Row(
+          children: [
+            // The pills squeeze + fade away while the Search field owns
+            // the bar; the field then spans the full width, centered
+            // above the keyboard (the Scaffold lifts this bar with the
+            // IME). Unfocusing expands them back.
+            ClipRect(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOutCubic,
+                width: focused ? 0 : constraints.maxWidth - 10,
+                height: 52,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  opacity: focused ? 0.0 : 1.0,
+                  child: IgnorePointer(
+                    ignoring: focused,
+                    child: _ColumnPills(
+                      controller: pageController,
+                      activeIndex: activeIndex,
+                      lastSettledPage: lastSettledPage,
+                      jellyFrom: jellyFrom,
+                      jellyTo: jellyTo,
+                      jellyMove: jellyMove,
+                      jellyStretch: jellyStretch,
+                      jellySettle: jellySettle,
+                      jellyPlaying: jellyPlaying,
+                      onTap: onTap,
+                    ),
+                  ),
+                ),
+              ),
             ),
-          ),
-          const SizedBox(width: 10),
-          _SearchField(controller: searchController, focusNode: searchFocus),
-        ],
-      ),
+            // The Search field expands across the freed space.
+            Expanded(
+              child: AnimatedPadding(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOutCubic,
+                padding: EdgeInsets.only(left: focused ? 0 : 10),
+                child: AppSearchField(
+                  controller: searchController,
+                  focusNode: searchFocus,
+                ),
+              ),
+            ),
+          ],
+        );
+      }),
     );
   }
 }
@@ -331,12 +431,17 @@ class _BottomControlBar extends StatelessWidget {
 /// ink pill is a JELLY: a tap first squashes/stretch-loads it on its
 /// travel axis, it then glides to the target column, and lands with an
 /// elastic wobble (overshoot + squash rebound) — a water droplet pulled
-/// from one slot to another. During finger swipes it tracks the page
-/// fraction like the nav pill does.
+/// from one slot to another.
+///
+/// During finger swipes the pill does NOT follow 1:1: it stretches
+/// toward the incoming column (droplet pulled by the finger) and only
+/// HOPS across once the swipe crosses 60% of the way — landing with the
+/// same settle wobble. Below 60% it springs back to its slot.
 class _ColumnPills extends StatelessWidget {
   const _ColumnPills({
     required this.controller,
     required this.activeIndex,
+    required this.lastSettledPage,
     required this.jellyFrom,
     required this.jellyTo,
     required this.jellyMove,
@@ -349,6 +454,10 @@ class _ColumnPills extends StatelessWidget {
   final PageController controller;
   final int activeIndex;
 
+  /// The page the current gesture started from (tracked by the screen
+  /// state): the origin the pill is glued to during a swipe.
+  final double lastSettledPage;
+
   /// Jelly animation state (idle = from == to == activeIndex).
   final double jellyFrom;
   final double jellyTo;
@@ -357,6 +466,9 @@ class _ColumnPills extends StatelessWidget {
   final Animation<double> jellySettle;
   final bool jellyPlaying;
   final ValueChanged<int> onTap;
+
+  /// Swipe progress at which the pill detaches and hops to the target.
+  static const _hopThreshold = 0.6;
 
   static const _labels = ['Filters', 'Custom', 'Apps'];
 
@@ -369,31 +481,23 @@ class _ColumnPills extends StatelessWidget {
             ? (controller.page ?? activeIndex.toDouble())
             : activeIndex.toDouble();
         final settled = page.round().clamp(0, _labels.length - 1);
-        final swipeFlow = (page - settled).clamp(-0.5, 0.5);
 
-        // ---- Jelly position ----
-        // While the tap-driven jelly animation plays, the pill rides the
-        // eased from→to curve instead of the finger/page position.
+        // ---- Jelly position + stretch ----
         double pillPos;
-        if (jellyPlaying) {
-          pillPos = jellyFrom + (jellyTo - jellyFrom) * jellyMove.value;
-        } else {
-          pillPos = page.toDouble();
-        }
-
-        // ---- Jelly stretch factor ----
-        // Three phases on the shared 650ms timeline:
-        //  1) LOAD (0–35%): the pill squashes against its slot —
-        //     widens along the travel axis, slims cross-axis — the
-        //     droplet gathering momentum before leaving.
-        //  2) FLIGHT (35–62%): the squash relaxes toward neutral while
-        //     the pill glides to the target.
-        //  3) LAND (62–100%): a damped sine wobble — width overshoots,
-        //     cross-axis counters — decaying to rest. Water settling.
-        final travel = (jellyTo - jellyFrom).abs();
         var stretchX = 1.0;
         var stretchY = 1.0;
-        if (jellyPlaying && travel > 0) {
+
+        if (jellyPlaying) {
+          // Tap/release-driven jelly: stretch-load → glide → wobble.
+          pillPos = jellyFrom + (jellyTo - jellyFrom) * jellyMove.value;
+          // Three phases on the shared timeline:
+          //  1) LOAD (0–35%): the pill squashes against its slot —
+          //     widens along the travel axis, slims cross-axis — the
+          //     droplet gathering momentum before leaving.
+          //  2) FLIGHT (35–62%): the squash relaxes toward neutral while
+          //     the pill glides to the target.
+          //  3) LAND (62–100%): a damped sine wobble — width overshoots,
+          //     cross-axis counters — decaying to rest. Water settling.
           final load = jellyStretch.value; // 0 → 1 in the first 35%
           final flight = 1.0 - load;
           stretchX = 1.0 + 0.3 * load * flight;
@@ -407,6 +511,28 @@ class _ColumnPills extends StatelessWidget {
             stretchX += wobble * 0.16;
             stretchY -= wobble * 0.10;
           }
+        } else if ((page - lastSettledPage).abs() > 0.005) {
+          // ---- Swipe jelly ----
+          // The pill stays glued to its origin slot but STRETCHES toward
+          // the finger (a droplet being pulled). Past the 60% threshold
+          // it detaches and eases across to the target slot over the
+          // remaining distance; under the threshold it stays home. The
+          // active label flips exactly at the hop, so the switch reads
+          // as one motion.
+          final delta = (page - lastSettledPage).clamp(-1.0, 1.0);
+          final dir = delta.sign;
+          final progress = delta.abs(); // 0 → 1 toward the neighbor
+          final hopT = ((progress - _hopThreshold) / (1 - _hopThreshold)).clamp(0.0, 1.0);
+          final eased = Curves.easeOutCubic.transform(hopT);
+          pillPos = lastSettledPage + dir * eased;
+
+          // Stretch ramps with the pull, then relaxes as the pill lands.
+          final pull = Curves.easeOut.transform(progress.clamp(0.0, 1.0));
+          final stretchAmount = 0.30 * pull * (1 - eased);
+          stretchX = 1.0 + stretchAmount;
+          stretchY = 1.0 - 0.16 * stretchAmount / 0.30;
+        } else {
+          pillPos = page.toDouble();
         }
 
         return Container(
@@ -451,7 +577,6 @@ class _ColumnPills extends StatelessWidget {
                           child: _PillLabel(
                             label: _labels[i],
                             active: i == settled,
-                            flow: jellyPlaying ? 0.0 : swipeFlow,
                             onTap: () => onTap(i),
                           ),
                         ),
@@ -471,16 +596,11 @@ class _PillLabel extends StatelessWidget {
   const _PillLabel({
     required this.label,
     required this.active,
-    required this.flow,
     required this.onTap,
   });
 
   final String label;
   final bool active;
-
-  /// Fractional progress (-0.5..0.5) beyond the settled column during
-  /// swipes: the labels drift a few px toward the finger, then settle.
-  final double flow;
   final VoidCallback onTap;
 
   @override
@@ -488,54 +608,16 @@ class _PillLabel extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Transform.translate(
-        offset: Offset(10 * flow, 0),
-        child: Center(
-          child: AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 260),
-            curve: Curves.easeOutCubic,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-              color: active ? AppColors.bg : AppColors.inkDim,
-            ),
-            child: Text(label, maxLines: 1),
+      child: Center(
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+            color: active ? AppColors.bg : AppColors.inkDim,
           ),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Search field — pill style, no icon, "Search" label
-// ---------------------------------------------------------------------------
-
-class _SearchField extends StatelessWidget {
-  const _SearchField({required this.controller, required this.focusNode});
-
-  final TextEditingController controller;
-  final FocusNode focusNode;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 148,
-      child: TextField(
-        controller: controller,
-        focusNode: focusNode,
-        style: TextStyle(color: AppColors.ink, fontSize: 13.5),
-        decoration: InputDecoration(
-          isDense: true,
-          hintText: 'Search',
-          hintStyle: TextStyle(color: AppColors.inkFaint, fontSize: 13.5),
-          filled: true,
-          fillColor: AppColors.surface,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            borderSide: BorderSide.none,
-          ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Text(label, maxLines: 1),
         ),
       ),
     );
@@ -660,7 +742,7 @@ class _FiltersColumn extends ConsumerWidget {
             const _EmptyHint(text: 'No filters match this search'),
           for (final view in ordered)
             Padding(
-              padding: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.only(bottom: 10),
               child: _BlockListTile(view: view),
             ),
         ];
@@ -778,7 +860,11 @@ class _CustomColumn extends ConsumerWidget {
           physics: springScrollPhysics,
           padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
           itemCount: filtered.length,
-          itemBuilder: (context, i) => _SiteTile(rule: filtered[i]),
+          // Breathing room between toggle rows so switches never crowd.
+          itemBuilder: (context, i) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _SiteTile(rule: filtered[i]),
+          ),
         );
       },
       loading: () => const _ColumnSpinner(),
@@ -828,7 +914,7 @@ class _AppsColumn extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
           itemCount: filtered.length,
           itemBuilder: (context, i) => Padding(
-            padding: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.only(bottom: 12),
             child: _InternetBlockRow(
               packageName: filtered[i].packageName,
               appName:
@@ -1006,7 +1092,8 @@ class _InternetBlockRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      // Generous vertical padding so the row never reads compact.
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -1014,23 +1101,25 @@ class _InternetBlockRow extends ConsumerWidget {
       ),
       child: Row(
         children: [
-          AppIconView(packageName: packageName),
-          const SizedBox(width: 12),
+          AppIconView(packageName: packageName, size: 40, radius: 10),
+          const SizedBox(width: 14),
           Expanded(
             child: Text(appName,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: AppText.body, color: AppColors.ink)),
           ),
-          Text('Internet blocked',
-              style: TextStyle(fontSize: 11, color: AppColors.inkDim)),
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: () async {
+          // Rows only exist for blocked apps, so the toggle is always
+          // on — flipping it off removes the internet block.
+          Switch(
+            value: true,
+            onChanged: (v) async {
+              if (v) return;
               await ref.read(databaseProvider).setInternetBlocked(packageName, false);
               ref.read(enforcementSyncProvider).push();
             },
-            child: AppIcon(AppIconName.close, size: 15, color: AppColors.inkFaint),
+            activeTrackColor: AppColors.ink,
+            activeThumbColor: AppColors.bg,
           ),
         ],
       ),
@@ -1356,29 +1445,14 @@ class _CategorySitesScreenState extends ConsumerState<_CategorySitesScreen> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
-              child: TextField(
+              child: AppSearchField(
+                hint: 'Search ${widget.view.template.title.toLowerCase()} sites…',
                 onChanged: (v) {
                   _debounce?.cancel();
                   _debounce = Timer(const Duration(milliseconds: 250), () {
                     setState(() => _query = v);
                   });
                 },
-                style: TextStyle(color: AppColors.ink, fontSize: 13.5),
-                decoration: InputDecoration(
-                  hintText: 'Search ${widget.view.template.title.toLowerCase()} sites…',
-                  hintStyle: TextStyle(color: AppColors.inkFaint, fontSize: 12.5),
-                  prefixIcon: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: AppIcon(AppIconName.search, size: 16, color: AppColors.inkFaint),
-                  ),
-                  filled: true,
-                  fillColor: AppColors.surface,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                ),
               ),
             ),
             Expanded(

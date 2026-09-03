@@ -2,19 +2,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/icons/app_icons.dart';
 import '../../core/theme/tokens.dart';
 import 'app_sheet.dart';
 import '../../core/native/enforcement_channel.dart' show InstalledApp;
 import '../../data/apps_repository.dart';
 import '../../data/providers.dart';
+import 'search_field.dart';
 import 'spring_scroll.dart';
 
 /// Cached app icon: decodes the native PNG bytes once per package. A
 /// gray initial letter shows when an icon is unavailable (non-Android,
 /// revoked catalog) so lists stay visually stable.
 class AppIconView extends ConsumerWidget {
-  const AppIconView({super.key, required this.packageName, this.size = 22, this.radius = 6});
+  const AppIconView({super.key, required this.packageName, this.size = 30, this.radius = 8});
 
   final String packageName;
   final double size;
@@ -77,6 +77,9 @@ Future<dynamic> showAppSelector(
     context: context,
     title: title,
     subtitle: multiSelect ? 'Select one or more applications' : null,
+    // No close button: the drag-down handle is the way out, and the
+    // search field docks at the bottom like a nav bar.
+    showClose: false,
     builder: (_, scrollController) => _AppSelectorSheet(
       multiSelect: multiSelect,
       initiallySelected: initiallySelected,
@@ -124,30 +127,10 @@ class _AppSelectorSheetState extends ConsumerState<_AppSelectorSheet> {
     final catalog = ref.watch(appsCatalogProvider);
     final usage = ref.watch(todayUsageByPackageProvider).valueOrNull ?? const {};
 
+    // Nav-bar layout: the list on top, the shared search field docked
+    // at the BOTTOM of the sheet (like the app's floating bars).
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-          child: TextField(
-            onChanged: (v) => setState(() => _query = v),
-            style: TextStyle(color: AppColors.ink, fontSize: 14),
-            decoration: InputDecoration(
-              hintText: 'Search applications…',
-              hintStyle: TextStyle(color: AppColors.inkFaint, fontSize: 13.5),
-              prefixIcon: Padding(
-                padding: const EdgeInsets.all(12),
-                child: AppIcon(AppIconName.search, size: 18, color: AppColors.inkFaint),
-              ),
-              filled: true,
-              fillColor: AppColors.surface,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-          ),
-        ),
         Expanded(
           child: catalog.when(
             loading: () => const Center(
@@ -211,7 +194,7 @@ class _AppSelectorSheetState extends ConsumerState<_AppSelectorSheet> {
         ),
         if (widget.multiSelect)
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 6, 20, 14),
+            padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
             child: Row(
               children: [
                 Expanded(
@@ -233,6 +216,14 @@ class _AppSelectorSheetState extends ConsumerState<_AppSelectorSheet> {
               ],
             ),
           ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 6, 20, 14),
+          child: AppSearchField(
+            hint: 'Search applications…',
+            onChanged: (v) => setState(() => _query = v),
+            autofocus: widget.initialQuery.isNotEmpty,
+          ),
+        ),
       ],
     );
   }
@@ -265,10 +256,11 @@ class _AppRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        // Generous vertical breathing room so rows never read compact.
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
         child: Row(
           children: [
-            AppIconView(packageName: app.packageName),
+            AppIconView(packageName: app.packageName, size: 40, radius: 10),
             const SizedBox(width: 14),
             Expanded(
               child: Column(

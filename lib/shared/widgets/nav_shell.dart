@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -32,7 +34,8 @@ class NavShell extends ConsumerStatefulWidget {
   ConsumerState<NavShell> createState() => _NavShellState();
 }
 
-class _NavShellState extends ConsumerState<NavShell> {
+class _NavShellState extends ConsumerState<NavShell>
+    with SingleTickerProviderStateMixin {
   static const _tabs = [
     (Routes.home, AppIconName.home, 'Home'),
     (Routes.focus, AppIconName.focus, 'Focus'),
@@ -68,16 +71,44 @@ class _NavShellState extends ConsumerState<NavShell> {
   bool _navVisible = true;
   int _lastRouteIndex = -1;
 
+  /// Jelly-wobble controller for the floating nav pill: fires when the
+  /// pill lands on a new tab (after swipes and jumps), giving the same
+  /// damped-sine settle as the Internet screen's column pills.
+  late final AnimationController _wobble = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+  );
+
+  /// The page the pill is glued to during a swipe; advances whenever a
+  /// swipe/jump settles on a new tab.
+  double _lastSettledPage = -1;
+
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
+    _pageController.addListener(_onPageTick);
   }
 
   @override
   void dispose() {
+    _pageController.removeListener(_onPageTick);
     _pageController.dispose();
+    _wobble.dispose();
     super.dispose();
+  }
+
+  void _onPageTick() {
+    final page = _pageController.hasClients ? (_pageController.page ?? 0) : 0;
+    final settled = page.round();
+    final atRest = (page - settled).abs() < 0.005;
+    if (atRest && settled.toDouble() != _lastSettledPage) {
+      _lastSettledPage = settled.toDouble();
+      // Landing wobble — skip during the very first layout.
+      if (_lastRouteIndex != -1 && !_wobble.isAnimating) {
+        _wobble.forward(from: 0);
+      }
+    }
   }
 
   bool _onScroll(ScrollNotification n) {
@@ -113,6 +144,9 @@ class _NavShellState extends ConsumerState<NavShell> {
     // "Hide Nav Bar" setting: immersive mode — no floating pill at all.
     final hideNavBar = ref.watch(hideNavBarProvider).valueOrNull ?? false;
 
+    // Glue origin for the pill jelly — snaps to the first route.
+    if (_lastSettledPage < 0) _lastSettledPage = routeIndex.toDouble();
+
     // Physical navigation: deep link / initial route / a go() that did
     // NOT come from a PageView gesture or nav-item tap. The PageView
     // must be steered to match.
@@ -133,6 +167,8 @@ class _NavShellState extends ConsumerState<NavShell> {
         // context.go mid-build), corrupting the router. Post-frame it
         // is equivalent, and a tap is always post-frame anyway.
         final target = routeIndex;
+        _lastSettledPage = target.toDouble(); // pill glue origin advances
+        if (!_wobble.isAnimating) _wobble.forward(from: 0);
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (_pageController.hasClients) _pageController.jumpToPage(target);
         });
@@ -199,6 +235,8 @@ class _NavShellState extends ConsumerState<NavShell> {
               tabs: _tabs,
               routeIndex: routeIndex,
               pageController: _pageController,
+              lastSettledPage: _lastSettledPage,
+              wobble: _wobble,
               visible: _navVisible,
               onTap: goToTab,
             ),
@@ -236,6 +274,8 @@ class _FloatingNavContainer extends StatelessWidget {
     required this.tabs,
     required this.routeIndex,
     required this.pageController,
+    required this.lastSettledPage,
+    required this.wobble,
     required this.visible,
     required this.onTap,
   });
@@ -243,6 +283,8 @@ class _FloatingNavContainer extends StatelessWidget {
   final List<(String, AppIconName, String)> tabs;
   final int routeIndex;
   final PageController pageController;
+  final double lastSettledPage;
+  final Animation<double> wobble;
   final bool visible;
   final ValueChanged<int> onTap;
 
@@ -263,24 +305,16 @@ class _FloatingNavContainer extends StatelessWidget {
           child: IgnorePointer(
             ignoring: !visible,
             child: AnimatedBuilder(
-              animation: pageController,
+              animation: Listenable.merge([pageController, wobble]),
               builder: (context, _) {
-                // Selection follows the swipe gesture CONTINUOUSLY (like
-                // iOS tab bars): nearest tab during/drag settles at the
-                // page boundary. The old page.round() held each tab
-                // until the swipe crossed 50% then jumped to the next —
-                // the jump is what made horizontal swipes feel stuttery.
                 final page = pageController.hasClients
                     ? (pageController.page ?? routeIndex.toDouble())
                     : routeIndex.toDouble();
-                final activeIndex = page.round().clamp(0, tabs.length - 1);
-                // Fractional 0..1 "flow" toward the next tab drives the
-                // pill's position so it glides in sync with the finger.
-                final flow = (page - activeIndex).clamp(-0.5, 0.5);
                 return _FloatingNavBar(
                   tabs: tabs,
-                  activeIndex: activeIndex,
-                  flow: flow,
+                  page: page,
+                  lastSettledPage: lastSettledPage,
+                  wobbleValue: wobble.isAnimating ? wobble.value : 0.0,
                   onTap: onTap,
                 );
               },
@@ -292,25 +326,68 @@ class _FloatingNavContainer extends StatelessWidget {
   }
 }
 
+/// The floating pill bar with a JELLY highlight: during a swipe the ink
+/// highlight stays glued to its origin tab and stretches toward the
+/// finger; past the 60% threshold it detaches and eases across to the
+/// target tab (the active label flips exactly at the hop). When the
+/// page settles (or a nav-item tap jumps), a damped-sine wobble plays —
+/// the same motion language as the Internet screen's column pills.
 class _FloatingNavBar extends StatelessWidget {
   const _FloatingNavBar({
     required this.tabs,
-    required this.activeIndex,
-    this.flow = 0,
+    required this.page,
+    required this.lastSettledPage,
+    required this.wobbleValue,
     required this.onTap,
   });
 
   final List<(String, AppIconName, String)> tabs;
-  final int activeIndex;
+  final double page;
 
-  /// Fractional progress (0..0.5) beyond [activeIndex]: during a swipe,
-  /// the outgoing pill eases slightly toward the incoming tab position
-  /// so the pill tracks the finger instead of jumping at 50%.
-  final double flow;
+  /// Glue origin: the tab the current gesture started from.
+  final double lastSettledPage;
+
+  /// 0 → 1 while the landing wobble plays (damped sine applied below).
+  final double wobbleValue;
   final ValueChanged<int> onTap;
+
+  /// Swipe progress at which the highlight detaches and hops.
+  static const _hopThreshold = 0.6;
 
   @override
   Widget build(BuildContext context) {
+    final activeIndex = page.round().clamp(0, tabs.length - 1);
+
+    // ---- Jelly highlight position + stretch ----
+    double pillPos;
+    var stretchX = 1.0;
+    var stretchY = 1.0;
+
+    final swiping = (page - lastSettledPage).abs() > 0.005 &&
+        wobbleValue == 0.0;
+    if (swiping) {
+      final delta = (page - lastSettledPage).clamp(-1.0, 1.0);
+      final dir = delta.sign;
+      final progress = delta.abs();
+      final hopT = ((progress - _hopThreshold) / (1 - _hopThreshold)).clamp(0.0, 1.0);
+      final eased = Curves.easeOutCubic.transform(hopT);
+      pillPos = lastSettledPage + dir * eased;
+
+      final pull = Curves.easeOut.transform(progress.clamp(0.0, 1.0));
+      final stretchAmount = 0.30 * pull * (1 - eased);
+      stretchX = 1.0 + stretchAmount;
+      stretchY = 1.0 - 0.16 * stretchAmount / 0.30;
+    } else {
+      pillPos = page.toDouble();
+      if (wobbleValue > 0) {
+        // Damped oscillation around the resting slot.
+        final wobble =
+            math.sin(wobbleValue * math.pi * 2.5) * math.pow(1 - wobbleValue, 1.6).toDouble();
+        stretchX = 1.0 + wobble * 0.14;
+        stretchY = 1.0 - wobble * 0.09;
+      }
+    }
+
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -325,34 +402,55 @@ class _FloatingNavBar extends StatelessWidget {
           ),
         ],
       ),
-      child: Transform.translate(
-        // The pill group itself shifts a few px toward the next tab
-        // during a swipe — subtle, finger-tracking, settles to 0.
-        offset: Offset(28 * flow, 0),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: List.generate(tabs.length, (i) {
-            final isActive = i == activeIndex;
-            final (_, icon, label) = tabs[i];
-            return _NavItem(
-              icon: icon,
-              label: label,
-              isActive: isActive,
-              onTap: () => onTap(i),
-            );
-          }),
-        ),
-      ),
+      child: LayoutBuilder(builder: (context, constraints) {
+        // Highlight geometry: each tab slot inside the padded capsule.
+        final slotWidth = constraints.maxWidth / tabs.length;
+        return SizedBox(
+          height: 38,
+          child: Stack(
+            children: [
+              // The jelly ink highlight behind the nav items.
+              Positioned(
+                left: slotWidth * pillPos.clamp(0.0, tabs.length - 1.0),
+                width: slotWidth,
+                top: 0,
+                bottom: 0,
+                child: Transform(
+                  alignment: Alignment.center,
+                  transform: Matrix4.diagonal3Values(stretchX, stretchY, 1.0),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.ink,
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                  ),
+                ),
+              ),
+              // Hit targets + icons/labels on top.
+              Row(
+                children: [
+                  for (var i = 0; i < tabs.length; i++)
+                    Expanded(
+                      child: _NavItem(
+                        icon: tabs[i].$2,
+                        label: tabs[i].$3,
+                        isActive: i == activeIndex,
+                        onTap: () => onTap(i),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        );
+      }),
     );
   }
 }
 
-/// The morph: an AnimatedContainer widens from an icon-only circle into
-/// an icon+label pill. AnimatedContainer is the right tool here — it's
-/// implicitly driven by the widget tree diff, so there's no
-/// AnimationController to leak or forget to dispose, and Flutter batches
-/// the size/color tween into a single compositor-friendly pass.
+/// The nav item: icon (+ label when active). The ink highlight is
+/// painted behind by [_FloatingNavBar]'s jelly layer — the item only
+/// draws its content so the highlight can stretch/squash freely.
 class _NavItem extends StatelessWidget {
   const _NavItem({
     required this.icon,
@@ -371,37 +469,23 @@ class _NavItem extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        height: 38,
-        padding: EdgeInsets.symmetric(horizontal: isActive ? 14 : 0),
-        decoration: BoxDecoration(
-          color: isActive ? AppColors.ink : Colors.transparent,
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-        ),
-        alignment: Alignment.center,
+      child: Center(
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-              width: 38,
-              child: Center(
-                child: AppIcon(
-                  icon,
-                  size: 19,
-                  color: isActive ? AppColors.bg : AppColors.inkDim,
-                ),
-              ),
+            AppIcon(
+              icon,
+              size: 19,
+              color: isActive ? AppColors.bg : AppColors.inkDim,
             ),
             // AnimatedSize + fade avoids laying out invisible text every
-            // frame for the four inactive tabs — cheaper than always
-            // building the label and toggling opacity to zero.
+            // frame for the inactive tabs — cheaper than always building
+            // the label and toggling opacity to zero.
             AnimatedSize(
               duration: const Duration(milliseconds: 200),
               child: isActive
                   ? Padding(
-                      padding: const EdgeInsets.only(right: 2),
+                      padding: const EdgeInsets.only(left: 7, right: 3),
                       child: Text(
                         label,
                         style: TextStyle(
