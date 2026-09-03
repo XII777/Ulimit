@@ -115,25 +115,23 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
     ref.read(enforcementSyncProvider).push();
   }
 
-  /// Resolves the floating action for the visible column. The pill only
-  /// morphs into a plus when the typed text is NOT in the current list —
-  /// on Custom that plus adds the domain directly, on Apps it opens the
-  /// picker pre-filled with the query.
-  ({String? label, bool plus, VoidCallback? onTap}) _resolveFab() {
+  /// Resolves the floating plus button for the visible column. A plus
+  /// on Custom adds the typed domain directly; on Apps it opens the
+  /// picker (pre-filled with the query when nothing matches). Hidden
+  /// when there is nothing sensible to add.
+  ({bool visible, VoidCallback? onTap}) _resolveFab() {
     final q = _query.trim();
 
     if (_column == 1) {
+      if (q.isEmpty) return (visible: false, onTap: null);
       final rules = ref.watch(customWebsiteRulesProvider).valueOrNull ?? const <WebsiteRule>[];
-      if (q.isEmpty) {
-        return (label: 'Add site', plus: false, onTap: () => _searchFocus.requestFocus());
-      }
       final present = rules.any((r) => r.domain.contains(q.toLowerCase()));
       final domain = normalizeDomain(q);
       if (!present && domain.isNotEmpty) {
-        return (label: null, plus: true, onTap: _addTypedDomain);
+        return (visible: true, onTap: _addTypedDomain);
       }
       // Present in the list, or not a plausible domain — nothing to add.
-      return (label: null, plus: false, onTap: null);
+      return (visible: false, onTap: null);
     }
 
     if (_column == 2) {
@@ -142,18 +140,22 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
       final present = blocks.any((b) =>
           (catalog?.nameFor(b.packageName) ?? b.packageName).toLowerCase().contains(q.toLowerCase()));
       if (q.isNotEmpty && !present) {
-        return (label: null, plus: true, onTap: () => _openAppPicker(withQuery: q));
+        return (visible: true, onTap: () => _openAppPicker(withQuery: q));
       }
-      return (label: 'Add app', plus: false, onTap: () => _openAppPicker());
+      return (visible: true, onTap: () => _openAppPicker());
     }
 
     // Filters column: downloads happen per-list, no add action.
-    return (label: null, plus: false, onTap: null);
+    return (visible: false, onTap: null);
   }
 
   @override
   Widget build(BuildContext context) {
     final fab = _resolveFab();
+    // Inside the shell's extendBody layout, padding.bottom already
+    // reflects the floating nav pill's strip — the control line floats
+    // 12dp above it, and the plus button rides above the line.
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -175,48 +177,51 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
                 const _VpnCard(),
                 const SizedBox(height: 20),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: PageView(
+                    controller: _pageController,
+                    onPageChanged: _onPageChanged,
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: _ColumnPills(
-                          controller: _pageController,
-                          activeIndex: _column,
-                          onTap: _goToColumn,
-                        ),
-                      ),
-                      // The pills and the search bar never touch.
-                      const SizedBox(height: 16),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: AppSearchField(
-                          controller: _searchController,
-                          focusNode: _searchFocus,
-                          hint: 'Search sites, filters or apps…',
-                        ),
-                      ),
-                      Expanded(
-                        child: PageView(
-                          controller: _pageController,
-                          onPageChanged: _onPageChanged,
-                          children: [
-                            _FiltersColumn(query: _query),
-                            _CustomColumn(query: _query),
-                            _AppsColumn(query: _query),
-                          ],
-                        ),
-                      ),
+                      _FiltersColumn(query: _query),
+                      _CustomColumn(query: _query),
+                      _AppsColumn(query: _query),
                     ],
                   ),
                 ),
               ],
             ),
-            // Floating above the nav pill, mirroring the snackbar inset.
+            // Simple plus button above the bottom control line.
             Positioned(
               right: 20,
-              bottom: 96,
-              child: _ActionFab(label: fab.label, plus: fab.plus, onTap: fab.onTap),
+              bottom: bottomInset + 68,
+              child: _ActionFab(visible: fab.visible, onTap: fab.onTap),
+            ),
+            // Bottom control line: the compact category pills and the
+            // wide search field share ONE line, floating above the app's
+            // nav pill.
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: bottomInset + 12,
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 168,
+                    child: _ColumnPills(
+                      controller: _pageController,
+                      activeIndex: _column,
+                      onTap: _goToColumn,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: AppSearchField(
+                      controller: _searchController,
+                      focusNode: _searchFocus,
+                      hint: 'Search sites, filters or apps…',
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -229,9 +234,11 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
 // Column pills
 // ---------------------------------------------------------------------------
 
-/// The three horizontal column selectors in one capsule. The ink-filled
-/// pill tracks the swipe like the floating nav pill does, so tapping a
-/// pill and swiping share one motion language.
+/// The three horizontal column selectors in one capsule. The ink
+/// highlight is a single positioned layer that GLIDES continuously with
+/// `controller.page` — taps animate the page (so pill and content move
+/// in one eased motion, like an iOS segmented control), swipes track
+/// the finger 1:1. No discrete hops, no per-frame color snapping.
 class _ColumnPills extends StatelessWidget {
   const _ColumnPills({
     required this.controller,
@@ -254,7 +261,6 @@ class _ColumnPills extends StatelessWidget {
             ? (controller.page ?? activeIndex.toDouble())
             : activeIndex.toDouble();
         final settled = page.round().clamp(0, _labels.length - 1);
-        final flow = (page - settled).clamp(-0.5, 0.5);
         return Container(
           padding: const EdgeInsets.all(4),
           decoration: BoxDecoration(
@@ -262,39 +268,60 @@ class _ColumnPills extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppRadius.pill),
             border: Border.all(color: AppColors.stroke),
           ),
-          child: Row(
-            children: [
-              for (var i = 0; i < _labels.length; i++)
-                Expanded(
-                  child: _Pill(
-                    label: _labels[i],
-                    active: i == settled,
-                    flow: flow,
-                    onTap: () => onTap(i),
+          child: LayoutBuilder(builder: (context, constraints) {
+            // The LayoutBuilder sits inside the container's own 4px
+            // padding — each slot is exactly a third of this width.
+            final slotWidth = constraints.maxWidth / _labels.length;
+            return SizedBox(
+              height: 40,
+              child: Stack(
+                children: [
+                  // The ink highlight: one layer, continuously eased to
+                  // the page position — tap and swipe share one motion.
+                  Positioned(
+                    left: slotWidth * page.clamp(0.0, _labels.length - 1.0),
+                    width: slotWidth,
+                    top: 0,
+                    bottom: 0,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.ink,
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                      ),
+                    ),
                   ),
-                ),
-            ],
-          ),
+                  // Hit targets + labels on top.
+                  Row(
+                    children: [
+                      for (var i = 0; i < _labels.length; i++)
+                        Expanded(
+                          child: _PillLabel(
+                            label: _labels[i],
+                            active: i == settled,
+                            onTap: () => onTap(i),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          }),
         );
       },
     );
   }
 }
 
-class _Pill extends StatelessWidget {
-  const _Pill({
+class _PillLabel extends StatelessWidget {
+  const _PillLabel({
     required this.label,
     required this.active,
-    required this.flow,
     required this.onTap,
   });
 
   final String label;
   final bool active;
-
-  /// Fractional progress (-0.5..0.5) beyond the settled column: the
-  /// pill group drifts a few px toward the swipe, then settles at 0.
-  final double flow;
   final VoidCallback onTap;
 
   @override
@@ -302,27 +329,16 @@ class _Pill extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Transform.translate(
-        offset: Offset(10 * flow, 0),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 260),
+      child: Center(
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
-          height: 40,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: active ? AppColors.ink : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.pill),
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+            color: active ? AppColors.bg : AppColors.inkDim,
           ),
-          child: AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 260),
-            curve: Curves.easeOutCubic,
-            style: TextStyle(
-              fontSize: 13.5,
-              fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-              color: active ? AppColors.bg : AppColors.inkDim,
-            ),
-            child: Text(label, maxLines: 1),
-          ),
+          child: Text(label, maxLines: 1),
         ),
       ),
     );
@@ -438,14 +454,14 @@ class _FiltersColumn extends ConsumerWidget {
           physics: springScrollPhysics,
           padding: EdgeInsets.fromLTRB(20, showSiteHits ? 4 : 18, 20, 160),
           children: [
-            if (showSiteHits) ...[
+              if (showSiteHits) ...[
               const Padding(
                 padding: EdgeInsets.fromLTRB(4, 0, 4, 8),
                 child: _SectionLabel('SITE MATCHES'),
               ),
               for (final view in ordered.where((v) => siteHits.containsKey(v.template.id))) ...[
                 _CategoryMatchGroup(view: view, rules: siteHits[view.template.id]!),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
               ],
               const Padding(
                 padding: EdgeInsets.fromLTRB(4, 8, 4, 8),
@@ -508,7 +524,11 @@ class _CategoryMatchGroup extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          for (final rule in rules) _SiteTile(rule: rule, dense: true),
+          for (final rule in rules)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: _SiteTile(rule: rule, dense: true),
+            ),
         ],
       ),
     );
@@ -686,102 +706,51 @@ class _EmptyHint extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Floating action pill
+// Floating plus button
 // ---------------------------------------------------------------------------
 
-/// The floating action: a labeled pill ("Add app" / "Add site") that
-/// morphs into a 48px round plus button via iOS-style fade+scale when
-/// the search query is not in the visible list. Null label + no plus
-/// hides it.
+/// A simple round plus button — no label — shown only when the visible
+/// column has an add action. Fades/scales in and out, iOS-style.
 class _ActionFab extends StatelessWidget {
-  const _ActionFab({this.label, this.plus = false, this.onTap});
+  const _ActionFab({required this.visible, this.onTap});
 
-  final String? label;
-  final bool plus;
+  final bool visible;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final visible = plus || label != null;
     return IgnorePointer(
       ignoring: !visible,
       child: AnimatedOpacity(
         opacity: visible ? 1.0 : 0.0,
-        duration: const Duration(milliseconds: 220),
+        duration: const Duration(milliseconds: 200),
         curve: Curves.easeOutCubic,
         child: AnimatedScale(
           scale: visible ? 1.0 : 0.6,
-          duration: const Duration(milliseconds: 300),
+          duration: const Duration(milliseconds: 260),
           curve: Curves.easeOutBack,
           child: PressableScale(
             onTap: visible ? onTap : null,
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 260),
-              switchInCurve: Curves.easeOutBack,
-              switchOutCurve: Curves.easeInCubic,
-              transitionBuilder: (child, animation) => FadeTransition(
-                opacity: animation,
-                child: ScaleTransition(
-                  scale: Tween<double>(begin: 0.7, end: 1.0).animate(animation),
-                  child: child,
-                ),
+            child: Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: AppColors.ink,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 18,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
               ),
-              child: plus
-                  ? _FabShell(
-                      key: const ValueKey('plus'),
-                      width: 48,
-                      child: AppIcon(AppIconName.add, size: 22, color: AppColors.bg),
-                    )
-                  : _FabShell(
-                      key: ValueKey('label-$label'),
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          AppIcon(AppIconName.add, size: 16, color: AppColors.bg),
-                          const SizedBox(width: 8),
-                          Text(label ?? '',
-                              style: TextStyle(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.bg)),
-                        ],
-                      ),
-                    ),
+              alignment: Alignment.center,
+              child: AppIcon(AppIconName.add, size: 22, color: AppColors.bg),
             ),
           ),
         ),
       ),
-    );
-  }
-}
-
-class _FabShell extends StatelessWidget {
-  const _FabShell({super.key, this.width, this.padding, required this.child});
-
-  final double? width;
-  final EdgeInsetsGeometry? padding;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      height: 48,
-      padding: padding,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: AppColors.ink,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: child,
     );
   }
 }
@@ -846,7 +815,7 @@ class _SiteTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: dense ? 0 : 1),
+      padding: EdgeInsets.symmetric(vertical: dense ? 0 : 6),
       child: Row(
         children: [
           const SizedBox(width: 4),
@@ -1174,7 +1143,10 @@ class _CategorySitesScreenState extends ConsumerState<_CategorySitesScreen> {
                     physics: springScrollPhysics,
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
                     itemCount: rows.length,
-                    itemBuilder: (context, i) => _SiteTile(rule: rows[i]),
+                    itemBuilder: (context, i) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: _SiteTile(rule: rows[i]),
+                    ),
                   );
                 },
                 loading: () => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
