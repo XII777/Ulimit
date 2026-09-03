@@ -44,6 +44,20 @@ class EnforcementChannel {
     }
   }
 
+  /// Asks the accessibility layer to re-check whatever app is in the
+  /// foreground RIGHT NOW — called right after a policy push so a block
+  /// added mid-session (e.g. a doomscroll count just crossed) bites
+  /// instantly instead of on the next app switch.
+  static Future<void> reevaluateForeground() async {
+    try {
+      await _channel.invokeMethod('reevaluateForeground');
+    } on PlatformException {
+      /* best-effort */
+    } on MissingPluginException {
+      /* non-Android */
+    }
+  }
+
   /// Path native expects the blocked-domains file at (inside the app's
   /// filesDir, which Dart can write to directly).
   static Future<String> filterFilePath() async {
@@ -188,6 +202,8 @@ class EnforcementChannel {
     required DateTime startedAt,
     required DateTime endsAt,
     required bool paused,
+    String? doomPackage,
+    int doomCount = 0,
   }) async {
     try {
       await _channel.invokeMethod('startFocusIndicator', {
@@ -195,6 +211,8 @@ class EnforcementChannel {
         'startedAtMillis': startedAt.millisecondsSinceEpoch,
         'endMillis': endsAt.millisecondsSinceEpoch,
         'paused': paused,
+        if (doomPackage != null) 'doomPackage': doomPackage,
+        'doomCount': doomCount,
       });
     } on PlatformException {
       /* indicator is best-effort presentation */
@@ -207,12 +225,16 @@ class EnforcementChannel {
     required String label,
     required DateTime endsAt,
     required bool paused,
+    String? doomPackage,
+    int doomCount = 0,
   }) async {
     try {
       await _channel.invokeMethod('updateFocusNotification', {
         'label': label,
         'endMillis': endsAt.millisecondsSinceEpoch,
         'paused': paused,
+        if (doomPackage != null) 'doomPackage': doomPackage,
+        'doomCount': doomCount,
       });
     } on PlatformException {
     } on MissingPluginException {

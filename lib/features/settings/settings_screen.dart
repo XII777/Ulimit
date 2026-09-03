@@ -708,6 +708,7 @@ Future<String> buildExport(AppDatabase db) async {
   final settings = await db.select(db.ulimitSettings).get();
   final profile = await db.select(db.profile).get();
   final focus = await db.select(db.focusSessions).get();
+  final doomscroll = await db.select(db.doomscrollRules).get();
 
   return const JsonEncoder.withIndent('  ').convert({
     'app': 'ulimit',
@@ -724,6 +725,7 @@ Future<String> buildExport(AppDatabase db) async {
       'bedtime_schedule': [for (final r in bedtime) _rowJson(r.toJson())],
       'website_rules_custom': [for (final r in customSites) _rowJson(r.toJson())],
       'focus_sessions': [for (final r in focus) _rowJson(r.toJson())],
+      'doomscroll_rules': [for (final r in doomscroll) _rowJson(r.toJson())],
     },
   });
 }
@@ -760,6 +762,7 @@ Future<bool> restoreExport(AppDatabase db, String jsonString) async {
     await (db.delete(db.bedtimeSchedule)).go();
     await (db.delete(db.websiteRules)).go();
     await (db.delete(db.focusSessions)).go();
+    await (db.delete(db.doomscrollRules)).go();
 
     // Drift's generated toJson() uses Dart field names (camelCase);
     // restore reads exactly what buildExport wrote.
@@ -795,6 +798,15 @@ Future<bool> restoreExport(AppDatabase db, String jsonString) async {
     }
     for (final row in (read('internet_blocks') as List? ?? [])) {
       await db.setInternetBlocked(row['packageName'] as String, true);
+    }
+    for (final row in (read('doomscroll_rules') as List? ?? [])) {
+      await db.into(db.doomscrollRules).insertOnConflictUpdate(
+            DoomscrollRulesCompanion.insert(
+              packageName: row['packageName'] as String,
+              enabled: Value(row['enabled'] as bool? ?? true),
+              dailyOpenLimit: Value(row['dailyOpenLimit'] as int? ?? 0),
+            ),
+          );
     }
     for (final row in (read('bedtime_schedule') as List? ?? [])) {
       final id = await db.into(db.bedtimeSchedule).insert(BedtimeScheduleCompanion.insert(

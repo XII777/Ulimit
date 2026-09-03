@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/engine/restriction_engine.dart';
 import '../core/native/enforcement_channel.dart';
 import 'db/app_database.dart';
+import 'doomscroll_providers.dart';
 import 'focus_providers.dart';
 import 'providers.dart';
 import 'website_providers.dart';
@@ -193,6 +194,8 @@ final restrictionDecisionsProvider = Provider<Map<String, AppDecision>>((ref) {
   final focus = ref.watch(activeFocusSessionProvider).valueOrNull;
   final bedtime = ref.watch(bedtimeScheduleProvider).valueOrNull;
   final internet = ref.watch(internetBlocksProvider).valueOrNull ?? const [];
+  final doomRules = ref.watch(doomscrollRulesProvider).valueOrNull;
+  final doomCounts = ref.watch(doomscrollTodayCountsProvider).valueOrNull;
 
   final limitMap = {
     for (final l in limits)
@@ -217,6 +220,18 @@ final restrictionDecisionsProvider = Provider<Map<String, AppDecision>>((ref) {
           blockInternet: focus.blockInternet,
         );
 
+  final DoomscrollState? doomState;
+  if (doomRules == null) {
+    doomState = null; // streams not loaded — evaluate without the layer
+  } else {
+    final enabledRules = [for (final r in doomRules) if (r.enabled) r];
+    doomState = enabledRules.isEmpty
+        ? null
+        : DoomscrollState(openLimits: {
+            for (final r in enabledRules) r.packageName: r.dailyOpenLimit,
+          });
+  }
+
   BedtimeState? bedtimeState;
   if (bedtime != null && bedtime.enabled) {
     bedtimeState = BedtimeState(
@@ -235,6 +250,7 @@ final restrictionDecisionsProvider = Provider<Map<String, AppDecision>>((ref) {
     ...focusState?.blockedPackages ?? const <String>[],
     ...bedtimeState?.selectedApps ?? const <String>[],
     ...internet.map((i) => i.packageName),
+    if (doomState != null) ...doomState.openLimits.keys,
   };
 
   final input = EngineInput(
@@ -254,6 +270,8 @@ final restrictionDecisionsProvider = Provider<Map<String, AppDecision>>((ref) {
     focus: focusState,
     bedtime: bedtimeState,
     internetBlocks: {for (final i in internet) i.packageName},
+    doomscroll: doomState,
+    doomscrollOpensToday: doomCounts ?? const {},
   );
 
   return resolveAll(input, packages);
@@ -307,6 +325,8 @@ class EnforcementSync {
       internetBlocksProvider,
       todayUsageByPackageProvider,
       ulimitSettingsProvider,
+      doomscrollRulesProvider,
+      doomscrollTodayCountsProvider,
     ]) {
       _ref.listen(provider, (_, __) => _schedulePush());
     }
@@ -357,6 +377,8 @@ class EnforcementSync {
     final bedtime = ref.read(bedtimeScheduleProvider).valueOrNull;
     final internet = ref.read(internetBlocksProvider).valueOrNull ?? const [];
     final categories = ref.read(blockListCategoriesProvider).valueOrNull ?? const [];
+    final doomRules = ref.read(doomscrollRulesProvider).valueOrNull ?? const [];
+    final doomCounts = ref.read(doomscrollTodayCountsProvider).valueOrNull ?? const {};
     final now = DateTime.now();
 
     // The engine's own verdict, shipped to native as a flat fast path:
@@ -425,6 +447,16 @@ class EnforcementSync {
               'packages': bedtime.selectedApps,
             },
       'internetBlocks': [for (final i in internet) i.packageName],
+      // Doomscroll opens budgets + today's counts: the native fallback
+      // path re-checks them when the app is closed (a count limit can
+      // be crossed entirely outside Ulimit).
+      'doomscroll': {
+        for (final r in doomRules)
+          if (r.enabled) r.packageName: r.dailyOpenLimit,
+      },
+      'doomscrollOpens': {
+        for (final e in doomCounts.entries) e.key: e.value,
+      },
       // Accessibility-side adult gating: when the (locked) adult
       // block-list is enabled, the accessibility service blocks the
       // BROWSER apps themselves — belt and braces alongside the VPN's
@@ -435,6 +467,10 @@ class EnforcementSync {
     };
 
     await EnforcementChannel.pushSnapshot(snapshot);
+    // A count limit can be crossed mid-scroll — re-evaluate whatever is
+    // foreground right now so the block bites instantly, not on the
+    // next app switch.
+    await EnforcementChannel.reevaluateForeground();
     await _syncDomains(ref);
   }
 

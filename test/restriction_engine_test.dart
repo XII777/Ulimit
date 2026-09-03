@@ -13,6 +13,8 @@ void main() {
     FocusState? focus,
     BedtimeState? bedtime,
     Set<String> internet = const {},
+    DoomscrollState? doomscroll,
+    Map<String, int> doomOpens = const {},
   }) {
     return EngineInput(
       now: now ?? tuesdayNoon,
@@ -23,6 +25,8 @@ void main() {
       focus: focus,
       bedtime: bedtime,
       internetBlocks: internet,
+      doomscroll: doomscroll,
+      doomscrollOpensToday: doomOpens,
     );
   }
 
@@ -119,6 +123,71 @@ void main() {
         'com.ig',
       );
       expect(d.appBlocked, isFalse);
+    });
+
+    test('doomscroll budget of 0 blocks the platform outright', () {
+      final d = resolvePackage(
+        base(
+          doomscroll: DoomscrollState(openLimits: {'com.ig': 0}),
+          doomOpens: {'com.ig': 0},
+        ),
+        'com.ig',
+      );
+      expect(d.appBlocked, isTrue);
+      expect(d.reason, BlockReason.doomscroll);
+      // Outright block is indefinite — it ends when the rule is removed.
+      expect(d.until, isNull);
+    });
+
+    test('doomscroll budget of 0 blocks even with zero opens recorded', () {
+      final d = resolvePackage(
+        base(doomscroll: DoomscrollState(openLimits: {'com.ig': 0})),
+        'com.ig',
+      );
+      expect(d.appBlocked, isTrue);
+      expect(d.reason, BlockReason.doomscroll);
+    });
+
+    test('doomscroll platform blocks after the opens budget is spent', () {
+      final d = resolvePackage(
+        base(
+          doomscroll: DoomscrollState(openLimits: {'com.ig': 5}),
+          doomOpens: {'com.ig': 5},
+        ),
+        'com.ig',
+      );
+      expect(d.appBlocked, isTrue);
+      expect(d.reason, BlockReason.doomscroll);
+    });
+
+    test('doomscroll platform under budget stays allowed', () {
+      final d = resolvePackage(
+        base(
+          doomscroll: DoomscrollState(openLimits: {'com.ig': 5}),
+          doomOpens: {'com.ig': 4},
+        ),
+        'com.ig',
+      );
+      expect(d.appBlocked, isFalse);
+    });
+
+    test('doomscroll rules do not touch unmanaged packages', () {
+      final d = resolvePackage(
+        base(
+          doomscroll: DoomscrollState(openLimits: {'com.ig': 0}),
+          doomOpens: {'com.other': 99},
+        ),
+        'com.other',
+      );
+      expect(d.appBlocked, isFalse);
+    });
+
+    test('doomscroll block implies internet block (no web-version loophole)', () {
+      final d = resolvePackage(
+        base(doomscroll: DoomscrollState(openLimits: {'com.ig': 0})),
+        'com.ig',
+      );
+      expect(d.internetBlocked, isTrue);
     });
 
     test('focus blocks listed packages until session end', () {

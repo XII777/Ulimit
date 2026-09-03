@@ -54,6 +54,10 @@ object UlimitChannels {
                         java.io.File(context.filesDir, "blocked_domains.txt").absolutePath
                     )
                     "getEnforcementStatus" -> result.success(BlockEngine.diagnostics(context))
+                    "reevaluateForeground" -> {
+                        BlockEngine.reevaluateForeground()
+                        result.success(null)
+                    }
                     "reloadDomainFilter" -> {
                         if (UlimitVpnService.isRunning) {
                             val intent = Intent(context, UlimitVpnService::class.java)
@@ -224,6 +228,15 @@ object FocusIndicatorCommands {
                         (args?.get("endMillis") as? Number)?.toLong() ?: 0L
                     )
                     putExtra(FocusIndicatorService.EXTRA_PAUSED, args?.get("paused") as? Boolean ?: false)
+                    // Live doomscroll counting (optional fields).
+                    val doomPkg = args?.get("doomPackage") as? String
+                    if (doomPkg != null) {
+                        putExtra(FocusIndicatorService.EXTRA_DOOM_PACKAGE, doomPkg)
+                        putExtra(
+                            FocusIndicatorService.EXTRA_DOOM_COUNT,
+                            (args["doomCount"] as? Number)?.toInt() ?: 0
+                        )
+                    }
                 }
                 context.startService(intent)
             }

@@ -34,6 +34,12 @@ object PolicySnapshot {
     const val KEY_USAGE_DAY = "usage_day"
     const val KEY_USAGE = "usage_json"
 
+    // Per-day OPEN counts for doomscroll platforms (each foreground
+    // entry = one "reel/shorts open"), accumulated from the same
+    // accessibility events, reset with the same daily cadence.
+    const val KEY_DOOM_DAY = "doomscroll_day"
+    const val KEY_DOOM = "doomscroll_opens_json"
+
     data class ManualRule(val pkg: String, val permanent: Boolean, val untilMillis: Long)
 
     data class Focus(
@@ -64,7 +70,11 @@ object PolicySnapshot {
         val bedtime: Bedtime?,
         val internetBlocks: List<String>,
         val adultFilterEnabled: Boolean,
-        val browserPackages: List<String>
+        val browserPackages: List<String>,
+        // package → daily opens budget (0 = block outright)
+        val doomscroll: Map<String, Int>,
+        // package → opens used today (mirror of the Dart DB counts)
+        val doomscrollOpens: Map<String, Int>
     )
 
     fun prefs(context: Context): SharedPreferences =
@@ -94,6 +104,7 @@ object PolicySnapshot {
         if (s.manual.isNotEmpty()) return true
         if (s.limits.isNotEmpty()) return true
         if (s.groups.isNotEmpty()) return true
+        if (s.doomscroll.isNotEmpty()) return true
         if ((s.focus?.untilMillis ?: 0L) > System.currentTimeMillis()) return true
         return s.bedtime != null
     }
@@ -178,6 +189,22 @@ object PolicySnapshot {
         val browserArr = root.optJSONArray("browserPackages") ?: JSONArray()
         for (i in 0 until browserArr.length()) browsers.add(browserArr.getString(i))
 
+        val doom = mutableMapOf<String, Int>()
+        val doomObj = root.optJSONObject("doomscroll") ?: JSONObject()
+        val doomKeys = doomObj.keys()
+        while (doomKeys.hasNext()) {
+            val k = doomKeys.next()
+            doom[k] = doomObj.optInt(k, 0)
+        }
+
+        val doomOpens = mutableMapOf<String, Int>()
+        val doomOpensObj = root.optJSONObject("doomscrollOpens") ?: JSONObject()
+        val doomOpensKeys = doomOpensObj.keys()
+        while (doomOpensKeys.hasNext()) {
+            val k = doomOpensKeys.next()
+            doomOpens[k] = doomOpensObj.optInt(k, 0)
+        }
+
         return Snapshot(
             pushedAtMillis = root.optLong("pushedAtMillis", 0L),
             blockedNow = blockedNow,
@@ -188,7 +215,9 @@ object PolicySnapshot {
             bedtime = bedtime,
             internetBlocks = internet,
             adultFilterEnabled = root.optBoolean("adultFilterEnabled", false),
-            browserPackages = browsers
+            browserPackages = browsers,
+            doomscroll = doom,
+            doomscrollOpens = doomOpens
         )
     }
 
@@ -247,6 +276,59 @@ object PolicySnapshot {
     private fun todayKey(): String {
         val c = java.util.Calendar.getInstance()
         return "%04d-%02d-%02d".format(c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1, c.get(java.util.Calendar.DAY_OF_MONTH))
+    }
+
+    // ------------------------------------------------------------------
+    // Native doomscroll open counts — mirrors the Dart DB counts so the
+    // structural fallback can enforce opens budgets while Ulimit itself
+    // is closed. Day-keyed, reset with the same daily cadence as usage.
+    // ------------------------------------------------------------------
+
+    fun addDoomscrollOpen(context: Context, pkg: String): Int {
+        val prefs = prefs(context)
+        val today = todayKey()
+        val counts = HashMap<String, Int>()
+        val existingDay = prefs.getString(KEY_DOOM_DAY, null)
+        val existingJson = prefs.getString(KEY_DOOM, null)
+        if (existingDay == today && existingJson != null) {
+            try {
+                val o = JSONObject(existingJson)
+                val k = o.keys()
+                while (k.hasNext()) {
+                    val key = k.next()
+                    counts[key] = o.optInt(key, 0)
+                }
+            } catch (_: Exception) {
+            }
+        } else {
+            // New day — the accumulator resets, matching how daily
+            // limits reset in the engine.
+            prefs.edit().putString(KEY_DOOM_DAY, today).apply()
+        }
+        val next = (counts[pkg] ?: 0) + 1
+        counts[pkg] = next
+        val out = JSONObject()
+        for ((k, v) in counts) out.put(k, v)
+        prefs.edit().putString(KEY_DOOM, out.toString()).apply()
+        return next
+    }
+
+    fun doomscrollCounts(context: Context): Map<String, Int> {
+        val prefs = prefs(context)
+        if (prefs.getString(KEY_DOOM_DAY, null) != todayKey()) return emptyMap()
+        val json = prefs.getString(KEY_DOOM, null) ?: return emptyMap()
+        return try {
+            val o = JSONObject(json)
+            val out = mutableMapOf<String, Int>()
+            val k = o.keys()
+            while (k.hasNext()) {
+                val key = k.next()
+                out[key] = o.optInt(key, 0)
+            }
+            out
+        } catch (_: Exception) {
+            emptyMap()
+        }
     }
 
     /** Next local midnight in epoch millis — a daily/group limit lasts
@@ -310,6 +392,19 @@ object PolicySnapshot {
         if (limit != null && limit > 0 && (usage[pkg] ?: 0) >= limit) {
             // Daily limit: block until the end of the day.
             return BlockVerdict("Daily limit reached", endOfTodayMillis(nowMillis))
+        }
+
+        // Doomscroll opens budget: 0 = blocked outright, N = blocked
+        // after N opens today. Native counts opens itself (addDoomscrollOpen)
+        // so a budget crossed with Ulimit closed still bites.
+        val doomLimit = snapshot.doomscroll[pkg]
+        if (doomLimit != null) {
+            val used = doomscrollCounts(context)[pkg]
+                ?: snapshot.doomscrollOpens[pkg]
+                ?: 0
+            if (doomLimit <= 0 || used >= doomLimit) {
+                return BlockVerdict("Doomscroll limit", endOfTodayMillis(nowMillis))
+            }
         }
 
         for (group in snapshot.groups) {

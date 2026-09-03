@@ -52,6 +52,12 @@ class FocusIndicatorService : Service() {
         const val EXTRA_STARTED_AT = "startedAtMillis"
         const val EXTRA_END = "endMillis"
         const val EXTRA_PAUSED = "paused"
+        // Doomscroll live counting: package the user is currently in
+        // (when it's a doomscroll platform) + today's opens for it. The
+        // notification text becomes "12 opens today · Reels" while the
+        // user scrolls — per-second-ish updates from Dart's own tick.
+        const val EXTRA_DOOM_PACKAGE = "doomPackage"
+        const val EXTRA_DOOM_COUNT = "doomCount"
 
         const val ENGINE_ID = "ulimit_main_engine"
         const val BG_ENGINE_ID = "ulimit_bg_engine"
@@ -100,6 +106,8 @@ class FocusIndicatorService : Service() {
     private var startedAtMillis: Long = 0
     private var endMillis: Long = 0
     private var paused: Boolean = false
+    private var doomPackage: String? = null
+    private var doomCount: Int = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -122,6 +130,8 @@ class FocusIndicatorService : Service() {
                 startedAtMillis = intent.getLongExtra(EXTRA_STARTED_AT, startedAtMillis)
                 endMillis = intent.getLongExtra(EXTRA_END, endMillis)
                 paused = intent.getBooleanExtra(EXTRA_PAUSED, paused)
+                doomPackage = intent.getStringExtra(EXTRA_DOOM_PACKAGE)
+                doomCount = intent.getIntExtra(EXTRA_DOOM_COUNT, doomCount)
                 pushNotification()
             }
         }
@@ -192,6 +202,22 @@ class FocusIndicatorService : Service() {
                 builder.setContentText("%02d:%02d remaining".format(mm, ss))
             }
             builder.addAction(buildAction("Pause", FocusSessionActionReceiver.ACTION_PAUSE, 10))
+        }
+
+        // Live doomscroll counting: while the user is scrolling one of
+        // the infinite-feed apps, the notification shows today's open
+        // count right in the chip ("12 opens today · TikTok"). Pushed on
+        // every foreground transition, not per second.
+        val doomPkg = doomPackage
+        if (doomPkg != null && doomCount > 0) {
+            val appName = try {
+                packageManager.getApplicationLabel(
+                    packageManager.getApplicationInfo(doomPkg, 0)
+                ).toString()
+            } catch (_: Exception) {
+                doomPkg
+            }
+            builder.setSubText("$doomCount opens today · $appName")
         }
 
         // API 31+: promote to the call-style surface. A normal ongoing

@@ -5,6 +5,7 @@ import '../../shared/widgets/nav_shell.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/focus/focus_screen.dart';
 import '../../features/focus/focus_history_screen.dart';
+import '../../features/doomscroll/doomscroll_screen.dart';
 import '../../features/limits/limits_screen.dart';
 import '../../features/restrictions/restrictions_screen.dart';
 import '../../features/internet/internet_sites_screen.dart';
@@ -31,6 +32,7 @@ abstract final class Routes {
   static const focusHistory = '/focus-history';
   static const screenTime = '/screen-time';
   static const appStats = '/app-stats';
+  static const doomscroll = '/doomscroll';
 
   // Tab-navigation direction state for the swipe transition. NavShell
   // writes these on every tab change; _tabRoute's transition reads them.
@@ -62,6 +64,7 @@ final appRouter = GoRouter(
     // disappears rather than fighting a full-screen modal.
     _detailRoute(Routes.restrictions,  RestrictionsScreen()),
     _detailRoute(Routes.focusHistory,  FocusHistoryScreen()),
+    _detailRoute(Routes.doomscroll,  DoomscrollScreen()),
     _detailRoute(Routes.screenTime,  ScreenTimeScreen()),
     _detailRouteWithPackage(Routes.appStats, (pkg) => AppStatsScreen(packageName: pkg)),
     _detailRoute(Routes.internet,  InternetSitesScreen()),

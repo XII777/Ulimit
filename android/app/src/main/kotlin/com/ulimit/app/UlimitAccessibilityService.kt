@@ -138,6 +138,13 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
         lastPackageName = packageName
         lastEventTimestamp = now
 
+        // Doomscroll open counting: entering one of the infinite-feed
+        // platforms is one "reel/shorts open" — counted natively so a
+        // daily opens budget bites even with Ulimit swiped away.
+        if (DoomscrollApps.isDoomscrollPackage(packageName)) {
+            PolicySnapshot.addDoomscrollOpen(this, packageName)
+        }
+
         // Forward the transition to Dart (which owns the authoritative
         // SQLite usage history and pickup counting). Native emits the
         // *new* package; Dart attributes elapsed time itself.

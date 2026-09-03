@@ -8,9 +8,12 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/icons/app_icons.dart';
 import '../../core/native/permissions_channel.dart';
+import '../../core/router/app_router.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/apps_repository.dart';
 import '../../data/db/app_database.dart';
+import '../../data/doomscroll_apps.dart';
+import '../../data/doomscroll_providers.dart';
 import '../../data/focus_providers.dart';
 import '../../data/focus_tags_provider.dart';
 import '../../data/providers.dart';
@@ -62,6 +65,9 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
   bool _blockWebsites = false;
   bool _invincible = false;
   bool _starting = false;
+  // One-switch preset: blocks the major doomscroll apps (see
+  // kDoomscrollPackages) for this session.
+  bool _blockDoomscroll = false;
 
   // Selected custom tag (name + color) or null for built-in labels.
   FocusTag? _selectedTag;
@@ -194,6 +200,7 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
           blockInternet: _blockInternet,
           blockWebsites: _blockWebsites,
           invincible: _invincible,
+          blockDoomscroll: _blockDoomscroll,
           onTap: _pickControls,
         ),
         const SizedBox(height: 28),
@@ -214,41 +221,100 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
       context: context,
       title: 'Session controls',
       subtitle: 'Everything this focus session enforces while it runs',
-      builder: (sheetContext, scrollController) => SingleChildScrollView(
-        controller: scrollController,
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Column(
-          children: [
-            _PolicyToggle(
-              icon: AppIconName.notificationsOff,
-              label: 'Pause notifications',
-              value: _pauseNotifications,
-              onChanged: (v) => setState(() => _pauseNotifications = v),
-            ),
-            Divider(height: 1, color: AppColors.stroke),
-            _PolicyToggle(
-              icon: AppIconName.internet,
-              label: 'Block internet',
-              value: _blockInternet,
-              onChanged: (v) => setState(() => _blockInternet = v),
-            ),
-            Divider(height: 1, color: AppColors.stroke),
-            _PolicyToggle(
-              icon: AppIconName.link,
-              label: 'Block websites',
-              value: _blockWebsites,
-              onChanged: (v) => setState(() => _blockWebsites = v),
-            ),
-            Divider(height: 1, color: AppColors.stroke),
-            _PolicyToggle(
-              icon: AppIconName.lock,
-              label: 'Invincible mode',
-              sublabel: 'Ending early requires authentication',
-              value: _invincible,
-              onChanged: (v) => setState(() => _invincible = v),
-            ),
-          ],
+      builder: (sheetContext, scrollController) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => SingleChildScrollView(
+          controller: scrollController,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(
+            children: [
+              _PolicyToggle(
+                icon: AppIconName.userBlock,
+                label: 'Block doomscroll apps',
+                sublabel: '${kDoomscrollPackages.length} infinite-feed apps — '
+                    'TikTok, Instagram, YouTube, X, Reddit…',
+                value: _blockDoomscroll,
+                onChanged: (v) {
+                  setState(() => _blockDoomscroll = v);
+                  setSheetState(() {});
+                },
+              ),
+              Divider(height: 1, color: AppColors.stroke),
+              _PolicyToggle(
+                icon: AppIconName.notificationsOff,
+                label: 'Pause notifications',
+                value: _pauseNotifications,
+                onChanged: (v) {
+                  setState(() => _pauseNotifications = v);
+                  setSheetState(() {});
+                },
+              ),
+              Divider(height: 1, color: AppColors.stroke),
+              _PolicyToggle(
+                icon: AppIconName.internet,
+                label: 'Block internet',
+                value: _blockInternet,
+                onChanged: (v) {
+                  setState(() => _blockInternet = v);
+                  setSheetState(() {});
+                },
+              ),
+              Divider(height: 1, color: AppColors.stroke),
+              _PolicyToggle(
+                icon: AppIconName.link,
+                label: 'Block websites',
+                value: _blockWebsites,
+                onChanged: (v) {
+                  setState(() => _blockWebsites = v);
+                  setSheetState(() {});
+                },
+              ),
+              Divider(height: 1, color: AppColors.stroke),
+              _PolicyToggle(
+                icon: AppIconName.lock,
+                label: 'Invincible mode',
+                sublabel: 'Ending early requires authentication',
+                value: _invincible,
+                onChanged: (v) {
+                  setState(() => _invincible = v);
+                  setSheetState(() {});
+                },
+              ),
+              // Deep link into the doomscroll page: pick platforms,
+              // set daily reels/shorts budgets, see the analytics.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+                child: PressableScale(
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    context.push(Routes.doomscroll);
+                  },
+                  child: Container(
+                    height: 42,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface2,
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      border: Border.all(color: AppColors.stroke),
+                    ),
+                    child: Row(
+                      children: [
+                        AppIcon(AppIconName.trend, size: 13, color: AppColors.inkDim),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text('Doomscroll analytics & budgets',
+                              style: TextStyle(
+                                  fontSize: 12.5, fontWeight: FontWeight.w600,
+                                  color: AppColors.inkDim)),
+                        ),
+                        AppIcon(AppIconName.chevronRight, size: 12, color: AppColors.inkFaint),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -358,10 +424,18 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
       // built-in label that is currently selected.
       final label = _selectedTag?.name ?? _selectedBuiltIn;
       final duration = _untimed ? null : Duration(minutes: _minutes);
+      // Doomscroll preset unions over the per-platform rules (every
+      // managed platform is blocked during a focus session; un-managed
+      // platforms stay out of the user's way). Packages not installed
+      // are simply never matched by the engine.
+      final doomManaged = ref.read(activeDoomscrollPackagesProvider);
+      final blocked = _blockDoomscroll
+          ? {...kDoomscrollPackages, ...doomManaged, ..._blockedApps}.toList()
+          : _blockedApps;
       await ref.read(focusControllerProvider).startSession(
             label: label,
             duration: duration,
-            blockedPackages: _blockedApps,
+            blockedPackages: blocked,
             pauseNotifications: _pauseNotifications,
             blockInternet: _blockInternet,
             blockWebsites: _blockWebsites,
@@ -1339,6 +1413,7 @@ class _ControlsTile extends StatelessWidget {
     required this.blockInternet,
     required this.blockWebsites,
     required this.invincible,
+    required this.blockDoomscroll,
     required this.onTap,
   });
 
@@ -1346,10 +1421,12 @@ class _ControlsTile extends StatelessWidget {
   final bool blockInternet;
   final bool blockWebsites;
   final bool invincible;
+  final bool blockDoomscroll;
   final VoidCallback onTap;
 
   String get _summary {
     final active = <String>[
+      if (blockDoomscroll) 'Doomscroll blocked',
       if (pauseNotifications) 'Notifications paused',
       if (blockInternet) 'Internet blocked',
       if (blockWebsites) 'Websites blocked',

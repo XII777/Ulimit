@@ -18,6 +18,7 @@ import 'dart:math' as math;
 enum BlockReason {
   manual('Blocked'),
   dailyLimit('Daily limit reached'),
+  doomscroll('Doomscroll limit'),
   groupLimit('Group limit reached'),
   focus('Focus session'),
   bedtime('Bedtime');
@@ -102,6 +103,16 @@ class BedtimeState {
   final bool blockInternet;
 }
 
+/// The doomscroll feature's standing rules: per-platform daily opens
+/// budgets. A budget of 0 means the platform is blocked outright; N > 0
+/// means the platform blocks for the rest of the day once the user has
+/// opened it N times (each foreground entry = one "reel/shorts open").
+class DoomscrollState {
+  const DoomscrollState({this.openLimits = const {}});
+
+  final Map<String, int> openLimits;
+}
+
 class EngineInput {
   const EngineInput({
     required this.now,
@@ -112,6 +123,8 @@ class EngineInput {
     this.focus,
     this.bedtime,
     this.internetBlocks = const <String>{},
+    this.doomscroll,
+    this.doomscrollOpensToday = const <String, int>{},
   });
 
   final DateTime now;
@@ -128,6 +141,10 @@ class EngineInput {
 
   /// Packages the user explicitly blocked internet for (VPN layer).
   final Set<String> internetBlocks;
+
+  /// Doomscroll budgets + today's open counts per package.
+  final DoomscrollState? doomscroll;
+  final Map<String, int> doomscrollOpensToday;
 }
 
 /// True when [minutes] falls inside the [start, end) minute-of-day
@@ -182,6 +199,21 @@ AppDecision resolvePackage(EngineInput input, String packageName) {
   final limit = input.appLimits[packageName];
   if (limit != null && limit > 0 && (input.usageTodaySeconds[packageName] ?? 0) >= limit) {
     candidates[BlockReason.dailyLimit] = endOfDayFor(input.now);
+  }
+
+  // 2b. Doomscroll opens budget — a daily count of foreground entries,
+  // not seconds: opening Instagram 30 times for 20s each is still 30
+  // reel-checks. 0 = block outright; N = blocked after N opens today.
+  final doom = input.doomscroll;
+  if (doom != null) {
+    final openLimit = doom.openLimits[packageName];
+    if (openLimit != null) {
+      if (openLimit <= 0) {
+        candidates.putIfAbsent(BlockReason.doomscroll, () => null);
+      } else if ((input.doomscrollOpensToday[packageName] ?? 0) >= openLimit) {
+        candidates[BlockReason.doomscroll] = endOfDayFor(input.now);
+      }
+    }
   }
 
   // 3. Group limits — shared pool across all member packages.

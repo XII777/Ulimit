@@ -64,11 +64,26 @@ class AppUsage extends Table {
   TextColumn get packageName => text()();
   DateTimeColumn get day => dateTime()(); // truncated to midnight local
   IntColumn get foregroundSeconds => integer().withDefault(const Constant(0))();
+  // Number of distinct opens (foreground entries) for this package on
+  // this day — the doomscroll feature's "reels/shorts count" metric.
+  IntColumn get openCount => integer().withDefault(const Constant(0))();
 
   @override
   List<Set<Column>> get uniqueKeys => [
         {packageName, day}
       ];
+}
+
+/// User-configured doomscroll rule per platform: which of the
+/// infinite-feed apps to block, and an optional daily opens budget
+/// (0 = block outright, no allowance).
+class DoomscrollRules extends Table {
+  TextColumn get packageName => text()();
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+  IntColumn get dailyOpenLimit => integer().withDefault(const Constant(0))();
+
+  @override
+  Set<Column> get primaryKey => {packageName};
 }
 
 class RestrictionGroups extends Table {

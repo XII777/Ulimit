@@ -495,6 +495,7 @@ class _ControlsList extends StatelessWidget {
 
   static const _tiles = <(String, AppIconName, String, String?)>[
     ('Focus', AppIconName.stopwatch, 'Start a session', Routes.focus),
+    ('Doomscroll', AppIconName.userBlock, 'Reels, Shorts & feed limits', Routes.doomscroll),
     ('App Limits', AppIconName.limits, 'Per-app limits & groups', Routes.limits),
     ('App Blocking', AppIconName.block, 'Temporary & permanent blocks', Routes.restrictions),
     ('Internet & Sites', AppIconName.internet, 'VPN, internet blocks & filters', Routes.internet),

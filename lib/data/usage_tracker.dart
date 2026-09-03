@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:drift/drift.dart';
 import '../core/native/usage_events_channel.dart';
 import 'db/app_database.dart';
+import 'doomscroll_apps.dart';
 import 'screen_time_filter.dart';
 
 /// Bridges native foreground-app events into real Drift rows. Started
@@ -28,6 +30,23 @@ class UsageTracker {
   /// elapsed time grows by the second on top of the persisted total.
   static final ValueNotifier<({String package, int sinceMillis})?> liveForeground =
       ValueNotifier(null);
+
+  /// Broadcast view of [liveForeground] for stream-based consumers
+  /// (riverpod providers). Replays the current value on listen.
+  static Stream<({String package, int sinceMillis})> get liveForegroundStream {
+    late StreamController<({String package, int sinceMillis})> controller;
+    void listener() {
+      final v = liveForeground.value;
+      if (v != null) controller.add(v);
+    }
+
+    controller = StreamController.broadcast(
+      onListen: listener,
+      onCancel: () => liveForeground.removeListener(listener),
+    );
+    liveForeground.addListener(listener);
+    return controller.stream;
+  }
 
   /// Invoked the moment the accessibility service connects (it emits a
   /// sentinel event). Used to re-push the native policy snapshot so
@@ -78,12 +97,21 @@ class UsageTracker {
       // "pickups" counts.
       if (_pendingPackage != event.packageName) {
         await _incrementPickup(now);
+        // Every distinct foreground entry into a doomscroll app is one
+        // "reel/shorts session" — the count the doomscroll feature's
+        // budgets and analytics are built on.
+        if (kDoomscrollPackages.contains(event.packageName)) {
+          await _incrementOpenCount(event.packageName, now);
+        }
       }
     } else if (_pendingPackage == null) {
       // Very first event of the session: nothing to attribute yet, and
       // no prior app to switch FROM — picking up the phone from the
       // launcher is a pickup, but a cold start into an app is not.
       await _incrementPickup(now);
+      if (kDoomscrollPackages.contains(event.packageName)) {
+        await _incrementOpenCount(event.packageName, now);
+      }
     }
 
     _pendingPackage = event.packageName;
@@ -126,5 +154,29 @@ class UsageTracker {
     }
   }
 
+  /// Bumps today's open count for a doomscroll app (upsert on the
+  /// AppUsage unique key). Deliberately NOT gated by
+  /// isExcludedFromScreenTime — the preset never contains launchers.
+  Future<void> _incrementOpenCount(String package, int atMillis) async {
+    final day = _truncateToDay(DateTime.fromMillisecondsSinceEpoch(atMillis));
+    await _db.customStatement(
+      '''
+      INSERT INTO app_usage (package_name, day, foreground_seconds, open_count)
+      VALUES (?, ?, 0, 1)
+      ON CONFLICT(package_name, day)
+      DO UPDATE SET open_count = open_count + 1
+      ''',
+      [package, day.millisecondsSinceEpoch ~/ 1000],
+    );
+  }
+
   DateTime _truncateToDay(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
 }
+
+/// The live foreground app, mirrored from [UsageTracker.liveForeground]
+/// into riverpod — read by the Focus-indicator chip sync (doomscroll
+/// counting) and the doomscroll screen's "scrolling" badge. Replays
+/// the current value immediately on subscribe.
+final liveForegroundProvider = StreamProvider<({String package, int sinceMillis})>((ref) {
+  return UsageTracker.liveForegroundStream;
+});
