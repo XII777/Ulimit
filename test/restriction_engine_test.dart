@@ -125,13 +125,13 @@ void main() {
       expect(d.appBlocked, isFalse);
     });
 
-    test('doomscroll budget of 0 blocks the platform outright', () {
+    test('feed-native doomscroll budget of 0 blocks the app outright', () {
       final d = resolvePackage(
         base(
-          doomscroll: DoomscrollState(openLimits: {'com.ig': 0}),
-          doomOpens: {'com.ig': 0},
+          doomscroll: DoomscrollState(openLimits: {'com.reddit.frontpage': 0}),
+          doomOpens: {'com.reddit.frontpage': 0},
         ),
-        'com.ig',
+        'com.reddit.frontpage',
       );
       expect(d.appBlocked, isTrue);
       expect(d.reason, BlockReason.doomscroll);
@@ -139,34 +139,34 @@ void main() {
       expect(d.until, isNull);
     });
 
-    test('doomscroll budget of 0 blocks even with zero opens recorded', () {
+    test('feed-native doomscroll budget of 0 blocks even with zero opens', () {
       final d = resolvePackage(
-        base(doomscroll: DoomscrollState(openLimits: {'com.ig': 0})),
-        'com.ig',
+        base(doomscroll: DoomscrollState(openLimits: {'com.reddit.frontpage': 0})),
+        'com.reddit.frontpage',
       );
       expect(d.appBlocked, isTrue);
       expect(d.reason, BlockReason.doomscroll);
     });
 
-    test('doomscroll platform blocks after the opens budget is spent', () {
+    test('feed-native doomscroll blocks after the opens budget is spent', () {
       final d = resolvePackage(
         base(
-          doomscroll: DoomscrollState(openLimits: {'com.ig': 5}),
-          doomOpens: {'com.ig': 5},
+          doomscroll: DoomscrollState(openLimits: {'com.reddit.frontpage': 5}),
+          doomOpens: {'com.reddit.frontpage': 5},
         ),
-        'com.ig',
+        'com.reddit.frontpage',
       );
       expect(d.appBlocked, isTrue);
       expect(d.reason, BlockReason.doomscroll);
     });
 
-    test('doomscroll platform under budget stays allowed', () {
+    test('feed-native doomscroll under budget stays allowed', () {
       final d = resolvePackage(
         base(
-          doomscroll: DoomscrollState(openLimits: {'com.ig': 5}),
-          doomOpens: {'com.ig': 4},
+          doomscroll: DoomscrollState(openLimits: {'com.reddit.frontpage': 5}),
+          doomOpens: {'com.reddit.frontpage': 4},
         ),
-        'com.ig',
+        'com.reddit.frontpage',
       );
       expect(d.appBlocked, isFalse);
     });
@@ -174,7 +174,7 @@ void main() {
     test('doomscroll rules do not touch unmanaged packages', () {
       final d = resolvePackage(
         base(
-          doomscroll: DoomscrollState(openLimits: {'com.ig': 0}),
+          doomscroll: DoomscrollState(openLimits: {'com.reddit.frontpage': 0}),
           doomOpens: {'com.other': 99},
         ),
         'com.other',
@@ -184,8 +184,8 @@ void main() {
 
     test('doomscroll block implies internet block (no web-version loophole)', () {
       final d = resolvePackage(
-        base(doomscroll: DoomscrollState(openLimits: {'com.ig': 0})),
-        'com.ig',
+        base(doomscroll: DoomscrollState(openLimits: {'com.reddit.frontpage': 0})),
+        'com.reddit.frontpage',
       );
       expect(d.internetBlocked, isTrue);
     });

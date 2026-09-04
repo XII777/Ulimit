@@ -32,7 +32,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.connect(super.e);
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   // Migrations are explicit (rather than "just delete and recreate")
   // because this is local user data — wiping someone's focus history on
@@ -122,6 +122,12 @@ class AppDatabase extends _$AppDatabase {
             await _addColumnIfMissing(m, appUsage, appUsage.openCount, 'open_count');
             await m.createTable(doomscrollRules);
           }
+          if (from < 9) {
+            // v8 → v9: feed-only doomscroll flag on focus sessions
+            // (Reels/Shorts surfaces ejected, app itself stays usable).
+            await _addColumnIfMissing(
+                m, focusSessions, focusSessions.blockDoomscroll, 'block_doomscroll');
+          }
         },
         beforeOpen: (details) async {
           final m = createMigrator();
@@ -146,6 +152,8 @@ class AppDatabase extends _$AppDatabase {
           await _addColumnIfMissing(
               m, ulimitSettings, ulimitSettings.hideNavBar, 'hide_nav_bar');
           await _addColumnIfMissing(m, appUsage, appUsage.openCount, 'open_count');
+          await _addColumnIfMissing(
+              m, focusSessions, focusSessions.blockDoomscroll, 'block_doomscroll');
           if (await _tableExists('doomscroll_rules') == false) {
             await m.createTable(doomscrollRules);
           }

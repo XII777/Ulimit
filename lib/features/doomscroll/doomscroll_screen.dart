@@ -95,9 +95,11 @@ class DoomscrollScreen extends ConsumerWidget {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: Text(
-                      'One open = every time you enter the app. A budget of 0 '
-                      'blocks the platform outright; a budget of N blocks it '
-                      'for the rest of the day after N opens.',
+                      'Section apps (Instagram, YouTube…) keep working — only '
+                      'the Reels/Shorts/For-You scroll is detected and ejected. '
+                      'Feed apps (Reddit, Pinterest…) are the feed itself: their '
+                      'budget blocks the app. One open = every time you enter a '
+                      'feed.',
                       style: TextStyle(
                           fontSize: 10.5, height: 1.5, color: AppColors.inkFaint),
                     ),
@@ -411,8 +413,12 @@ class _PlatformRow extends ConsumerWidget {
                     !_enabled
                         ? 'Not managed'
                         : _budget == 0
-                            ? 'Blocked outright'
-                            : 'Budget: $_budget opens/day',
+                            ? (platform.sectionLevel
+                                ? 'Reels blocked outright — app stays usable'
+                                : 'Blocked outright')
+                            : (platform.sectionLevel
+                                ? '$_budget feed opens/day — app stays usable'
+                                : '$_budget opens/day, then blocked'),
                     style: TextStyle(fontSize: 10.5, color: AppColors.inkDim),
                   ),
                 ],
@@ -519,13 +525,17 @@ class _BudgetSheetBodyState extends State<_BudgetSheetBody> {
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink)),
             subtitle: Text(
               _enabled
-                  ? (_budget == 0 ? 'Blocked outright' : 'Blocked after $_budget opens/day')
+                  ? (_budget == 0
+                      ? (widget.platform.sectionLevel
+                          ? 'Feed blocked outright — app stays usable'
+                          : 'Blocked outright')
+                      : 'Blocked after $_budget feed opens/day')
                   : 'Counted, but never blocked',
               style: TextStyle(fontSize: 11, color: AppColors.inkDim),
             ),
           ),
           const SizedBox(height: 6),
-          Text('DAILY OPENS BUDGET',
+          Text('DAILY FEED-OPENS BUDGET',
               style: TextStyle(
                   fontSize: AppText.overline,
                   color: AppColors.inkFaint,
@@ -562,8 +572,9 @@ class _BudgetSheetBodyState extends State<_BudgetSheetBody> {
           ),
           const SizedBox(height: 6),
           Text(
-            '0 = block outright · any other number = blocked for the rest of '
-            'the day once opened that many times',
+            widget.platform.sectionLevel
+                ? 'Ulimit detects the ${widget.platform.feedLabel.toLowerCase().replaceAll('sessions', 'surface')} inside the app and backs you out of it. The rest of the app — DMs, search, profile — stays fully usable.'
+                : 'This app IS a feed: 0 blocks it outright; any other number blocks it for the rest of the day once opened that many times.',
             style: TextStyle(fontSize: 10.5, height: 1.5, color: AppColors.inkFaint),
           ),
           const SizedBox(height: 16),

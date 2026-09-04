@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/diagnostics/diagnostics_log.dart';
 import 'db/app_database.dart';
 import 'providers.dart';
 
@@ -77,6 +78,7 @@ class FocusController {
     bool pauseNotifications = true,
     bool blockInternet = false,
     bool blockWebsites = false,
+    bool blockDoomscroll = false,
     bool invincible = false,
   }) async {
     // Only one session can run at a time — close any stale open row
@@ -96,8 +98,16 @@ class FocusController {
           pauseNotifications: Value(pauseNotifications),
           blockInternet: Value(blockInternet),
           blockWebsites: Value(blockWebsites),
+          blockDoomscroll: Value(blockDoomscroll),
           invincible: Value(invincible),
         ));
+    DiagnosticsLog.record(
+      'focus session started: "$label" '
+      '(${duration == null ? "untimed" : "${duration.inMinutes} min"}, '
+      '${blockedPackages.length} apps, '
+      'doomscroll feeds ${blockDoomscroll ? "blocked" : "off"})',
+      tag: 'focus',
+    );
   }
 
   /// Pauses the running session: the timer freezes but the session and
@@ -132,6 +142,10 @@ class FocusController {
     await (_db.update(_db.focusSessions)..where((t) => t.id.equals(session.id))).write(
       FocusSessionsCompanion(endedAt: Value(DateTime.now()), completed: const Value(false)),
     );
+    DiagnosticsLog.record(
+      'focus session ended early: "${session.label}"',
+      tag: 'focus',
+    );
   }
 
   /// Marks any running (and not paused) session whose planned end has
@@ -148,6 +162,10 @@ class FocusController {
     if (DateTime.now().isBefore(plannedEnd)) return;
     await (_db.update(_db.focusSessions)..where((t) => t.id.equals(session.id))).write(
       FocusSessionsCompanion(endedAt: Value(plannedEnd), completed: const Value(true)),
+    );
+    DiagnosticsLog.record(
+      'focus session completed: "${session.label}"',
+      tag: 'focus',
     );
   }
 

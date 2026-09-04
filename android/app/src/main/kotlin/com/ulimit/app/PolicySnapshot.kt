@@ -46,7 +46,11 @@ object PolicySnapshot {
         val untilMillis: Long,
         val packages: List<String>,
         val pauseNotifications: Boolean,
-        val blockInternet: Boolean
+        val blockInternet: Boolean,
+        // Feed-only doomscroll blocking during this session: the feed
+        // detector ejects Reels/Shorts/For-You surfaces in ALL doomscroll
+        // apps, while the apps themselves stay usable.
+        val blockDoomscroll: Boolean
     )
 
     data class Bedtime(
@@ -71,10 +75,14 @@ object PolicySnapshot {
         val internetBlocks: List<String>,
         val adultFilterEnabled: Boolean,
         val browserPackages: List<String>,
-        // package → daily opens budget (0 = block outright)
-        val doomscroll: Map<String, Int>,
-        // package → opens used today (mirror of the Dart DB counts)
-        val doomscrollOpens: Map<String, Int>
+        // Feed-blocking config (see DoomscrollApps):
+        //  - feeds: FEED-NATIVE package → daily opens budget
+        //    (0 = block outright) — engine-level whole-app block
+        //  - section: packages whose Reels/Shorts/For-You surface is
+        //    detected and ejected by the accessibility detector —
+        //    the app itself stays usable
+        val doomscrollFeeds: Map<String, Int>,
+        val doomscrollSection: List<String>
     )
 
     fun prefs(context: Context): SharedPreferences =
@@ -104,7 +112,7 @@ object PolicySnapshot {
         if (s.manual.isNotEmpty()) return true
         if (s.limits.isNotEmpty()) return true
         if (s.groups.isNotEmpty()) return true
-        if (s.doomscroll.isNotEmpty()) return true
+        if (s.doomscrollFeeds.isNotEmpty()) return true
         if ((s.focus?.untilMillis ?: 0L) > System.currentTimeMillis()) return true
         return s.bedtime != null
     }
@@ -162,7 +170,8 @@ object PolicySnapshot {
                 untilMillis = it.optLong("untilMillis", 0L),
                 packages = pkgs,
                 pauseNotifications = it.optBoolean("pauseNotifications", true),
-                blockInternet = it.optBoolean("blockInternet", false)
+                blockInternet = it.optBoolean("blockInternet", false),
+                blockDoomscroll = it.optBoolean("blockDoomscroll", false)
             )
         }
 
@@ -189,21 +198,17 @@ object PolicySnapshot {
         val browserArr = root.optJSONArray("browserPackages") ?: JSONArray()
         for (i in 0 until browserArr.length()) browsers.add(browserArr.getString(i))
 
-        val doom = mutableMapOf<String, Int>()
-        val doomObj = root.optJSONObject("doomscroll") ?: JSONObject()
-        val doomKeys = doomObj.keys()
-        while (doomKeys.hasNext()) {
-            val k = doomKeys.next()
-            doom[k] = doomObj.optInt(k, 0)
+        val doomFeeds = mutableMapOf<String, Int>()
+        val doomFeedsObj = root.optJSONObject("doomscrollFeeds") ?: JSONObject()
+        val doomFeedsKeys = doomFeedsObj.keys()
+        while (doomFeedsKeys.hasNext()) {
+            val k = doomFeedsKeys.next()
+            doomFeeds[k] = doomFeedsObj.optInt(k, 0)
         }
 
-        val doomOpens = mutableMapOf<String, Int>()
-        val doomOpensObj = root.optJSONObject("doomscrollOpens") ?: JSONObject()
-        val doomOpensKeys = doomOpensObj.keys()
-        while (doomOpensKeys.hasNext()) {
-            val k = doomOpensKeys.next()
-            doomOpens[k] = doomOpensObj.optInt(k, 0)
-        }
+        val doomSection = mutableListOf<String>()
+        val doomSectionArr = root.optJSONArray("doomscrollSectionPackages") ?: JSONArray()
+        for (i in 0 until doomSectionArr.length()) doomSection.add(doomSectionArr.getString(i))
 
         return Snapshot(
             pushedAtMillis = root.optLong("pushedAtMillis", 0L),
@@ -216,8 +221,8 @@ object PolicySnapshot {
             internetBlocks = internet,
             adultFilterEnabled = root.optBoolean("adultFilterEnabled", false),
             browserPackages = browsers,
-            doomscroll = doom,
-            doomscrollOpens = doomOpens
+            doomscrollFeeds = doomFeeds,
+            doomscrollSection = doomSection
         )
     }
 
@@ -394,16 +399,17 @@ object PolicySnapshot {
             return BlockVerdict("Daily limit reached", endOfTodayMillis(nowMillis))
         }
 
-        // Doomscroll opens budget: 0 = blocked outright, N = blocked
-        // after N opens today. Native counts opens itself (addDoomscrollOpen)
-        // so a budget crossed with Ulimit closed still bites.
-        val doomLimit = snapshot.doomscroll[pkg]
-        if (doomLimit != null) {
-            val used = doomscrollCounts(context)[pkg]
-                ?: snapshot.doomscrollOpens[pkg]
-                ?: 0
+        // Doomscroll FEED-NATIVE budgets: 0 = blocked outright, N =
+        // blocked after N opens today. Native counts opens itself
+        // (addDoomscrollOpen) so a budget crossed with Ulimit closed
+        // still bites. Section-level packages (Reels surfaces) are NOT
+        // whole-app blocked — the accessibility detector ejects only
+        // the scroll.
+        val doomLimit = snapshot.doomscrollFeeds[pkg]
+        if (doomLimit != null && pkg !in snapshot.doomscrollSection) {
+            val used = doomscrollCounts(context)[pkg] ?: 0
             if (doomLimit <= 0 || used >= doomLimit) {
-                return BlockVerdict("Doomscroll limit", endOfTodayMillis(nowMillis))
+                return BlockVerdict("Feed limit", endOfTodayMillis(nowMillis))
             }
         }
 

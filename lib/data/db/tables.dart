@@ -33,6 +33,10 @@ class FocusSessions extends Table {
   BoolColumn get pauseNotifications => boolean().withDefault(const Constant(true))();
   BoolColumn get blockInternet => boolean().withDefault(const Constant(false))();
   BoolColumn get blockWebsites => boolean().withDefault(const Constant(false))();
+  // Feed-only doomscroll blocking: Reels/Shorts/For-You-style surfaces
+  // inside the managed feed apps are ejected by the accessibility
+  // detector while the rest of each app stays usable.
+  BoolColumn get blockDoomscroll => boolean().withDefault(const Constant(false))();
   BoolColumn get completed => boolean().withDefault(const Constant(false))();
 
   // Pause support: pausedAt is the timestamp the session was paused

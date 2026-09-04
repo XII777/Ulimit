@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:drift/drift.dart';
+import '../core/diagnostics/diagnostics_log.dart';
 import '../core/native/usage_events_channel.dart';
 import 'db/app_database.dart';
 import 'doomscroll_apps.dart';
@@ -81,6 +82,20 @@ class UsageTracker {
       return;
     }
 
+    // Sentinel from the native feed-surface detector: each hit of a
+    // Reels/Shorts/For-You surface is one "feed open" for that
+    // platform. These events carry no usage time and must not disturb
+    // the usage attribution state below.
+    if (event.packageName.startsWith(UlimitSentinel.doomOpenPrefix)) {
+      final pkg = event.packageName.substring(UlimitSentinel.doomOpenPrefix.length);
+      await _incrementFeedOpen(pkg, now);
+      DiagnosticsLog.record(
+        'feed surface ejected + counted: ${doomscrollPlatformFor(pkg)?.name ?? pkg}',
+        tag: 'feed',
+      );
+      return;
+    }
+
     if (_pendingPackage != null && _pendingTimestampMillis != null) {
       // floor(), matching the live counter: the DB row becomes the
       // authoritative total only for whole elapsed seconds, and the
@@ -94,14 +109,15 @@ class UsageTracker {
         await _addUsage(_pendingPackage!, _pendingTimestampMillis!, elapsedSeconds);
       }
       // A genuine app switch (not the same package re-firing) is what
-      // "pickups" counts.
+      // "pickups" counts. Feed-NATIVE doomscroll apps (Reddit etc.) also
+      // record an open on entry — their whole app is the doomscroll
+      // surface. Section-level apps (Instagram, YouTube…) are counted by
+      // the native feed-surface detector via the __doom_open__ sentinel.
       if (_pendingPackage != event.packageName) {
         await _incrementPickup(now);
-        // Every distinct foreground entry into a doomscroll app is one
-        // "reel/shorts session" — the count the doomscroll feature's
-        // budgets and analytics are built on.
-        if (kDoomscrollPackages.contains(event.packageName)) {
-          await _incrementOpenCount(event.packageName, now);
+        if (kDoomscrollPackages.contains(event.packageName) &&
+            !isSectionLevelPlatform(event.packageName)) {
+          await _incrementFeedOpen(event.packageName, now);
         }
       }
     } else if (_pendingPackage == null) {
@@ -109,8 +125,9 @@ class UsageTracker {
       // no prior app to switch FROM — picking up the phone from the
       // launcher is a pickup, but a cold start into an app is not.
       await _incrementPickup(now);
-      if (kDoomscrollPackages.contains(event.packageName)) {
-        await _incrementOpenCount(event.packageName, now);
+      if (kDoomscrollPackages.contains(event.packageName) &&
+          !isSectionLevelPlatform(event.packageName)) {
+        await _incrementFeedOpen(event.packageName, now);
       }
     }
 
@@ -154,10 +171,12 @@ class UsageTracker {
     }
   }
 
-  /// Bumps today's open count for a doomscroll app (upsert on the
-  /// AppUsage unique key). Deliberately NOT gated by
+  /// Bumps today's feed-open count for a doomscroll platform (upsert on
+  /// the AppUsage unique key). Called either on app entry for
+  /// feed-native platforms, or from the native feed-surface detector
+  /// sentinel for section-level ones. Deliberately NOT gated by
   /// isExcludedFromScreenTime — the preset never contains launchers.
-  Future<void> _incrementOpenCount(String package, int atMillis) async {
+  Future<void> _incrementFeedOpen(String package, int atMillis) async {
     final day = _truncateToDay(DateTime.fromMillisecondsSinceEpoch(atMillis));
     await _db.customStatement(
       '''

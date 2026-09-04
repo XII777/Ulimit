@@ -12,8 +12,6 @@ import '../../core/router/app_router.dart';
 import '../../core/theme/tokens.dart';
 import '../../data/apps_repository.dart';
 import '../../data/db/app_database.dart';
-import '../../data/doomscroll_apps.dart';
-import '../../data/doomscroll_providers.dart';
 import '../../data/focus_providers.dart';
 import '../../data/focus_tags_provider.dart';
 import '../../data/providers.dart';
@@ -65,8 +63,9 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
   bool _blockWebsites = false;
   bool _invincible = false;
   bool _starting = false;
-  // One-switch preset: blocks the major doomscroll apps (see
-  // kDoomscrollPackages) for this session.
+  // Feed-only doomscroll blocking during this session: the
+  // accessibility detector ejects Reels/Shorts/For-You surfaces while
+  // the rest of each app stays usable.
   bool _blockDoomscroll = false;
 
   // Selected custom tag (name + color) or null for built-in labels.
@@ -230,9 +229,9 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
             children: [
               _PolicyToggle(
                 icon: AppIconName.userBlock,
-                label: 'Block doomscroll apps',
-                sublabel: '${kDoomscrollPackages.length} infinite-feed apps — '
-                    'TikTok, Instagram, YouTube, X, Reddit…',
+                label: 'Block doomscroll feeds',
+                sublabel: 'Reels, Shorts & For-You feeds ejected — '
+                    'the apps themselves stay usable',
                 value: _blockDoomscroll,
                 onChanged: (v) {
                   setState(() => _blockDoomscroll = v);
@@ -312,8 +311,7 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
                     ),
                   ),
                 ),
-              ),
-            ],
+              ),            ],
           ),
         ),
       ),
@@ -424,21 +422,16 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
       // built-in label that is currently selected.
       final label = _selectedTag?.name ?? _selectedBuiltIn;
       final duration = _untimed ? null : Duration(minutes: _minutes);
-      // Doomscroll preset unions over the per-platform rules (every
-      // managed platform is blocked during a focus session; un-managed
-      // platforms stay out of the user's way). Packages not installed
-      // are simply never matched by the engine.
-      final doomManaged = ref.read(activeDoomscrollPackagesProvider);
-      final blocked = _blockDoomscroll
-          ? {...kDoomscrollPackages, ...doomManaged, ..._blockedApps}.toList()
-          : _blockedApps;
       await ref.read(focusControllerProvider).startSession(
             label: label,
             duration: duration,
-            blockedPackages: blocked,
+            blockedPackages: _blockedApps,
             pauseNotifications: _pauseNotifications,
             blockInternet: _blockInternet,
             blockWebsites: _blockWebsites,
+            // Feed-only: the accessibility detector ejects Reels/Shorts
+            // surfaces while the rest of each app stays usable.
+            blockDoomscroll: _blockDoomscroll,
             invincible: invincible,
           );
     } finally {
@@ -925,6 +918,7 @@ class _PolicySummary extends ConsumerWidget {
       if (session.pauseNotifications) ('Notifications paused', ''),
       if (session.blockInternet) ('Internet blocked', ''),
       if (session.blockWebsites) ('Websites blocked', ''),
+      if (session.blockDoomscroll) ('Reels & Shorts blocked — apps stay usable', ''),
     ];
 
     if (items.isEmpty) {

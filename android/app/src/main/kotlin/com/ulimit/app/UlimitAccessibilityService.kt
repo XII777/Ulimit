@@ -45,6 +45,10 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
     private var lastContentScanPackage: String? = null
     private var lastContentScanAt: Long = 0
 
+    // Feed-surface scan debounce (one detection per 1.5s per package).
+    private var lastFeedScanPackage: String? = null
+    private var lastFeedScanAt: Long = 0
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         lastPackageName = null
@@ -82,6 +86,11 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
                 // signal that a browser page rendered new text (URL
                 // bar / page content). Debounced per package.
                 scanBrowserContent(event.packageName?.toString())
+
+                // Doomscroll feed-surface detection: a Reels/Shorts/
+                // For-You surface painted or switched inside a managed
+                // section-level app → count it and eject the scroll.
+                scanFeedSurface(event.packageName?.toString())
             }
 
             AccessibilityEvent.TYPE_WINDOWS_CHANGED,
@@ -145,10 +154,127 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
             PolicySnapshot.addDoomscrollOpen(this, packageName)
         }
 
+        // Doomscroll open counting: entering a feed-native doomscroll
+        // app (Reddit etc.) is one feed open — counted natively so a
+        // daily budget bites even with Ulimit swiped away.
+        // Section-level apps (Instagram, YouTube…) are counted by the
+        // feed-surface detector, not on app entry.
+        if (DoomscrollApps.isFeedNativePackage(packageName)) {
+            PolicySnapshot.addDoomscrollOpen(this, packageName)
+        }
+
         // Forward the transition to Dart (which owns the authoritative
         // SQLite usage history and pickup counting). Native emits the
         // *new* package; Dart attributes elapsed time itself.
         UsageEventBridge.emit(packageName, now)
+    }
+
+    // ------------------------------------------------------------------
+    // Doomscroll feed-surface detection (section-level platforms)
+    //
+    // Whole-app blocking would take away DMs, search, profiles… —
+    // everything BUT the scroll. So for Instagram (Reels), YouTube
+    // (Shorts), TikTok (For You) etc. we detect the feed SURFACE
+    // itself from the visible node tree (the same technique as the
+    // browser text scan) and eject only that: notice + BACK. The rest
+    // of the app stays fully usable.
+    // ------------------------------------------------------------------
+
+    /** Last package whose surface was actively "in a feed" — a back
+     *  press from outside a feed would otherwise be misattributed. */
+    private var feedSurfacePackage: String? = null
+
+    private fun scanFeedSurface(packageName: String?) {
+        if (packageName == null) return
+        if (!DoomscrollApps.isSectionLevelPackage(packageName)) return
+
+        val snapshot = PolicySnapshot.read(this) ?: return
+
+        // Active during a focus session with the doomscroll flag, or
+        // outright for 0-budget section platforms.
+        val sessionFlag = snapshot.focus?.blockDoomscroll == true &&
+            snapshot.focus.untilMillis > System.currentTimeMillis()
+        val outright = packageName in snapshot.doomscrollSection &&
+            (snapshot.doomscrollFeeds[packageName] ?: -1) == 0
+        if (!sessionFlag && !outright) {
+            if (feedSurfacePackage == packageName) feedSurfacePackage = null
+            return
+        }
+
+        // Debounce: content events fire continuously while a video
+        // plays/scrolls. One detection per 1.5s per package.
+        val now = System.currentTimeMillis()
+        if (packageName == lastFeedScanPackage && now - lastFeedScanAt < 1500) return
+        lastFeedScanPackage = packageName
+        lastFeedScanAt = now
+
+        val markers = DoomscrollApps.feedMarkersFor(packageName)
+        if (markers.isEmpty()) return
+        val requireSelected = DoomscrollApps.markersRequireSelectedFor(packageName)
+
+        if (feedSurfacePresent(markers, requireSelected)) {
+            feedSurfacePackage = packageName
+            // One feed open per surfaced scroll — bridged to Dart's
+            // authoritative DB via the sentinel event channel.
+            PolicySnapshot.addDoomscrollOpen(this, packageName)
+            UsageEventBridge.emit(
+                UlimitSentinel.doomOpenPrefix + packageName,
+                now
+            )
+            overlayManager.showSmallNotice(
+                packageName = packageName,
+                message = "Feed blocked — the rest of the app stays usable",
+            )
+            pressBack()
+        } else if (feedSurfacePackage == packageName) {
+            // Left the feed surface on our own eject or theirs.
+            feedSurfacePackage = null
+        }
+    }
+
+    /** True when any marker text is visible in the active window. When
+     *  [requireSelected], the marker node must also be SELECTED — tab
+     *  labels exist for unselected tabs too, and "Reels" appearing in
+     *  a caption must not count. */
+    private fun feedSurfacePresent(markers: List<String>, requireSelected: Boolean): Boolean {
+        return try {
+            val root = rootInActiveWindow ?: return false
+            var found = false
+            var nodes = 0
+            fun walk(node: android.view.accessibility.AccessibilityNodeInfo?) {
+                if (node == null || found || nodes > 500) return
+                nodes++
+                try {
+                    val selected = node.isSelected
+                    val texts = buildList {
+                        node.text?.toString()?.let { add(it) }
+                        node.contentDescription?.toString()?.let { add(it) }
+                    }
+                    for (t in texts) {
+                        val matched = markers.any { t.contains(it, ignoreCase = true) }
+                        if (matched && (!requireSelected || selected)) {
+                            found = true
+                            return
+                        }
+                    }
+                    for (i in 0 until node.childCount) {
+                        walk(node.getChild(i) ?: continue)
+                        if (found) return
+                    }
+                } catch (_: Exception) {
+                    // Node detached mid-walk.
+                } finally {
+                    try {
+                        node.recycle()
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+            walk(root)
+            found
+        } catch (_: Exception) {
+            false
+        }
     }
 
     // ------------------------------------------------------------------

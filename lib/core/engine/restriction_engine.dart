@@ -18,7 +18,7 @@ import 'dart:math' as math;
 enum BlockReason {
   manual('Blocked'),
   dailyLimit('Daily limit reached'),
-  doomscroll('Doomscroll limit'),
+  doomscroll('Feed limit'),
   groupLimit('Group limit reached'),
   focus('Focus session'),
   bedtime('Bedtime');
@@ -103,10 +103,12 @@ class BedtimeState {
   final bool blockInternet;
 }
 
-/// The doomscroll feature's standing rules: per-platform daily opens
-/// budgets. A budget of 0 means the platform is blocked outright; N > 0
-/// means the platform blocks for the rest of the day once the user has
-/// opened it N times (each foreground entry = one "reel/shorts open").
+/// The doomscroll feature's standing rules, FEED-NATIVE platforms only
+/// (Reddit, Pinterest… — apps that ARE a feed): package → daily opens
+/// allowance. 0 = block outright; N = blocked for the rest of the day
+/// after N opens. Section-level platforms (Instagram Reels, YouTube
+/// Shorts…) are enforced by the accessibility feed-surface detector
+/// instead — the app itself is never blocked there.
 class DoomscrollState {
   const DoomscrollState({this.openLimits = const {}});
 
@@ -142,7 +144,7 @@ class EngineInput {
   /// Packages the user explicitly blocked internet for (VPN layer).
   final Set<String> internetBlocks;
 
-  /// Doomscroll budgets + today's open counts per package.
+  /// Feed-native doomscroll budgets + today's open counts per package.
   final DoomscrollState? doomscroll;
   final Map<String, int> doomscrollOpensToday;
 }
@@ -201,9 +203,12 @@ AppDecision resolvePackage(EngineInput input, String packageName) {
     candidates[BlockReason.dailyLimit] = endOfDayFor(input.now);
   }
 
-  // 2b. Doomscroll opens budget — a daily count of foreground entries,
-  // not seconds: opening Instagram 30 times for 20s each is still 30
-  // reel-checks. 0 = block outright; N = blocked after N opens today.
+  // 2b. Feed-native doomscroll budgets — a daily count of foreground
+  // entries, not seconds: opening Reddit 30 times for 20s each is
+  // still 30 doomscroll sessions. 0 = block outright; N = blocked
+  // after N opens today. (Section-level platforms like Instagram are
+  // NOT here — their Reels surface is ejected by the accessibility
+  // detector while the app itself stays usable.)
   final doom = input.doomscroll;
   if (doom != null) {
     final openLimit = doom.openLimits[packageName];

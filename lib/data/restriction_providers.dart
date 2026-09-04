@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/engine/restriction_engine.dart';
+import '../core/diagnostics/diagnostics_log.dart';
 import '../core/native/enforcement_channel.dart';
 import 'db/app_database.dart';
+import 'doomscroll_apps.dart';
 import 'doomscroll_providers.dart';
 import 'focus_providers.dart';
 import 'providers.dart';
@@ -220,15 +222,21 @@ final restrictionDecisionsProvider = Provider<Map<String, AppDecision>>((ref) {
           blockInternet: focus.blockInternet,
         );
 
+  // Feed-native platforms only — section-level ones (Reels/Shorts
+  // surfaces) are handled by the accessibility detector, never by a
+  // package block, so the app itself stays usable.
   final DoomscrollState? doomState;
   if (doomRules == null) {
     doomState = null; // streams not loaded — evaluate without the layer
   } else {
-    final enabledRules = [for (final r in doomRules) if (r.enabled) r];
-    doomState = enabledRules.isEmpty
+    final feedNative = [
+      for (final r in doomRules)
+        if (r.enabled && !isSectionLevelPlatform(r.packageName)) r
+    ];
+    doomState = feedNative.isEmpty
         ? null
         : DoomscrollState(openLimits: {
-            for (final r in enabledRules) r.packageName: r.dailyOpenLimit,
+            for (final r in feedNative) r.packageName: r.dailyOpenLimit,
           });
   }
 
@@ -325,8 +333,9 @@ class EnforcementSync {
       internetBlocksProvider,
       todayUsageByPackageProvider,
       ulimitSettingsProvider,
+      // Feed-blocking config (doomscroll rules) lives in the snapshot —
+      // the accessibility scan reads it per window event.
       doomscrollRulesProvider,
-      doomscrollTodayCountsProvider,
     ]) {
       _ref.listen(provider, (_, __) => _schedulePush());
     }
@@ -353,6 +362,7 @@ class EnforcementSync {
     } catch (e) {
       lastPushError = e.toString();
       lastPushSummary = 'PUSH FAILED @ ${DateTime.now().toIso8601String()}';
+      DiagnosticsLog.record('policy push FAILED: $e', tag: 'sync');
     }
   }
 
@@ -368,6 +378,7 @@ class EnforcementSync {
     if (ref.read(manualRestrictionsProvider).valueOrNull == null ||
         ref.read(appLimitsProvider).valueOrNull == null) {
       lastPushSummary = 'skipped (streams not ready)';
+      DiagnosticsLog.record('policy push skipped — streams not ready', tag: 'sync');
       return;
     }
     final manual = ref.read(manualRestrictionsProvider).valueOrNull ?? const [];
@@ -377,8 +388,10 @@ class EnforcementSync {
     final bedtime = ref.read(bedtimeScheduleProvider).valueOrNull;
     final internet = ref.read(internetBlocksProvider).valueOrNull ?? const [];
     final categories = ref.read(blockListCategoriesProvider).valueOrNull ?? const [];
+    // Feed-blocking budgets: package → daily feed-open allowance
+    // (0 = block the feed outright). Consumed by the accessibility
+    // layer's feed-surface detector — the APP itself is never blocked.
     final doomRules = ref.read(doomscrollRulesProvider).valueOrNull ?? const [];
-    final doomCounts = ref.read(doomscrollTodayCountsProvider).valueOrNull ?? const {};
     final now = DateTime.now();
 
     // The engine's own verdict, shipped to native as a flat fast path:
@@ -392,6 +405,12 @@ class EnforcementSync {
     lastPushSummary =
         'pushed ${now.toIso8601String()} · manual=${manual.length} '
         'limits=${limits.length} blockedNow=$blockedCount';
+    DiagnosticsLog.record(
+      'snapshot pushed: manual=${manual.length} limits=${limits.length} '
+      'groups=${groups.length} focus=${focus != null ? "on" : "off"} '
+      'blockedNow=$blockedCount feeds=${doomRules.where((r) => r.enabled).length}',
+      tag: 'sync',
+    );
 
     final snapshot = <String, dynamic>{
       'blockedSnapshotAtMillis': now.millisecondsSinceEpoch,
@@ -435,6 +454,8 @@ class EnforcementSync {
               'packages': focus.blockedPackages,
               'pauseNotifications': focus.pauseNotifications,
               'blockInternet': focus.blockInternet,
+              // Feed-only doomscroll blocking during this session.
+              'blockDoomscroll': focus.blockDoomscroll,
             },
       'bedtime': bedtime == null || !bedtime.enabled
           ? null
@@ -447,16 +468,17 @@ class EnforcementSync {
               'packages': bedtime.selectedApps,
             },
       'internetBlocks': [for (final i in internet) i.packageName],
-      // Doomscroll opens budgets + today's counts: the native fallback
-      // path re-checks them when the app is closed (a count limit can
-      // be crossed entirely outside Ulimit).
-      'doomscroll': {
+      // Feed-blocking config. FEED-NATIVE platforms go to the engine's
+      // package block; section-level ones (Reels/Shorts surfaces) are
+      // consumed by the accessibility feed-surface detector — the app
+      // itself is never blocked there.
+      'doomscrollFeeds': {
+        for (final r in doomRules) if (r.enabled) r.packageName: r.dailyOpenLimit,
+      },
+      'doomscrollSectionPackages': [
         for (final r in doomRules)
-          if (r.enabled) r.packageName: r.dailyOpenLimit,
-      },
-      'doomscrollOpens': {
-        for (final e in doomCounts.entries) e.key: e.value,
-      },
+          if (r.enabled && isSectionLevelPlatform(r.packageName)) r.packageName,
+      ],
       // Accessibility-side adult gating: when the (locked) adult
       // block-list is enabled, the accessibility service blocks the
       // BROWSER apps themselves — belt and braces alongside the VPN's

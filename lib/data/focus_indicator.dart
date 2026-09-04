@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/diagnostics/diagnostics_log.dart';
 import '../core/native/enforcement_channel.dart';
 import 'doomscroll_providers.dart';
 import 'doomscroll_apps.dart';
@@ -39,6 +40,10 @@ class FocusIndicatorSync {
 
   final Ref _ref;
 
+  /// Dedupes lifecycle logging — sync() runs on every foreground event
+  /// and count change, but the log should only see real transitions.
+  bool _lastShown = false;
+
   Future<void> sync() async {
     final enabled = _ref.read(focusIndicatorEnabledProvider).valueOrNull ?? true;
     final session = _ref.read(activeFocusSessionProvider).valueOrNull;
@@ -46,6 +51,10 @@ class FocusIndicatorSync {
     if (!enabled || session == null) {
       // Removing when nothing is running is a safe no-op for native.
       await EnforcementChannel.stopFocusIndicator();
+      if (_lastShown) {
+        _lastShown = false;
+        DiagnosticsLog.record('focus indicator removed', tag: 'indicator');
+      }
       return;
     }
 
@@ -58,6 +67,15 @@ class FocusIndicatorSync {
       doomPackage: live?.$1,
       doomCount: live?.$2 ?? 0,
     );
+    if (!_lastShown) {
+      _lastShown = true;
+      DiagnosticsLog.record(
+        'focus indicator shown: "${session.label}" '
+        '(${session.blockedPackages.length} apps, '
+        'doomscroll feeds ${session.blockDoomscroll ? "blocked" : "off"})',
+        tag: 'indicator',
+      );
+    }
   }
 
   /// Live doomscroll counting on the notification chip: only pushes an

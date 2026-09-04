@@ -32,4 +32,10 @@ class UlimitSentinel {
   /// Dart side re-pushes the native policy snapshot (fresh restrictions
   /// even when the service was enabled outside the normal app flow).
   static const accessibilityReady = '__accessibility_ready__';
+
+  /// Emitted by the native feed-surface detector whenever a
+  /// Reels/Shorts/For-You-style surface appears in a section-level
+  /// doomscroll app. Full package name format:
+  /// `__doom_open__:<package>` — one event = one "feed open".
+  static const doomOpenPrefix = '__doom_open__:';
 }

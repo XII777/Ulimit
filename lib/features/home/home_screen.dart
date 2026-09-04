@@ -502,6 +502,7 @@ class _ControlsList extends StatelessWidget {
     ('Notifications', AppIconName.notifications, 'Pause, hold & DND access', Routes.notifications),
     ('Bedtime', AppIconName.bedtime, 'Manage schedule', Routes.bedtime),
     ('Parental & Lock', AppIconName.shieldLock, 'Device admin & tamper protection', Routes.parental),
+    ('Diagnostics', AppIconName.chart, 'System health & event log', Routes.diagnostics),
   ];
 
   @override

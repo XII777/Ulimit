@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/diagnostics/diagnostics_log.dart';
 import 'db/app_database.dart';
 import 'doomscroll_apps.dart';
 import 'providers.dart';
@@ -58,6 +59,11 @@ extension DoomscrollActions on AppDatabase {
         dailyOpenLimit: Value(dailyOpenLimit),
       ),
     );
+    DiagnosticsLog.record(
+      'doomscroll rule saved: ${doomscrollPlatformFor(packageName)?.name ?? packageName} → '
+      '${enabled ? (dailyOpenLimit == 0 ? "feed blocked outright" : "$dailyOpenLimit opens/day") : "off"}',
+      tag: 'rules',
+    );
   }
 
   Future<void> setDoomscrollEnabled(String packageName, bool enabled) async {
@@ -67,6 +73,10 @@ extension DoomscrollActions on AppDatabase {
 
   Future<void> removeDoomscrollPlatform(String packageName) async {
     await (delete(doomscrollRules)..where((t) => t.packageName.equals(packageName))).go();
+    DiagnosticsLog.record(
+      'doomscroll rule removed: ${doomscrollPlatformFor(packageName)?.name ?? packageName}',
+      tag: 'rules',
+    );
   }
 }
 
