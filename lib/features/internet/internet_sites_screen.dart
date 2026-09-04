@@ -38,31 +38,22 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
   String _query = '';
   int _column = 0;
 
-  /// Whether the search field is focused — drives the bottom-row
-  /// animation: pills collapse and ONLY the search bar uplifts.
-  bool _searchFocused = false;
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _searchController.addListener(_onSearchChanged);
-    _searchFocus.addListener(_onSearchFocusChanged);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _searchController.removeListener(_onSearchChanged);
-    _searchFocus.removeListener(_onSearchFocusChanged);
     _searchController.dispose();
     _searchFocus.dispose();
     _pageController.dispose();
     super.dispose();
   }
-
-  void _onSearchFocusChanged() =>
-      setState(() => _searchFocused = _searchFocus.hasFocus);
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -163,18 +154,9 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
     }
   }
 
-  // Shared motion for the bottom row — one curve so pills, search and
-  // the plus all move as one gesture.
-  static const _rowAnim = Duration(milliseconds: 340);
-  static const _rowCurve = Curves.easeOutCubic;
-
   @override
   Widget build(BuildContext context) {
     final fab = _resolveFab();
-    // Inside the shell's extendBody layout, padding.bottom already
-    // reflects the floating nav pill's strip — the control line floats
-    // just above it, and the plus rides at its end.
-    final bottomInset = 0.0; // control line no longer floats over the lists
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -193,91 +175,28 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
             const SizedBox(height: 18),
             const _VpnCard(),
             const SizedBox(height: 14),
-            // Control line: directly under the Protection card, above the
-            // lists. The category pills, the search field and the
-            // conditional plus share ONE row. The search is the compact
-            // one (the pills got ~40% of its old width so the ink
-            // highlight extends further); tapping it uplifts ONLY the
-            // bar — the pills slide away and the search smoothly takes
-            // the released width. The plus rides at the far end with
-            // real breathing room around it, and uplifts in/out on its
-            // column condition (always on Custom).
+            // Column selector (Filters / Custom / Apps) — the pills line
+            // above the lists. The search field + the conditional plus
+            // now live at the BOTTOM of the page, so the pills own the
+            // full line here.
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: LayoutBuilder(builder: (context, constraints) {
-                final totalW = constraints.maxWidth;
-                // The plus slot is always reserved (48 + 12 gap) so the
-                // search never reflows when tabs change — only the plus
-                // itself animates.
-                const fabSlot = 60.0;
-                // The search keeps ~40% less width than the old full
-                // Expanded; everything else flows to the pills bar.
-                final searchTarget = (totalW - fabSlot - 22) * 0.45; // minus both gaps
-                final naturalPillsW =
-                    (totalW - fabSlot - 22 - searchTarget).clamp(160.0, totalW);
-
-                return SizedBox(
-                  height: 48,
-                  child: Row(
-                    children: [
-                      // Category bar — AnimatedSize glides the whole
-                      // pill stack out of the way when the search is
-                      // focused (clip so content slides, never squashes).
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(AppRadius.pill),
-                        child: AnimatedSize(
-                          duration: _rowAnim,
-                          curve: _rowCurve,
-                          alignment: Alignment.centerLeft,
-                          child: _searchFocused
-                              ? const SizedBox(width: 0, height: 48)
-                              : SizedBox(
-                                  width: naturalPillsW,
-                                  child: _ColumnPills(
-                                    controller: _pageController,
-                                    activeIndex: _column,
-                                    onTap: _goToColumn,
-                                  ),
-                                ),
-                        ),
-                      ),
-                      AnimatedContainer(
-                        duration: _rowAnim,
-                        curve: _rowCurve,
-                        width: _searchFocused ? 0 : 10,
-                      ),
-                      // Search field — Expanded absorbs whatever the
-                      // pills release, so its uplift is perfectly
-                      // synced with the pills' slide-away.
-                      Expanded(
-                        child: AppSearchField(
-                          controller: _searchController,
-                          focusNode: _searchFocus,
-                          hint: 'Search sites, filters or apps…',
-                          textStyle:
-                              TextStyle(color: AppColors.ink, fontSize: 12),
-                          hintStyle: TextStyle(
-                              color: AppColors.inkFaint, fontSize: 12),
-                        ),
-                      ),
-                      // Plus — rides at the line's end with its own
-                      // slide/scale/fade uplift on the column
-                      // condition. Slot stays reserved so the search
-                      // never reflows between tabs.
-                      const SizedBox(width: 12),
-                      SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: _ActionFab(visible: fab.visible, onTap: fab.onTap),
-                      ),
-                    ],
+              child: SizedBox(
+                height: 48,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: SizedBox(
+                    width: 250,
+                    child: _ColumnPills(
+                      controller: _pageController,
+                      activeIndex: _column,
+                      onTap: _goToColumn,
+                    ),
                   ),
-                );
-              }),
+                ),
+              ),
             ),
             const SizedBox(height: 14),
-            // The lists below — full height now that the control line
-            // lives up here.
             Expanded(
               child: PageView(
                 controller: _pageController,
@@ -286,6 +205,40 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
                   _FiltersColumn(query: _query),
                   _CustomColumn(query: _query),
                   _AppsColumn(query: _query),
+                ],
+              ),
+            ),
+            // Bottom search bar: ONLY the search field and the plus
+            // button ride here. The row sits inside the Column (not over
+            // the lists), so list content never hides behind it — and
+            // with the keyboard up, Scaffold's resize pushes the bar
+            // right above it, so the field stays on screen while typing.
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                6,
+                16,
+                MediaQuery.viewInsetsOf(context).bottom > 0
+                    ? 10
+                    : MediaQuery.paddingOf(context).bottom + 10,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: AppSearchField(
+                      controller: _searchController,
+                      focusNode: _searchFocus,
+                      hint: 'Search sites, filters or apps…',
+                      textStyle:
+                          TextStyle(color: AppColors.ink, fontSize: 12),
+                      hintStyle: TextStyle(
+                          color: AppColors.inkFaint, fontSize: 12),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Plus — lifts in/out on the column condition (always
+                  // on Custom) with its slide+scale+fade spring.
+                  _ActionFab(visible: fab.visible, onTap: fab.onTap),
                 ],
               ),
             ),
@@ -514,13 +467,13 @@ class _FiltersColumn extends ConsumerWidget {
         if (ordered.isEmpty && !showSiteHits) {
           return ListView(
             physics: springScrollPhysics,
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 110),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
             children: const [_EmptyHint(text: 'No filters match this search')],
           );
         }
         return ListView(
           physics: springScrollPhysics,
-          padding: EdgeInsets.fromLTRB(20, showSiteHits ? 4 : 18, 20, 110),
+          padding: EdgeInsets.fromLTRB(20, showSiteHits ? 4 : 18, 20, 8),
           children: [
               if (showSiteHits) ...[
               const Padding(
@@ -640,7 +593,7 @@ class _CustomColumn extends ConsumerWidget {
         if (filtered.isEmpty) {
           return ListView(
             physics: springScrollPhysics,
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 110),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
             children: [
               _EmptyHint(
                 text: q.isEmpty
@@ -652,7 +605,7 @@ class _CustomColumn extends ConsumerWidget {
         }
         return ListView.builder(
           physics: springScrollPhysics,
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 110),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
           itemCount: filtered.length,
           // Breathing room between toggle rows so switches never crowd.
           itemBuilder: (context, i) => Padding(
@@ -693,7 +646,7 @@ class _AppsColumn extends ConsumerWidget {
         if (filtered.isEmpty) {
           return ListView(
             physics: springScrollPhysics,
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 110),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
             children: [
               _EmptyHint(
                 text: q.isEmpty
@@ -705,7 +658,7 @@ class _AppsColumn extends ConsumerWidget {
         }
         return ListView.builder(
           physics: springScrollPhysics,
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 110),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
           itemCount: filtered.length,
           itemBuilder: (context, i) => Padding(
             padding: const EdgeInsets.only(bottom: 12),

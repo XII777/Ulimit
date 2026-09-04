@@ -87,6 +87,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     final themeMode = ref.watch(themeModeProvider).valueOrNull ?? 'system';
     final focusIndicatorEnabled =
         ref.watch(focusIndicatorEnabledProvider).valueOrNull ?? true;
+    // Android 13+ hides the Focus pill (and every notification) until
+    // POST_NOTIFICATIONS is granted — surface it right on the tile.
+    final notificationsOk =
+        ref.watch(postNotificationsGrantedProvider).valueOrNull ?? true;
 
     // Top spacing is owned by NavShell's collapsing inset.
     return ListView(
@@ -153,17 +157,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             padding: EdgeInsets.zero,
             child: Column(
               children: [
-               PremiumListTile(
-                 label: 'Focus Session Indicator',
-                 sublabel: 'Show your active Focus Session in the Android system area',
-                 trailing: Switch(
-                   value: focusIndicatorEnabled,
-                   onChanged: (v) async {
-                     await ref.read(settingsControllerProvider).setFocusIndicatorEnabled(v);
-                     await ref.read(focusIndicatorSyncProvider).sync();
-                   },
-                 ),
-               ),
+                PremiumListTile(
+                  label: 'Focus Session Indicator',
+                  // Without POST_NOTIFICATIONS Android silently hides the
+                  // pill (13+) — the tile says so and doubles as the fix
+                  // entry: tap opens the system notification settings.
+                  sublabel: notificationsOk
+                      ? 'Show your active Focus Session in the Android system area'
+                      : 'Android notifications are OFF for Ulimit — the '
+                          'pill cannot appear. Tap to open system settings, '
+                          'or flip the switch to be asked.',
+                  onTap: notificationsOk
+                      ? null
+                      : () => NativePermissions.openAppNotificationSettings(),
+                  trailing: Switch(
+                    value: focusIndicatorEnabled,
+                    onChanged: (v) async {
+                      await ref.read(settingsControllerProvider).setFocusIndicatorEnabled(v);
+                      // Flipping ON is the moment to ask the system for
+                      // the runtime permission (no-op pre-13 / granted).
+                      if (v &&
+                          !await NativePermissions.isPostNotificationsGranted()) {
+                        await NativePermissions.requestPostNotifications();
+                        final tick = ref.read(permissionsRefreshTickProvider.notifier);
+                        tick.state++; // recheck permission display
+                      }
+                      await ref.read(focusIndicatorSyncProvider).sync();
+                    },
+                  ),
+                ),
               ],
             ),
           ),
