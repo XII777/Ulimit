@@ -62,7 +62,7 @@ extension DoomscrollActions on AppDatabase {
     );
     DiagnosticsLog.record(
       'doomscroll rule saved: ${doomscrollPlatformFor(packageName)?.name ?? packageName} → '
-      '${enabled ? (dailyOpenLimit == 0 ? "feed blocked outright" : "$dailyOpenLimit opens/day") : "off"}',
+      '${enabled ? (dailyOpenLimit == 0 ? "feed blocked outright" : "$dailyOpenLimit scrolls/day") : "off"}',
       tag: 'rules',
     );
   }

@@ -156,7 +156,7 @@ class ScreenTimeReport {
       b.writeln();
     }
     b.writeln();
-    b.writeln('platform | enabled | budget | native opens | dart opens');
+    b.writeln('platform | enabled | budget (scrolls/day) | native | app db');
     for (final r in doomRows) {
       b.writeln('${r.package} | ${r.enabled} | ${r.budget} | ${r.nativeOpens} | ${r.dartOpens}');
     }

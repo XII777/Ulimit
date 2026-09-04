@@ -530,7 +530,7 @@ class _ScreenTimeEngineCardState extends ConsumerState<_ScreenTimeEngineCard> {
                             style: TextStyle(fontSize: 11, color: AppColors.ink)),
                       ),
                       Text(
-                        'budget ${r.budget} · native ${r.nativeOpens} / db ${r.dartOpens}',
+                        'budget ${r.budget}/day · counted ${r.nativeOpens}/app ${r.dartOpens}',
                         style: TextStyle(
                             fontSize: 10.5,
                             color: r.nativeOpens != r.dartOpens

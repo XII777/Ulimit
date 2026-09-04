@@ -70,6 +70,12 @@ class UsageTracker {
   /// elapsed time grows by the second on top of the persisted total
   /// (minus whatever the OS sync already committed — see
   /// [LiveForegroundSession.osSecondsAtSessionStart]).
+  /// Bumped on every native doomscroll scroll-session/open sentinel —
+  /// a monotonically rising counter the Doomscroll screen watches to
+  /// paint a "● live" badge and roll its counters the instant a session
+  /// is counted (while the user is scrolling, no refresh).
+  static final ValueNotifier<int?> doomSessionTick = ValueNotifier(null);
+
   static final ValueNotifier<LiveForegroundSession?> liveForeground =
       ValueNotifier(null);
 
@@ -184,15 +190,21 @@ class UsageTracker {
       return;
     }
 
-    // Sentinel from the native feed-surface detector: each hit of a
-    // Reels/Shorts/For-You surface is one "feed open" for that
-    // platform. These events carry no usage time and must not disturb
-    // the usage attribution state below.
+    // Sentinel from the native doomscroll detector. The unit is a live
+    // SCROLL SESSION (or a newly-visible/auto-play surface when not
+    // scrolling): each event is one feed open for that platform, so the
+    // in-app counter ticks WHILE the user scrolls. These events carry no
+    // usage time and must not disturb the usage attribution state below.
     if (event.packageName.startsWith(UlimitSentinel.doomOpenPrefix)) {
       final pkg = event.packageName.substring(UlimitSentinel.doomOpenPrefix.length);
       await _incrementFeedOpen(pkg, now);
+      // Live pulse: nudge the notifier the Doomscroll screen watches so
+      // it can show a "● live" dot + roll the number the instant a
+      // session lands (no screen-reopen / refresh needed).
+      doomSessionTick.value ??= 0;
+      doomSessionTick.value = doomSessionTick.value! + 1;
       DiagnosticsLog.record(
-        'feed surface ejected + counted: ${doomscrollPlatformFor(pkg)?.name ?? pkg}',
+        'scroll session counted: ${doomscrollPlatformFor(pkg)?.name ?? pkg}',
         tag: 'feed',
       );
       return;
@@ -216,26 +228,20 @@ class UsageTracker {
         attributedSeconds = elapsedSeconds;
       }
       // A genuine app switch (not the same package re-firing) is what
-      // "pickups" counts. Feed-NATIVE doomscroll apps (Reddit etc.) also
-      // record an open on entry — their whole app is the doomscroll
-      // surface. Section-level apps (Instagram, YouTube…) are counted by
-      // the native feed-surface detector via the __doom_open__ sentinel.
+      // "pickups" counts. Doomscroll feed opens are NOT counted here
+      // anymore — the native detector now counts live SCROLL SESSIONS
+      // (and auto-play surface sightings) and bridges them through the
+      // __doom_open__ sentinel above, so both platform tiers share one
+      // unit and one writer. Counting an open on entry too would double
+      // the first scroll of every visit.
       if (_pendingPackage != event.packageName) {
         await _incrementPickup(now);
-        if (kDoomscrollPackages.contains(event.packageName) &&
-            !isSectionLevelPlatform(event.packageName)) {
-          await _incrementFeedOpen(event.packageName, now);
-        }
       }
     } else if (_pendingPackage == null) {
       // Very first event of the session: nothing to attribute yet, and
       // no prior app to switch FROM — picking up the phone from the
       // launcher is a pickup, but a cold start into an app is not.
       await _incrementPickup(now);
-      if (kDoomscrollPackages.contains(event.packageName) &&
-          !isSectionLevelPlatform(event.packageName)) {
-        await _incrementFeedOpen(event.packageName, now);
-      }
     }
 
     final previousPackage = _pendingPackage;

@@ -147,7 +147,12 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
                 DiagnosticsMarkers.scrollEventsSeen++
                 DiagnosticsMarkers.lastScrollEventAt = now
                 val eventPkg = event.packageName?.toString() ?: return
-                if (DoomscrollApps.isSectionLevelPackage(eventPkg)) {
+                val section = DoomscrollApps.isSectionLevelPackage(eventPkg)
+                // Feed-native apps (Reddit, Pinterest…) count live scrolls
+                // too — their budget exhausts the whole-app block via the
+                // engine, so the only section-specific part here is the
+                // eject (backs the user out of the reels surface).
+                if (section || DoomscrollApps.isFeedNativePackage(eventPkg)) {
                     DiagnosticsMarkers.sectionScrollEventsSeen++
                     DiagnosticsMarkers.lastSectionScrollAt = now
                     DiagnosticsMarkers.lastSectionScrollPkg = eventPkg
@@ -160,19 +165,22 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
                     if (newSession) {
                         DiagnosticsMarkers.scrollSessions++
                         DiagnosticsMarkers.lastScrollSessionAt = now
-                        // One open per app-entry session: the FIRST
-                        // scroll session inside this app visit counts
-                        // (live DB write via the same sentinel the
-                        // marker path uses). Re-entries count again.
-                        countDoomOpenOnce(eventPkg, now, viaScroll = true)
+                        // Every scroll session is one live feed open —
+                        // the app's counter ticks WHILE the user
+                        // scrolls. recordDoomOpen's short dedupe window
+                        // guarantees one count per burst even when the
+                        // marker path sees the same fling.
+                        recordDoomOpen(eventPkg, now, viaScroll = true)
                     }
                     // Keep the feed session warm for content-change scans.
                     scrollSessionPkg = eventPkg
                     scrollSessionLastAt = now
-                    // Enforce continuously while scrolling — the user
-                    // can't keep doomscrolling a blocked feed even if
-                    // every marker missed.
-                    ejectFeedIfBlocked(eventPkg, now)
+                    if (section) {
+                        // Enforce continuously while scrolling — the
+                        // user can't keep doomscrolling a blocked feed
+                        // even if every marker missed.
+                        ejectFeedIfBlocked(eventPkg, now)
+                    }
                 }
             }
 
@@ -234,21 +242,22 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
                 DiagnosticsMarkers.gapDiscards++
             }
         }
-        // A real foreground switch ends the previous app's "entry" —
-        // the next visit to a doomscroll feed counts a fresh open.
-        if (previous != null && previous != packageName) {
-            doomEntryOpenCountedPkg = null
-        }
         lastPackageName = packageName
         lastEventTimestamp = now
 
-        // Doomscroll open counting: entering a feed-native doomscroll
-        // app (Reddit etc.) is one feed open — counted natively so a
-        // daily budget bites even with Ulimit swiped away.
-        // Section-level apps (Instagram, YouTube…) are counted by the
-        // feed-surface detector, not on app entry.
+        // Doomscroll open counting, single source: feed-native apps
+        // (Reddit etc.) count their foreground ENTRY — their whole app
+        // IS the feed, so a visit without scrolling still consumed the
+        // budget (guarded so a just-past scroll session doesn't make
+        // the entry a second open). Section-level apps (Instagram,
+        // YouTube…) are counted by scroll sessions / surface sightings
+        // only. All paths go through recordDoomOpen so native budget +
+        // Dart DB + diagnostics update as one unit.
         if (DoomscrollApps.isFeedNativePackage(packageName)) {
-            PolicySnapshot.addDoomscrollOpen(this, packageName)
+            val lastOpen = lastDoomOpenAtByPkg[packageName] ?: 0L
+            if (now - lastOpen > 5_000L) {
+                recordDoomOpen(packageName, now, viaScroll = false, minGapMs = 5_000L)
+            }
         }
 
         // Forward the transition to Dart (which owns the authoritative
@@ -302,40 +311,48 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
     private val SCROLL_SESSION_TIMEOUT_MS = 20_000L
 
     /** Raw scroll-session grouping (Friction's model): scrolls less than
-     *  [DOOM_SCROLL_SESSION_GAP_MS] apart are ONE browsing session.
-     *  A new session inside a managed app counts one live feed open. */
+     *  [DOOM_SCROLL_SESSION_GAP_MS] apart are ONE browsing session —
+     *  one "scroll". A new session inside a managed app records one
+     *  live feed open: the app's counters tick WHILE the user scrolls. */
     private val DOOM_SCROLL_SESSION_GAP_MS = 600L
     private var doomScrollPkg: String? = null
     private var doomScrollLastAt: Long = 0
 
-    /** The package whose CURRENT app entry already counted its feed
-     *  open — both detection paths (scroll sessions and markers) share
-     *  this guard so one visit never double-counts. Reset whenever a
-     *  real foreground transition moves to another package. */
-    private var doomEntryOpenCountedPkg: String? = null
+    /** Idle watching (feed visible, zero scrolling) still accrues
+     *  doomscroll credit — but slowly: one open per this interval at
+     *  most, so a 20-minute Shorts-watch session counts ~10 rather
+     *  than thousands. */
+    private val DOOM_WATCH_RECOUNT_MS = 120_000L
+
+    /** Per-package last-recorded open time — dedupes the two detection
+     *  paths (scroll sessions + marker surface appearances) so one
+     *  fling burst or one paint storm counts exactly once. */
+    private val lastDoomOpenAtByPkg = HashMap<String, Long>()
 
     /**
-     * Count ONE live feed open for [packageName] — first detection of
-     * the feed inside this app entry (scroll session or marker tree).
-     * Writes the native daily budget counter AND emits the
-     * `__doom_open__:` sentinel so Dart's SQLite increments the same
-     * instant — the Doomscroll screen's count ticks live while the
-     * user scrolls.
+     * Record ONE doomscroll "open" (the live unit: a scroll session, or
+     * a newly-visible feed surface when the user isn't scrolling — auto-
+     * play). Writes the native daily budget counter AND emits the
+     * `__doom_open__:` sentinel, so Dart's SQLite + the watched streams
+     * update the Doomscroll screen and the notification chip the same
+     * instant — the "live update" behavior.
      */
-    private fun countDoomOpenOnce(
+    private fun recordDoomOpen(
         packageName: String,
         now: Long,
         viaScroll: Boolean,
+        minGapMs: Long = DOOM_SCROLL_SESSION_GAP_MS,
     ) {
-        if (doomEntryOpenCountedPkg == packageName) return
         val snapshot = PolicySnapshot.read(this) ?: return
-        // Only manage packages that actually have a rule (budget map) —
-        // or an active session flag — so unmanaged app visits never
-        // pre-empt the once-guard.
+        // Only managed packages (or focus sessions blocking everything).
         if (snapshot.doomscrollFeeds[packageName] == null &&
             !(snapshot.focus?.let { it.blockDoomscroll && it.untilMillis > now } == true)
         ) return
-        doomEntryOpenCountedPkg = packageName
+        // Short dedupe window: the marker path and the scroll path may
+        // see the same burst within milliseconds of each other.
+        val last = lastDoomOpenAtByPkg[packageName] ?: 0L
+        if (now - last < minGapMs) return
+        lastDoomOpenAtByPkg[packageName] = now
 
         PolicySnapshot.addDoomscrollOpen(this, packageName)
         DiagnosticsMarkers.doomOpens++
@@ -431,8 +448,16 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
 
         if (feedBlockedNow(packageName, snapshot)) {
             ejectFeedIfBlocked(packageName, now)
-        } else {
-            countDoomOpenOnce(packageName, now, viaScroll = markerHit && !sessionWarm)
+        } else if (markerHit) {
+            // Marker path: a visible feed surface WITHOUT a live scroll
+            // (watching Shorts autoplay, idle LFR content) still counts
+            // as ongoing doomscrolling — but at a slow 2-minute cadence,
+            // since the user isn't actively scrolling. Scroll sessions
+            // carry the fast, live counting.
+            val watchAge = now - (lastDoomOpenAtByPkg[packageName] ?: 0L)
+            if (watchAge >= DOOM_WATCH_RECOUNT_MS) {
+                recordDoomOpen(packageName, now, viaScroll = false)
+            }
         }
     }
 

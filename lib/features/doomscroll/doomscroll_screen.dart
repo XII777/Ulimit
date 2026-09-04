@@ -11,6 +11,7 @@ import '../../data/doomscroll_apps.dart';
 import '../../data/doomscroll_providers.dart';
 import '../../data/providers.dart';
 import '../../data/restriction_providers.dart';
+import '../../data/usage_tracker.dart';
 import '../../shared/widgets/app_selector.dart';
 import '../../shared/widgets/app_sheet.dart';
 import '../../shared/widgets/spring_scroll.dart';
@@ -130,15 +131,47 @@ class DoomscrollScreen extends ConsumerWidget {
 // Today
 // ---------------------------------------------------------------------------
 
-class _TodayCard extends ConsumerWidget {
+class _TodayCard extends ConsumerStatefulWidget {
   const _TodayCard({required this.opens, required this.seconds});
 
   final int opens;
   final int seconds;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_TodayCard> createState() => _TodayCardState();
+}
+
+class _TodayCardState extends ConsumerState<_TodayCard> {
+  /// Set on every native scroll-session sentinel and cleared 2.5s after
+  /// the last one — the "counting right now" pulse. Watching the
+  /// notifier (not the DB stream alone) makes the flash frame-accurate:
+  /// a session landed THIS second, the number you see just rolled.
+  bool _pulsing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    UsageTracker.doomSessionTick.addListener(_onTick);
+  }
+
+  @override
+  void dispose() {
+    UsageTracker.doomSessionTick.removeListener(_onTick);
+    super.dispose();
+  }
+
+  void _onTick() {
+    if (UsageTracker.doomSessionTick.value == null) return;
+    if (mounted) setState(() => _pulsing = true);
+    Future.delayed(const Duration(milliseconds: 2500), () {
+      if (mounted) setState(() => _pulsing = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final liveActive = ref.watch(doomscrollLiveActiveProvider);
+    final showPulse = liveActive || _pulsing;
 
     return PremiumCard(
       padding: const EdgeInsets.all(16),
@@ -154,26 +187,47 @@ class _TodayCard extends ConsumerWidget {
                     style: TextStyle(
                         fontSize: 12.5, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
               ),
-              if (liveActive)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: AppColors.ink,
-                    borderRadius: BorderRadius.circular(AppRadius.pill),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 5,
-                        height: 5,
-                        decoration: BoxDecoration(color: AppColors.bg, shape: BoxShape.circle),
-                      ),
-                      const SizedBox(width: 5),
-                      Text('scrolling',
+              if (showPulse)
+                AnimatedOpacity(
+                  opacity: 1,
+                  duration: const Duration(milliseconds: 220),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: _pulsing ? AppColors.ink : AppColors.surface2,
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                      border: Border.all(
+                          color: _pulsing ? AppColors.ink : AppColors.stroke),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Counting RIGHT NOW: bright dot; inside a feed
+                        // but idle between sessions: dim outline dot.
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 250),
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: _pulsing
+                                ? AppColors.bg
+                                : Colors.transparent,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                                color: _pulsing ? AppColors.bg : AppColors.inkDim,
+                                width: 1.5),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _pulsing ? 'counting…' : 'scrolling',
                           style: TextStyle(
-                              fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.bg)),
-                    ],
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: _pulsing ? AppColors.bg : AppColors.inkDim),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
             ],
@@ -182,19 +236,41 @@ class _TodayCard extends ConsumerWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text('$opens',
-                  style: TextStyle(
-                      fontSize: 34, fontWeight: FontWeight.w600, color: AppColors.ink, height: 1)),
+              // Live roll: each scroll session swaps the number in with
+              // a slide-up + fade — the counter visibly moves while the
+              // user doomscrolls instead of waiting for a refresh.
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 260),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.35),
+                      end: Offset.zero,
+                    ).animate(animation),
+                    child: child,
+                  ),
+                ),
+                child: Text('${widget.opens}',
+                    key: ValueKey(widget.opens),
+                    style: TextStyle(
+                        fontSize: 34,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.ink,
+                        height: 1)),
+              ),
               const SizedBox(width: 8),
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
-                child: Text('opens in feed apps',
+                child: Text('scrolls in feeds today',
                     style: TextStyle(fontSize: 11.5, color: AppColors.inkDim)),
               ),
             ],
           ),
           const SizedBox(height: 4),
-          Text(formatDurationShort(Duration(seconds: seconds)) + ' spent in feeds',
+          Text(formatDurationShort(Duration(seconds: widget.seconds)) + ' spent in feeds',
               style: TextStyle(fontSize: 11, color: AppColors.inkFaint)),
         ],
       ),
@@ -243,7 +319,7 @@ class _WeeklyCard extends StatelessWidget {
                     style: TextStyle(
                         fontSize: 12.5, color: AppColors.inkDim, fontWeight: FontWeight.w600)),
               ),
-              Text('$totalOpens opens · ${avg.toStringAsFixed(1)}/day',
+              Text('$totalOpens scrolls · ${avg.toStringAsFixed(1)}/day',
                   style: TextStyle(fontSize: 10.5, color: AppColors.inkFaint)),
             ],
           ),
@@ -429,8 +505,8 @@ class _PlatformRow extends ConsumerWidget {
                                 ? 'Reels blocked outright — app stays usable'
                                 : 'Blocked outright')
                             : (platform.sectionLevel
-                                ? '$_budget feed opens/day — app stays usable'
-                                : '$_budget opens/day, then blocked'),
+                                ? '$_budget scrolls/day — reels eject past that'
+                                : '$_budget scrolls/day, then blocked'),
                     style: TextStyle(fontSize: 10.5, color: AppColors.inkDim),
                   ),
                 ],
@@ -516,7 +592,10 @@ class _BudgetSheetBodyState extends State<_BudgetSheetBody> {
   late int _budget = widget.initialBudget;
   bool _saving = false;
 
-  static const _presets = [0, 3, 5, 10, 20, 50];
+  // The unit is live SCROLL SESSIONS (one per fling burst; a 600ms
+  // pause starts a new one) — so the useful range is much larger than
+  // the old per-entry budget.
+  static const _presets = [0, 25, 60, 120, 240, 480];
 
   @override
   Widget build(BuildContext context) {
@@ -541,13 +620,13 @@ class _BudgetSheetBodyState extends State<_BudgetSheetBody> {
                       ? (widget.platform.sectionLevel
                           ? 'Feed blocked outright — app stays usable'
                           : 'Blocked outright')
-                      : 'Blocked after $_budget feed opens/day')
+                      : 'Blocked after $_budget scrolls/day')
                   : 'Counted, but never blocked',
               style: TextStyle(fontSize: 11, color: AppColors.inkDim),
             ),
           ),
           const SizedBox(height: 6),
-          Text('DAILY FEED-OPENS BUDGET',
+          Text('DAILY SCROLL BUDGET',
               style: TextStyle(
                   fontSize: AppText.overline,
                   color: AppColors.inkFaint,
@@ -586,7 +665,7 @@ class _BudgetSheetBodyState extends State<_BudgetSheetBody> {
           Text(
             widget.platform.sectionLevel
                 ? 'Ulimit detects the ${widget.platform.feedLabel.toLowerCase().replaceAll('sessions', 'surface')} inside the app and backs you out of it. The rest of the app — DMs, search, profile — stays fully usable.'
-                : 'This app IS a feed: 0 blocks it outright; any other number blocks it for the rest of the day once opened that many times.',
+                : 'This app IS a feed: 0 blocks it outright; any other number blocks it for the rest of the day once you scroll that many times in it.',
             style: TextStyle(fontSize: 10.5, height: 1.5, color: AppColors.inkFaint),
           ),
           const SizedBox(height: 16),

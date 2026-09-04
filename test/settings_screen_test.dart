@@ -72,6 +72,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Tile Appearance'), findsOneWidget);
 
+    // Section headers render as full control-tiles and an expanded card
+    // can push DATA out of the lazy viewport — scroll it in first.
+    await tester.scrollUntilVisible(find.text('DATA'), 200,
+        scrollable: find.byType(Scrollable).first);
     await tester.tap(find.text('DATA'));
     await tester.pumpAndSettle();
     expect(find.text('Tile Appearance'), findsNothing);
