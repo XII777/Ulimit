@@ -98,8 +98,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           Text('Settings', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 4),
           Text('Local profile · not synced',
-              style: TextStyle(fontSize: AppText.body, color: AppColors.inkDim)),
-          const SizedBox(height: 20),
+              style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),
+          const SizedBox(height: 22),
 
            CollapsibleSection(
             label: 'GENERAL',
@@ -200,36 +200,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             padding: EdgeInsets.zero,
             child: Column(
               children: [
-                PremiumListTile(
-                  label: 'Export data',
-                  sublabel: 'Save limits, rules & history as JSON to your device',
-                  trailing: AppIcon(AppIconName.export, size: 15, color: AppColors.inkFaint),
-                  onTap: () => _exportData(context, ref),
-                ),
-                PremiumListTile(
-                  label: 'Import data',
-                  sublabel: 'Restore an Ulimit export file',
-                  trailing: AppIcon(AppIconName.import, size: 15, color: AppColors.inkFaint),
-                  onTap: () => _importData(context, ref),
-                ),
-                PremiumListTile(
-                  label: 'Crash logs',
-                  sublabel: 'Review, copy or export captured crash reports',
-                  trailing: AppIcon(AppIconName.info, size: 15, color: AppColors.inkFaint),
-                  onTap: () => _showCrashLogs(context),
-                ),
-                PremiumListTile(
-                  label: 'Blocking diagnostics',
-                  sublabel: 'Live status of the enforcement engine',
-                  trailing: AppIcon(AppIconName.info, size: 15, color: AppColors.inkFaint),
-                  onTap: () => _showBlockDiagnostics(context),
-                ),
-                PremiumListTile(
-                  label: 'Delete all data',
-                  sublabel: 'Usage, focus history, rules and lists — permanent',
-                  onTap: () => _deleteAllData(context, ref),
-                ),
-              ],
+                 PremiumListTile(
+                   label: 'Export data',
+                   sublabel: 'Save limits, rules & history as JSON to your device',
+                   trailing: AppIcon(AppIconName.export, size: 14, color: AppColors.inkFaint),
+                   onTap: () => _exportData(context, ref),
+                 ),
+                 PremiumListTile(
+                   label: 'Import data',
+                   sublabel: 'Restore an Ulimit export file',
+                   trailing: AppIcon(AppIconName.import, size: 14, color: AppColors.inkFaint),
+                   onTap: () => _importData(context, ref),
+                 ),
+                 PremiumListTile(
+                   label: 'Crash logs',
+                   sublabel: 'Review, copy or export captured crash reports',
+                   trailing: AppIcon(AppIconName.info, size: 14, color: AppColors.inkFaint),
+                   onTap: () => _showCrashLogs(context),
+                 ),
+                 PremiumListTile(
+                   label: 'Blocking diagnostics',
+                   sublabel: 'Live status of the enforcement engine',
+                   trailing: AppIcon(AppIconName.info, size: 14, color: AppColors.inkFaint),
+                   onTap: () => _showBlockDiagnostics(context),
+                 ),
+                 PremiumListTile(
+                   label: 'Delete all data',
+                   sublabel: 'Usage, focus history, rules and lists — permanent',
+                   labelColor: AppColors.danger,
+                   trailing: AppIcon(AppIconName.trash, size: 14, color: AppColors.danger),
+                   onTap: () => _deleteAllData(context, ref),
+                 ),
+               ],
             ),
           ),
           ),
@@ -247,14 +249,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                 PremiumListTile(
                   label: 'Privacy',
                   sublabel: 'All data stays on this device. No account, no cloud, no ads.',
-                  trailing: AppIcon(AppIconName.info, size: 15, color: AppColors.inkFaint),
+                  trailing: AppIcon(AppIconName.info, size: 14, color: AppColors.inkFaint),
                 ),
-                 PremiumListTile(
+                const PremiumListTile(
                   label: 'Block-list source',
-                  sublabel: 'StevenBlack/hosts (MIT), downloaded on demand',
+                  sublabel: 'Community host lists (MIT), downloaded on demand',
                 ),
-                 PremiumListTile(label: 'Version', sublabel: '0.2.0'),
-              ],
+                const PremiumListTile(label: 'Version', sublabel: buildLabel),
+               ],
             ),
           ),
           ),
@@ -308,18 +310,47 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         controller: scrollController,
         physics: springScrollPhysics,
         shrinkWrap: true,
-        padding: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
         children: [
           for (final (mode, label, sub) in [
             ('system', 'System', 'Follow the Android appearance'),
             ('dark', 'Dark', 'AMOLED pure-black theme'),
             ('white', 'White', 'Monochrome white theme'),
           ])
-            ListTile(
-              title: Text(label, style: TextStyle(color: AppColors.ink, fontSize: 14)),
-              subtitle: Text(sub, style: TextStyle(fontSize: 11, color: AppColors.inkFaint)),
-              trailing: mode == themeMode ? AppIcon(AppIconName.check, size: 15) : null,
+            PressableScale(
               onTap: () => Navigator.of(sheetContext).pop(mode),
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  border: Border.all(
+                      color: mode == themeMode ? AppColors.ink : AppColors.stroke),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(label,
+                              style: TextStyle(
+                                  fontSize: AppText.body,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.ink)),
+                          const SizedBox(height: 2),
+                          Text(sub,
+                              style: TextStyle(
+                                  fontSize: AppText.caption, color: AppColors.inkFaint)),
+                        ],
+                      ),
+                    ),
+                    if (mode == themeMode)
+                      AppIcon(AppIconName.check, size: 14, color: AppColors.ink),
+                  ],
+                ),
+              ),
             ),
         ],
       ),
@@ -900,20 +931,34 @@ class _CrashLogsContentState extends State<_CrashLogsContent> {
           itemBuilder: (context, i) {
             final file = files[i] as File;
             final stat = file.statSync();
-            return ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-              title: Text(
-                _prettyName(file.uri.pathSegments.last),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 13.5, color: AppColors.ink),
-              ),
-              subtitle: Text(
-                '${_formatDate(stat.modified)} · ${_formatSize(stat.size)}',
-                style: TextStyle(fontSize: 11, color: AppColors.inkFaint),
-              ),
-              trailing: AppIcon(AppIconName.chevronRight, size: 13, color: AppColors.inkFaint),
+            return InkWell(
               onTap: () => _viewLog(context, file),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _prettyName(file.uri.pathSegments.last),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: AppText.body, color: AppColors.ink),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${_formatDate(stat.modified)} · ${_formatSize(stat.size)}',
+                            style: TextStyle(fontSize: AppText.caption, color: AppColors.inkFaint),
+                          ),
+                        ],
+                      ),
+                    ),
+                    AppIcon(AppIconName.chevronRight, size: 14, color: AppColors.inkFaint),
+                  ],
+                ),
+              ),
             );
           },
         );

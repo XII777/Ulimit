@@ -1,11 +1,9 @@
 package com.ulimit.app
 
 import android.content.Context
-import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
-import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.provider.Settings
@@ -13,31 +11,25 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.AccelerateInterpolator
-import android.view.animation.OvershootInterpolator
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 
 /**
- * The block pop-layer — an iOS-style bottom sheet instead of the old
- * full-screen takeover:
+ * The block screen — a FULL-SCREEN, fully opaque takeover:
  *
- *  - adaptive height: the window is WRAP_CONTENT anchored at the
- *    screen bottom, so the sheet is only as tall as its content and
- *    the blocked app stays visible behind it;
- *  - header card: app icon on the left, app name + restriction reason
- *    on the right;
- *  - stats row: the set time limit ("Until 21:30" / "Permanent") and
- *    the remaining time, side by side;
- *  - a bar that depletes with the remaining restriction time;
- *  - below the card, a pill that IS the 10-second counter: a circular
- *    ring depleting around the live seconds, next to "Close" — the
- *    app is NOT ejected instantly anymore; when the ring empties the
- *    engine ejects ([onAction]), the user can tap the pill to close
- *    immediately, or just back out themselves;
- *  - iOS-style motion: spring slide-up + fade in (overshoot), slide-
- *    down + fade out on dismiss.
+ *  - the window is MATCH_PARENT × MATCH_PARENT with an opaque
+ *    background and no translucency — the blocked app is completely
+ *    hidden and cannot receive touches through the layer;
+ *  - top half: the app's icon, name, restriction reason, its time used
+ *    TODAY, and a random focus quote filling the space;
+ *  - bottom block: the set time limit ("Until 21:30" / "Permanent")
+ *    and the remaining time, a bar that depletes with the remaining
+ *    restriction time, and a full-width Close button — the app is NOT
+ *    ejected instantly; the user either taps Close ([onAction], which
+ *    ejects) or backs out themselves;
+ *  - motion: soft fade-in / fade-out.
  *
  * Window type follows the host: TYPE_ACCESSIBILITY_OVERLAY (no extra
  * permission) from the accessibility service, TYPE_APPLICATION_OVERLAY
@@ -49,12 +41,8 @@ class BlockOverlayManager(
 ) {
 
     companion object {
-        /** Grace period before the engine ejects the app. The engine
-         *  reads this constant — keep it the single source of truth. */
-        const val GRACE_MS = 10_000L
-
-        /** Smooth countdown tick. */
-        private const val TICK_MS = 100L
+        /** Refresh cadence for the REMAINING stat + bar. */
+        private const val TICK_MS = 1000L
     }
 
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -125,63 +113,81 @@ class BlockOverlayManager(
             }
         }
 
-        // ---------------- card ----------------
-        val card = LinearLayout(context).apply {
+        // ---------------- full-screen root ----------------
+        val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(18), dp(20), dp(16))
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#F51C1C1E"))
-                val r = dp(28).toFloat()
-                // top-left + top-right rounded; bottom square (sheet).
-                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
-            }
+            // Fully opaque — the blocked app must not show through.
+            setBackgroundColor(Color.parseColor("#0A0A0B"))
+            setPadding(dp(24), dp(28), dp(24), dp(24))
         }
 
-        // ---- header: icon left · name + reason right ----
-        val header = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
+        // ---- top: icon, name, reason ----
         val iconHolder = android.widget.FrameLayout(context).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(46), dp(46)).apply {
-                gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(dp(64), dp(64)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
             }
-            background = rounded("#1FFFFFFF", 13f)
+            background = rounded("#1FFFFFFF", 18f)
         }
-        centerIcon(iconHolder, appIcon, 30)
-        header.addView(iconHolder)
+        centerIcon(iconHolder, appIcon, 42)
+        root.addView(iconHolder)
 
-        header.addView(
-            LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
-                ).apply { marginStart = dp(12) }
-                addView(
-                    TextView(context).apply {
-                        text = appName
-                        setTextColor(Color.parseColor("#F5F5F4"))
-                        textSize = 16f
-                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                        maxLines = 1
-                        ellipsize = android.text.TextUtils.TruncateAt.END
-                    }
-                )
-                addView(
-                    TextView(context).apply {
-                        text = verdict.reason
-                        setTextColor(Color.parseColor("#A3A3A6"))
-                        textSize = 12f
-                        maxLines = 1
-                        ellipsize = android.text.TextUtils.TruncateAt.END
-                    }
-                )
+        root.addView(
+            TextView(context).apply {
+                text = appName
+                setTextColor(Color.parseColor("#F5F5F4"))
+                textSize = 20f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(14), 0, 0)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
             }
         )
-        card.addView(header)
+        root.addView(
+            TextView(context).apply {
+                text = verdict.reason
+                setTextColor(Color.parseColor("#A3A3A6"))
+                textSize = 13f
+                gravity = Gravity.CENTER
+                setPadding(0, dp(3), 0, 0)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }
+        )
 
-        // ---- stats row: set limit · remaining ----
+        // ---- today's use of this app (from the native usage
+        //      accumulator — the same numbers the engine enforces) ----
+        val usedSeconds = PolicySnapshot.usageSeconds(context)[packageName] ?: 0
+        root.addView(
+            TextView(context).apply {
+                text = "Used today · ${formatUsedTime(usedSeconds * 1000L)}"
+                setTextColor(Color.parseColor("#F5F5F4"))
+                textSize = 14f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(0, dp(10), 0, 0)
+            }
+        )
+
+        // ---- spacer: the motivational quote fills the empty space
+        //      between the header block and the countdown block ----
+        root.addView(
+            TextView(context).apply {
+                text = FocusQuotes.random()
+                setTextColor(Color.parseColor("#8E8E93"))
+                textSize = 15f
+                typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.ITALIC)
+                setLineSpacing(dp(3).toFloat(), 1f)
+                setPadding(dp(16), 0, dp(16), 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+                ).apply { topMargin = dp(24); bottomMargin = dp(24) }
+                // Center the quote inside its flexible area.
+                gravity = Gravity.CENTER
+            }
+        )
+
+        // ---- bottom block: limit · remaining + bar + close pill ----
         val indefinite = verdict.untilMillis <= 0L
         val limitValue = if (indefinite) "Permanent" else "Until ${formatClock(verdict.untilMillis)}"
 
@@ -214,10 +220,9 @@ class BlockOverlayManager(
 
         val remainingCol = statColumn("TIME LIMIT", limitValue, alignEnd = false)
         val countdownCol = statColumn("REMAINING", "—", alignEnd = true)
-        card.addView(
+        root.addView(
             LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(0, dp(16), 0, 0)
                 addView(remainingCol)
                 addView(countdownCol)
             }
@@ -233,73 +238,56 @@ class BlockOverlayManager(
             progressBackgroundTintList =
                 android.content.res.ColorStateList.valueOf(Color.parseColor("#3A3A3E"))
         }
-        card.addView(bar)
+        root.addView(bar)
 
-        // ---- the 10s counter pill: ring countdown · Close ----
-        val ring = CountdownRing(context).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(38), dp(38))
-        }
-        val closeLabel = TextView(context).apply {
+        // ---- full-width Close button: ejects the blocked app ----
+        val closeButton = TextView(context).apply {
             text = "Close"
             setTextColor(Color.parseColor("#F5F5F4"))
-            textSize = 13.5f
+            textSize = 15f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { marginStart = dp(10) }
-        }
-        val pill = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = rounded("#14FFFFFF", 27f, stroke = "#3A3A3E")
-            setPadding(dp(10), dp(7), dp(20), dp(7))
+            gravity = Gravity.CENTER
+            background = rounded("#14FFFFFF", 16f, stroke = "#3A3A3E")
+            setPadding(0, dp(15), 0, dp(15))
             isClickable = true
             isFocusable = false
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                topMargin = dp(14)
-            }
+            ).apply { topMargin = dp(18) }
             setOnClickListener { onAction?.invoke() }
-            addView(ring)
-            addView(closeLabel)
         }
-        card.addView(pill)
+        root.addView(closeButton)
 
         // ---------------- window ----------------
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
             windowType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.BOTTOM
-        }
+            // Opaque: no layer transparency — the blocked app must not
+            // be visible or touchable behind this screen.
+            PixelFormat.OPAQUE
+        )
 
         var shown = false
         try {
-            windowManager.addView(card, params)
-            overlayView = card
+            windowManager.addView(root, params)
+            overlayView = root
             overlayPackageName = packageName
             shown = true
         } catch (_: Exception) {
             return false
         }
 
-        // iOS-style entrance: spring slide-up + fade.
-        card.alpha = 0f
-        card.translationY = dp(90).toFloat()
-        card.post {
+        // Soft fade-in.
+        root.alpha = 0f
+        root.post {
             try {
-                card.animate()
-                    .translationY(0f)
+                root.animate()
                     .alpha(1f)
-                    .setDuration(420)
-                    .setInterpolator(OvershootInterpolator(1.12f))
+                    .setDuration(260)
                     .start()
             } catch (_: Exception) {
             }
@@ -308,19 +296,15 @@ class BlockOverlayManager(
         // ---------------- countdown + bar tick ----------------
         val startAt = System.currentTimeMillis()
         val total = if (indefinite) 1L else (verdict.untilMillis - startAt).coerceAtLeast(1L)
-        var actionFired = false
 
+        // Keeps the REMAINING stat + bar fresh. Ejection happens only
+        // when the user taps Close (or backs out) — there is no auto
+        // countdown anymore.
         val tick = object : Runnable {
             override fun run() {
-                if (overlayView !== card) return
+                if (overlayView !== root) return
                 val now = System.currentTimeMillis()
 
-                // 10s counter pill: ring depletes, seconds tick inside.
-                val graceLeft = (GRACE_MS - (now - startAt)).coerceAtLeast(0)
-                ring.progress = graceLeft / GRACE_MS.toFloat()
-                ring.secondsLeft = ((graceLeft + 999) / 1000).toInt()
-
-                // Restriction remaining time + bar.
                 if (indefinite) {
                     (countdownCol.getChildAt(1) as TextView).text = "Until removed"
                     bar.progress = 10_000
@@ -330,13 +314,6 @@ class BlockOverlayManager(
                     bar.progress = ((remaining * 10_000) / total).toInt()
                 }
 
-                if (graceLeft <= 0L) {
-                    if (!actionFired) {
-                        actionFired = true
-                        onAction?.invoke()
-                    }
-                    return
-                }
                 handler.postDelayed(this, TICK_MS)
             }
         }
@@ -344,7 +321,7 @@ class BlockOverlayManager(
         return shown
     }
 
-    /** Slide-down + fade out, then remove — iOS-style dismissal. */
+    /** Fade out, then remove — the full screen leaves softly. */
     fun dismissOverlay() {
         handler.removeCallbacksAndMessages(null)
         val view = overlayView ?: run {
@@ -356,9 +333,8 @@ class BlockOverlayManager(
         try {
             view.animate().cancel()
             view.animate()
-                .translationY((view.height.coerceAtLeast(1)) * 0.4f)
                 .alpha(0f)
-                .setDuration(260)
+                .setDuration(220)
                 .setInterpolator(AccelerateInterpolator())
                 .withEndAction {
                     try {
@@ -424,110 +400,45 @@ class BlockOverlayManager(
         }
     }
 
-    private fun formatClock(epochMillis: Long): String =
-        java.lang.String.format("%tR", java.util.Date(epochMillis))
-
-    /**
-     * The circular 10s counter inside the pill: a track ring with a
-     * depleting progress arc (starts at 12 o'clock) and the live
-     * seconds rolling odometer-style inside — the same springy
-     * vertical roll as the app's NumberFlow rolling digits: on each
-     * tick the old value slides down and out while the new value
-     * springs in from above (decelerating with a slight overshoot),
-     * clipped to the ring's inner circle.
-     */
-    private class CountdownRing(context: Context) : View(context) {
-
-        private val density = context.resources.displayMetrics.density
-
-        private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            color = Color.parseColor("#3A3A3E")
-            strokeWidth = 2.5f * density
-        }
-        private val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            color = Color.parseColor("#F5F5F4")
-            strokeWidth = 2.5f * density
-        }
-        private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#F5F5F4")
-            textSize = 11f * density
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textAlign = Paint.Align.CENTER
-        }
-
-        /** Remaining fraction 1 → 0 for the arc. */
-        var progress = 1f
-            set(value) {
-                field = value.coerceIn(0f, 1f)
-                invalidate()
-            }
-
-        private var currentText = "10s"
-        private var previousText: String? = null
-        private var rollFraction = 1f
-        private var rollAnimator: android.animation.ValueAnimator? = null
-
-        var secondsLeft = 10
-            set(value) {
-                field = value
-                rollTo("${value}s")
-            }
-
-        /** Odometer roll: the outgoing value slides down and out while
-         *  the incoming value springs in from above. NumberFlow-style. */
-        private fun rollTo(newText: String) {
-            if (newText == currentText) return
-            previousText = currentText
-            currentText = newText
-            rollAnimator?.cancel()
-            rollAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 340
-                interpolator = OvershootInterpolator(1.2f)
-                addUpdateListener { animation ->
-                    rollFraction = animation.animatedValue as Float
-                    invalidate()
-                }
-                start()
-            }
-        }
-
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            val cx = width / 2f
-            val cy = height / 2f
-            val r = (minOf(width, height) - track.strokeWidth) / 2f
-            val rect = RectF(cx - r, cy - r, cx + r, cy + r)
-            canvas.drawArc(rect, 0f, 360f, false, track)
-            canvas.drawArc(rect, -90f, 360f * progress, false, arc)
-
-            // Rolling digits, clipped so they never paint over the ring.
-            val pad = track.strokeWidth + label.textSize * 0.15f
-            canvas.save()
-            canvas.clipRect(cx - r + pad, cy - r + pad, cx + r - pad, cy + r - pad)
-            val prev = previousText
-            // Strict ==1: the overshoot interpolator exceeds 1 briefly —
-            // that overshoot IS the spring bounce and must keep drawing.
-            if (prev == null || rollFraction == 1f) {
-                drawCentered(canvas, cx, cy, currentText, 1f)
-            } else {
-                val roll = label.textSize * 1.05f
-                // Outgoing: center → below (fades out).
-                drawCentered(canvas, cx, cy + rollFraction * roll, prev, 1f - rollFraction)
-                // Incoming: above → center (springs in).
-                drawCentered(canvas, cx, cy - (1f - rollFraction) * roll, currentText, rollFraction)
-            }
-            canvas.restore()
-        }
-
-        private fun drawCentered(canvas: Canvas, cx: Float, cy: Float, text: String, alpha: Float) {
-            label.alpha = (255 * alpha.coerceIn(0f, 1f)).toInt()
-            val textY = cy - (label.ascent() + label.descent()) / 2f
-            canvas.drawText(text, cx, textY, label)
-            label.alpha = 255
+    private fun formatUsedTime(millis: Long): String {
+        val totalMin = (millis / 60000).coerceAtLeast(0L)
+        val h = totalMin / 60
+        val m = totalMin % 60
+        return when {
+            h > 0 -> "${h}h ${m}m"
+            m > 0 -> "${m}m"
+            else -> "under a minute"
         }
     }
+
+    private fun formatClock(epochMillis: Long): String =
+        java.lang.String.format("%tR", java.util.Date(epochMillis))
+}
+
+/** Motivational quotes shown on the block screen — one is picked at
+ *  random per blocking so the empty space carries a different nudge
+ *  every time. Focus/attention themed, no attribution clutter. */
+object FocusQuotes {
+    private val quotes = listOf(
+        "Attention is the rarest and purest form of generosity.",
+        "The successful warrior is the average person with laser-like focus.",
+        "Where focus goes, energy flows.",
+        "You will never reach your destination if you stop and throw stones at every dog that barks.",
+        "Depth beats breadth every single day.",
+        "Your attention is your currency. Spend it deliberately.",
+        "The difference between ordinary and extraordinary is the word extra — the extra focus.",
+        "Distraction is the enemy of creation.",
+        "Do fewer things, better.",
+        "Almost everything will work again if you unplug it for a few minutes — including you.",
+        "Discipline is choosing between what you want now and what you want most.",
+        "One screen at a time. One task at a time. One life at a time.",
+        "The future depends on what you do today — not what you scroll today.",
+        "Focus is saying no to a thousand good things.",
+        "Five focused minutes beat an hour of half-attention.",
+        "Protect your mornings. Guard your focus. Own your day.",
+        "The scroll ends here. The rest of your day begins now.",
+        "You didn't come this far to only come this far.",
+    )
+
+    fun random(): String = quotes.random()
 }

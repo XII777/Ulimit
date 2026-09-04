@@ -327,12 +327,17 @@ class PremiumListTile extends StatelessWidget {
     this.sublabel,
     this.trailing,
     this.onTap,
+    this.labelColor,
   });
 
   final String label;
   final String? sublabel;
   final Widget? trailing;
   final VoidCallback? onTap;
+
+  /// Overrides the default ink label color — used for destructive rows
+  /// (danger) or state-colored labels.
+  final Color? labelColor;
 
   @override
   Widget build(BuildContext context) {
@@ -344,7 +349,10 @@ class PremiumListTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: TextStyle(fontSize: AppText.body, color: AppColors.ink)),
+                Text(label,
+                    style: TextStyle(
+                        fontSize: AppText.body,
+                        color: labelColor ?? AppColors.ink)),
                 if (sublabel != null) ...[
                   const SizedBox(height: 2),
                   Text(sublabel!, style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),

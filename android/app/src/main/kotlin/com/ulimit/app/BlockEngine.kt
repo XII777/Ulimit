@@ -83,18 +83,11 @@ object BlockEngine {
     // --- enforcement loop state (main thread only) ---
     private var enforcedPkg: String? = null
 
-    /** When the sheet's 10s counter reaches zero. While `now` is
-     *  before this, repeated events for the same package must never
-     *  eject early nor restart the countdown. */
-    @Volatile private var graceEndsAt = 0L
+    // No auto-eject countdown: the block screen stays until the user
+    // taps Close (or backs out). There is no timer to track.
     private var recheckStep = 0
     private var laterRechecks = 0
     private val recheckRunnable = Runnable { recheck() }
-    private val graceRunnable = Runnable {
-        // Only a lost/missed countdown reaches here: onGraceEnded zeroed
-        // graceEndsAt, so a user-initiated close never double-fires.
-        if (graceEndsAt > 0L) enforcedPkg?.let { onGraceEnded(it, userInitiated = false) }
-    }
 
     // --- diagnostics ring buffer (mirrors the debug log) ---
     private val diagEvents = ArrayDeque<String>()
@@ -128,8 +121,7 @@ object BlockEngine {
         sb.append(
             "grace: " + when {
                 enforcedPkg == null -> "-"
-                graceEndsAt == 0L -> "ended (ejecting)"
-                else -> "${((graceEndsAt - System.currentTimeMillis()).coerceAtLeast(0) / 1000)}s left"
+                else -> "none (manual close)"
             } + "\n"
         )
         sb.append("last block: ${lastBlockedPkg?.let { "$it @ %tT".format(java.util.Date(lastBlockedAt)) } ?: "never"}\n")
@@ -168,9 +160,7 @@ object BlockEngine {
             // The system tears the service's overlay windows down with
             // it; state resets so the guard can take over cleanly.
             enforcedPkg = null
-            graceEndsAt = 0
             handler.removeCallbacks(recheckRunnable)
-            handler.removeCallbacks(graceRunnable)
         }
     }
 
@@ -268,7 +258,6 @@ object BlockEngine {
 
         val now = System.currentTimeMillis()
         enforcedPkg = pkg
-        graceEndsAt = now + BlockOverlayManager.GRACE_MS
         recheckStep = 0
         laterRechecks = 0
         lastBlockedPkg = pkg
@@ -285,7 +274,7 @@ object BlockEngine {
         if (!shown && guard != null && guard.canShow) {
             shown = guard.showOverlay(pkg, verdict, ejectAction)
         }
-        diag("sheet shown=$shown for $pkg (${verdict.reason}) — 10s grace")
+        diag("screen shown=$shown for $pkg (${verdict.reason})")
 
         if (!shown) {
             // No overlay host can draw: eject immediately (BACK first
@@ -303,19 +292,13 @@ object BlockEngine {
             scheduleRecheck(0)
             return
         }
-
-        // Ejection is scheduled by the sheet's countdown; this safety
-        // tick only fires if the callback was somehow lost.
-        handler.removeCallbacks(graceRunnable)
-        handler.postDelayed(graceRunnable, BlockOverlayManager.GRACE_MS + 600)
     }
 
-    /** Countdown reached zero or the user tapped Close: eject the
-     *  blocked app, then keep the verification loop running until the
-     *  foreground genuinely leaves it. */
+    /** The user tapped Close (or backed out): eject the blocked app,
+     *  then keep the verification loop running until the foreground
+     *  genuinely leaves it. */
     private fun onGraceEnded(pkg: String, userInitiated: Boolean) {
         if (enforcedPkg != pkg) return
-        graceEndsAt = 0
         diag(if (userInitiated) "user tapped close — eject" else "grace ended — eject")
         val ejector = ejector
         if (ejector != null) {
@@ -325,8 +308,8 @@ object BlockEngine {
         } else {
             BlockGuardService.notifyBlocked(context() ?: return, pkg)
         }
-        // The sheet stays up (ring empty) while the loop verifies; it
-        // is dismissed the moment the foreground moves off the app.
+        // The screen stays up while the loop verifies; it is dismissed
+        // the moment the foreground moves off the app.
         recheckStep = 0
         laterRechecks = 0
         scheduleRecheck(0)
@@ -397,12 +380,10 @@ object BlockEngine {
 
     private fun settle() {
         handler.removeCallbacks(recheckRunnable)
-        handler.removeCallbacks(graceRunnable)
         recheckStep = 0
         laterRechecks = 0
         if (enforcedPkg != null) diag("released (foreground left ${enforcedPkg})")
         enforcedPkg = null
-        graceEndsAt = 0
         a11yOverlay?.dismissOverlay()
         guardOverlay?.dismissOverlay()
     }
