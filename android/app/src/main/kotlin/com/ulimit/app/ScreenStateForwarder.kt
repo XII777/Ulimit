@@ -87,3 +87,16 @@ object DiagnosticsMarkers {
     @Volatile var lastDoomOpenPkg: String = ""
     @Volatile var gapDiscards: Int = 0
 }
+
+/// Browser-scan breadcrumbs for the no-VPN website blocking chain —
+/// answers "is the scan running, is it seeing domains, is it blocking"
+/// without a debugger. Read via fetchUsageDiagnostics.
+object BrowserScanMarkers {
+    @Volatile var scans: Int = 0
+    @Volatile var lastScanAt: Long = 0
+    @Volatile var lastScanPkg: String = ""
+    @Volatile var domainCount: Int = 0
+    @Volatile var blocks: Int = 0
+    @Volatile var lastBlockAt: Long = 0
+    @Volatile var lastBlockDomain: String = ""
+}

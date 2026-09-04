@@ -564,6 +564,9 @@ class MainActivity : FlutterFragmentActivity() {
             if (openPkg.isNullOrEmpty()) {
                 openPkg = null
                 attribUpTo = 0L
+            } else if (attribUpTo < openSince) {
+                // Defensive: never attribute from before the session began.
+                attribUpTo = openSince
             }
             var newCursor = cursor
 
@@ -597,8 +600,12 @@ class MainActivity : FlutterFragmentActivity() {
             if (now > scanFrom) {
                 val events = usm.queryEvents(scanFrom, endMillis)
                 val e = android.app.usage.UsageEvents.Event()
-                var openPkg: String? = null
-                var openSince = 0L
+                // CRITICAL: continue the CARRIED session (openPkg etc.
+                // above, loaded from prefs) — re-declaring these here
+                // shadowed the carried state and every sync lost the
+                // still-open session's head (the 3h-vs-5h undercount:
+                // ColorOS emits no PAUSED for long sessions, so the
+                // closing transition depends entirely on the carry).
                 while (events.hasNextEvent()) {
                     events.getNextEvent(e)
                     val ts = e.timeStamp
@@ -918,6 +925,34 @@ class MainActivity : FlutterFragmentActivity() {
                 put("lastDoomOpenAt", DiagnosticsMarkers.lastDoomOpenAt)
                 put("lastDoomOpenPkg", DiagnosticsMarkers.lastDoomOpenPkg)
                 put("gapDiscards", DiagnosticsMarkers.gapDiscards)
+                // --- Website blocking (no-VPN chain) -----------------
+                val domainsFile = java.io.File(filesDir, "blocked_domains.txt")
+                put("domainsFileExists", domainsFile.exists())
+                put(
+                    "domainsCount",
+                    if (domainsFile.exists()) {
+                        domainsFile.readLines().count { it.isNotBlank() }
+                    } else 0
+                )
+                put("websiteScans", BrowserScanMarkers.scans)
+                put("lastWebsiteScanAt", BrowserScanMarkers.lastScanAt)
+                put("lastWebsiteScanPkg", BrowserScanMarkers.lastScanPkg)
+                put("websiteBlocks", BrowserScanMarkers.blocks)
+                put("lastWebsiteBlockAt", BrowserScanMarkers.lastBlockAt)
+                put("lastWebsiteBlockDomain", BrowserScanMarkers.lastBlockDomain)
+                put("vpnRunning", UlimitVpnService.isRunning)
+                val snap = PolicySnapshot.read(this@MainActivity)
+                put(
+                    "internetBlocksCount",
+                    snap?.internetBlocks?.size ?: 0
+                )
+                put("adultFilterEnabled", snap?.adultFilterEnabled == true)
+                put(
+                    "browserPackages",
+                    org.json.JSONArray().apply {
+                        for (p in snap?.browserPackages ?: emptyList()) put(p)
+                    }
+                )
                 // Incremental attribution cursor + carried session.
                 val prefsD = PolicySnapshot.prefs(this@MainActivity)
                 put("usageCursorAt", prefsD.getLong(PolicySnapshot.KEY_CURSOR, 0L))

@@ -141,9 +141,12 @@ class FocusIndicatorService : Service() {
     private fun startAsForeground() {
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // phoneCall type (manifest): REQUIRED for CallStyle — an
+            // SPECIAL_USE-typed service's CallStyle notification is
+            // rejected/demoted on Android 14+.
             startForeground(
                 NOTIFICATION_ID, notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)

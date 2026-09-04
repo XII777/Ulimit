@@ -238,89 +238,112 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
      *  press from outside a feed would otherwise be misattributed. */
     private var feedSurfacePackage: String? = null
 
+    /** Open scroll session: when the user's last in-feed scroll was
+     *  recent, they are considered INSIDE the feed. Scrolling IS the
+     *  feed — no UI-tree markers needed (they proved unreliable on
+     *  this device: app versions render the feed without the labels
+     *  we look for). */
+    private var scrollSessionPkg: String? = null
+    private var scrollSessionLastAt: Long = 0
+
+    /** A scroll session ends after this long with no in-feed scroll. */
+    private val SCROLL_SESSION_TIMEOUT_MS = 20_000L
+
     private fun scanFeedSurface(packageName: String?) {
         if (packageName == null) return
         if (!DoomscrollApps.isSectionLevelPackage(packageName)) return
 
         val snapshot = PolicySnapshot.read(this) ?: return
 
-        // Gate — THREE paths reach the detector (the old code missed
-        // the third, which is why section platforms with a budget N>0
-        // never ejected once the budget ran out):
-        //  1. focus session with the doomscroll flag → every feed
-        //     surface ejects while the session runs;
-        //  2. budget 0 → the feed is blocked outright;
-        //  3. budget N>0 that is already exhausted today → eject too
-        //     (same "lag mode" semantics as feed-native platforms).
+        val now = System.currentTimeMillis()
+
+        // Resolve rules FIRST — the gating decision, not the detection.
+        // The old order was circular: the gate required blocking to be
+        // active, blocking required counted opens, opens required a
+        // scan that the gate prevented — so nothing ever counted or
+        // ejected (feedScans stayed 0 despite dozens of in-feed
+        // scrolls).
         val focus = snapshot.focus
         val sessionFlag = focus != null && focus.blockDoomscroll &&
-            focus.untilMillis > System.currentTimeMillis()
+            focus.untilMillis > now
         val budget = snapshot.doomscrollFeeds[packageName]
         val used = PolicySnapshot.doomscrollCounts(this)[packageName] ?: 0
         val outright = packageName in snapshot.doomscrollSection && budget == 0
         val overBudget = budget != null && budget > 0 && used >= budget
-        if (!sessionFlag && !outright && !overBudget) {
-            if (feedSurfacePackage == packageName) feedSurfacePackage = null
-            return
+        val blockActive = sessionFlag || outright || overBudget
+
+        // Scroll session tracking: the TYPE_VIEW_SCROLLED handler
+        // refreshes scrollSessionLastAt on every in-feed scroll, so a
+        // still-warm session means "the user is inside this feed".
+        // Content-change events (watching without scrolling) keep the
+        // session alive via the marker hit or the unexpired timer.
+        val sessionWarm = scrollSessionPkg == packageName &&
+            now - scrollSessionLastAt <= SCROLL_SESSION_TIMEOUT_MS
+        scrollSessionPkg = packageName
+        scrollSessionLastAt = now
+
+        // Debounce for the UI-tree scan (cheap supplement to scrolls).
+        val scanDebounced = packageName == lastFeedScanPackage &&
+            now - lastFeedScanAt < 1500
+        if (!scanDebounced) {
+            lastFeedScanPackage = packageName
+            lastFeedScanAt = now
+            DiagnosticsMarkers.feedScans++
+            DiagnosticsMarkers.lastFeedScanAt = now
+            DiagnosticsMarkers.lastFeedScanPkg = packageName
         }
 
-        // Debounce: content events fire continuously while a video
-        // plays/scrolls. One detection per 1.5s per package.
-        val now = System.currentTimeMillis()
-        if (packageName == lastFeedScanPackage && now - lastFeedScanAt < 1500) return
-        lastFeedScanPackage = packageName
-        lastFeedScanAt = now
-        DiagnosticsMarkers.feedScans++
-        DiagnosticsMarkers.lastFeedScanAt = now
-        DiagnosticsMarkers.lastFeedScanPkg = packageName
-
+        // In-feed = a recent scroll OR the marker tree confirming the
+        // feed surface (markers alone can also open a session when the
+        // user is watching without scrolling).
         val markers = DoomscrollApps.feedMarkersFor(packageName)
-        if (markers.isEmpty()) return
-        val requireSelected = DoomscrollApps.markersRequireSelectedFor(packageName)
-
-        if (feedSurfacePresent(markers, requireSelected)) {
-            DiagnosticsMarkers.feedSurfaceHits++
-            DiagnosticsMarkers.lastFeedSurfaceHitAt = now
-            val wasActive = feedSurfacePackage == packageName
-            feedSurfacePackage = packageName
-
-            // Budget semantics were already resolved in the gate above
-            // (sessionFlag / outright / overBudget) — reuse them here so
-            // the eject decision and the open-counting decision can
-            // never disagree.
-            if (sessionFlag || outright || overBudget) {
-                // Eject the scroll, debounced. The rest of the app stays
-                // usable — pressing BACK only leaves the feed surface.
-                if (now - lastFeedEjectAt > 2500) {
-                    lastFeedEjectAt = now
-                    DiagnosticsMarkers.feedEjects++
-                    DiagnosticsMarkers.lastFeedEjectAt = now
-                    DiagnosticsMarkers.lastFeedEjectPkg = packageName
-                    overlayManager.showSmallNotice(
-                        packageName = packageName,
-                        message = "Feed blocked — the rest of the app stays usable",
-                    )
-                    pressBack()
+        val markerHit = if (markers.isEmpty()) false else {
+            val requireSelected = DoomscrollApps.markersRequireSelectedFor(packageName)
+            feedSurfacePresent(markers, requireSelected).also {
+                if (it) {
+                    DiagnosticsMarkers.feedSurfaceHits++
+                    DiagnosticsMarkers.lastFeedSurfaceHitAt = now
                 }
-            } else if (!wasActive) {
-                // One feed open per surfaced scroll — bridged to Dart's
-                // authoritative DB via the sentinel event channel. The
-                // "__doom_open__:" prefix mirrors Dart's
-                // UlimitSentinel.doomOpenPrefix (lib/core/native/
-                // usage_events_channel.dart) — UsageTracker strips it
-                // and records the feed open.
-                PolicySnapshot.addDoomscrollOpen(this, packageName)
-                DiagnosticsMarkers.doomOpens++
-                DiagnosticsMarkers.lastDoomOpenAt = now
-                DiagnosticsMarkers.lastDoomOpenPkg = packageName
-                UsageEventBridge.emit(
-                    "__doom_open__:" + packageName,
-                    now
-                )
             }
-        } else if (feedSurfacePackage == packageName) {
-            // Left the feed surface on our own eject or theirs.
-            feedSurfacePackage = null
+        }
+        val inFeed = sessionWarm || markerHit
+        if (inFeed) {
+            DiagnosticsMarkers.lastFeedSurfaceHitAt = now
+        }
+        val wasActive = feedSurfacePackage == packageName
+        feedSurfacePackage = if (inFeed) packageName else null
+
+        if (!inFeed) return
+
+        if (blockActive) {
+            // Eject the scroll, debounced. The rest of the app stays
+            // usable — pressing BACK only leaves the feed surface.
+            if (now - lastFeedEjectAt > 2500) {
+                lastFeedEjectAt = now
+                DiagnosticsMarkers.feedEjects++
+                DiagnosticsMarkers.lastFeedEjectAt = now
+                DiagnosticsMarkers.lastFeedEjectPkg = packageName
+                overlayManager.showSmallNotice(
+                    packageName = packageName,
+                    message = "Feed blocked — the rest of the app stays usable",
+                )
+                pressBack()
+            }
+        } else if (!wasActive) {
+            // One feed open per surfaced scroll — bridged to Dart's
+            // authoritative DB via the sentinel event channel. The
+            // "__doom_open__:" prefix mirrors Dart's
+            // UlimitSentinel.doomOpenPrefix (lib/core/native/
+            // usage_events_channel.dart) — UsageTracker strips it
+            // and records the feed open.
+            PolicySnapshot.addDoomscrollOpen(this, packageName)
+            DiagnosticsMarkers.doomOpens++
+            DiagnosticsMarkers.lastDoomOpenAt = now
+            DiagnosticsMarkers.lastDoomOpenPkg = packageName
+            UsageEventBridge.emit(
+                "__doom_open__:" + packageName,
+                now
+            )
         }
     }
 
@@ -427,14 +450,58 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
 
     private val FQDN_REGEX = Regex("[a-z0-9-]+(\\.[a-z0-9-]+)+")
 
+    // Cached blocked-domain set, invalidated when the file changes on
+    // disk (Dart rewrites it atomically on every rule change). Loading
+    // 100k+ lines per content event would stall the accessibility UI
+    // thread, so this must never be unconditional.
+    private var cachedDomains: Set<String>? = null
+    private var cachedDomainsStamp: Long = -1
+
+    private fun loadScanDomains(): Set<String> {
+        return try {
+            val file = java.io.File(filesDir, "blocked_domains.txt")
+            if (!file.exists()) {
+                cachedDomains = emptySet()
+                emptySet()
+            } else {
+                val stamp = file.lastModified()
+                val cached = cachedDomains
+                if (cached != null && stamp == cachedDomainsStamp) {
+                    cached
+                } else {
+                    val loaded = file.readLines()
+                        .asSequence()
+                        .map { it.trim().lowercase() }
+                        .filter { it.isNotEmpty() }
+                        .toSet()
+                    cachedDomains = loaded
+                    cachedDomainsStamp = stamp
+                    loaded
+                }
+            }
+        } catch (_: Exception) {
+            emptySet()
+        }
+    }
+
     private fun scanBrowserContent(packageName: String?) {
         if (packageName == null) return
 
-        // Only when the adult filter is on and the foreground package is
-        // a known browser — never scan other apps' text.
+        // Run whenever ANY website blocking is configured (the domain
+        // file is the shared source of truth — custom rules, the adult
+        // category, every category). The old gate required the adult
+        // flag specifically, so custom-blocked sites were silently
+        // ignored when the VPN was off — the browser scan is the ONLY
+        // no-VPN enforcement path.
         val snapshot = PolicySnapshot.read(this) ?: return
-        if (!snapshot.adultFilterEnabled) return
-        if (packageName !in snapshot.browserPackages) return
+        val domains = loadScanDomains()
+        if (domains.isEmpty()) return
+        // The browser check is prefix-tolerant: nightlies/betas/forks
+        // (com.brave.browser_nightly) inherit their base package's
+        // entry. Exact-match missed real browsers on this device.
+        if (packageName !in snapshot.browserPackages &&
+            snapshot.browserPackages.none { packageName.startsWith(it) }
+        ) return
 
         // Debounce: TYPE_WINDOW_CONTENT_CHANGED fires continuously as a
         // page paints. One scan per package per window.
@@ -446,37 +513,25 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
         }
         lastContentScanPackage = packageName
         lastContentScanAt = now
-
-        val domains = loadScanDomains()
-        if (domains.isEmpty()) return
+        BrowserScanMarkers.scans++
+        BrowserScanMarkers.lastScanAt = now
+        BrowserScanMarkers.lastScanPkg = packageName
+        BrowserScanMarkers.domainCount = domains.size
 
         val text = collectVisibleText()
         if (text.isEmpty()) return
 
         for (match in FQDN_REGEX.findAll(text)) {
             val candidate = match.value.lowercase().trimEnd('.')
-            if (candidate in domains) {
+            if (candidate in domains || domains.any { candidate.endsWith(".$it") }) {
                 // Blocked domain present in the visible browser content.
                 // Back out and lock the package until it changes screens.
+                BrowserScanMarkers.blocks++
+                BrowserScanMarkers.lastBlockAt = now
+                BrowserScanMarkers.lastBlockDomain = candidate
                 onBlockedDomainInBrowser(packageName, candidate)
                 return
             }
-        }
-    }
-
-    /** Reads the blocked-domain set from the same file the DNS filter
-     * uses (blocked_domains.txt) so the two layers never disagree. */
-    private fun loadScanDomains(): Set<String> {
-        return try {
-            val file = java.io.File(filesDir, "blocked_domains.txt")
-            if (!file.exists()) emptySet()
-            else file.readLines()
-                .asSequence()
-                .map { it.trim().lowercase() }
-                .filter { it.isNotEmpty() }
-                .toSet()
-        } catch (_: Exception) {
-            emptySet()
         }
     }
 

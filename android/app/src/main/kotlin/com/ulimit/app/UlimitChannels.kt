@@ -198,54 +198,66 @@ object UlimitChannels {
 object FocusIndicatorCommands {
     fun handle(context: Context, method: String, arguments: Any?) {
         val args = arguments as? Map<*, *>
-        when (method) {
-            "startFocusIndicator" -> {
-                val intent = Intent(context, FocusIndicatorService::class.java).apply {
-                    action = FocusIndicatorService.ACTION_START
-                    putExtra(FocusIndicatorService.EXTRA_LABEL, args?.get("label") as? String ?: "Focus")
-                    putExtra(
-                        FocusIndicatorService.EXTRA_STARTED_AT,
-                        (args?.get("startedAtMillis") as? Number)?.toLong() ?: 0L
-                    )
-                    putExtra(
-                        FocusIndicatorService.EXTRA_END,
-                        (args?.get("endMillis") as? Number)?.toLong() ?: 0L
-                    )
-                    putExtra(FocusIndicatorService.EXTRA_PAUSED, args?.get("paused") as? Boolean ?: false)
+        // All paths are best-effort presentation: background-start
+        // restrictions (ForegroundServiceStartNotAllowedException) and
+        // rare OEM failures must never crash the host process.
+        try {
+            when (method) {
+                "startFocusIndicator" -> {
+                    val intent = Intent(context, FocusIndicatorService::class.java).apply {
+                        action = FocusIndicatorService.ACTION_START
+                        putExtra(FocusIndicatorService.EXTRA_LABEL, args?.get("label") as? String ?: "Focus")
+                        putExtra(
+                            FocusIndicatorService.EXTRA_STARTED_AT,
+                            (args?.get("startedAtMillis") as? Number)?.toLong() ?: 0L
+                        )
+                        putExtra(
+                            FocusIndicatorService.EXTRA_END,
+                            (args?.get("endMillis") as? Number)?.toLong() ?: 0L
+                        )
+                        putExtra(FocusIndicatorService.EXTRA_PAUSED, args?.get("paused") as? Boolean ?: false)
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        context.startForegroundService(intent)
+                    } else {
+                        context.startService(intent)
+                    }
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
+                "updateFocusNotification" -> {
+                    val intent = Intent(context, FocusIndicatorService::class.java).apply {
+                        action = FocusIndicatorService.ACTION_UPDATE
+                        putExtra(FocusIndicatorService.EXTRA_LABEL, args?.get("label") as? String ?: "Focus")
+                        putExtra(
+                            FocusIndicatorService.EXTRA_END,
+                            (args?.get("endMillis") as? Number)?.toLong() ?: 0L
+                        )
+                        putExtra(FocusIndicatorService.EXTRA_PAUSED, args?.get("paused") as? Boolean ?: false)
+                        // Live doomscroll counting (optional fields).
+                        val doomPkg = args?.get("doomPackage") as? String
+                        if (doomPkg != null) {
+                            putExtra(FocusIndicatorService.EXTRA_DOOM_PACKAGE, doomPkg)
+                            putExtra(
+                                FocusIndicatorService.EXTRA_DOOM_COUNT,
+                                (args["doomCount"] as? Number)?.toInt() ?: 0
+                            )
+                        }
+                    }
+                    // The service is already a FGS when updates arrive;
+                    // startForegroundService is safe from background.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        context.startForegroundService(intent)
+                    } else {
+                        context.startService(intent)
+                    }
+                }
+                "stopFocusIndicator" -> {
+                    val intent = Intent(context, FocusIndicatorService::class.java).apply {
+                        action = FocusIndicatorService.ACTION_STOP
+                    }
                     context.startService(intent)
                 }
             }
-            "updateFocusNotification" -> {
-                val intent = Intent(context, FocusIndicatorService::class.java).apply {
-                    action = FocusIndicatorService.ACTION_UPDATE
-                    putExtra(FocusIndicatorService.EXTRA_LABEL, args?.get("label") as? String ?: "Focus")
-                    putExtra(
-                        FocusIndicatorService.EXTRA_END,
-                        (args?.get("endMillis") as? Number)?.toLong() ?: 0L
-                    )
-                    putExtra(FocusIndicatorService.EXTRA_PAUSED, args?.get("paused") as? Boolean ?: false)
-                    // Live doomscroll counting (optional fields).
-                    val doomPkg = args?.get("doomPackage") as? String
-                    if (doomPkg != null) {
-                        putExtra(FocusIndicatorService.EXTRA_DOOM_PACKAGE, doomPkg)
-                        putExtra(
-                            FocusIndicatorService.EXTRA_DOOM_COUNT,
-                            (args["doomCount"] as? Number)?.toInt() ?: 0
-                        )
-                    }
-                }
-                context.startService(intent)
-            }
-            "stopFocusIndicator" -> {
-                val intent = Intent(context, FocusIndicatorService::class.java).apply {
-                    action = FocusIndicatorService.ACTION_STOP
-                }
-                context.startService(intent)
-            }
+        } catch (_: Exception) {
         }
     }
 }

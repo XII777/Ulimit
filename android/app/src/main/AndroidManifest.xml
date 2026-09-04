@@ -12,6 +12,9 @@
     <!-- Required for the call-style Focus Session notification (the
          status-bar duration chip) on several Android versions. -->
     <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <!-- Android 14+ additionally requires the phoneCall FGS permission
+         for CallStyle notifications to be posted. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
 
     <!-- Usage access (special, user-granted in system Settings → Usage
          access): lets the app read UsageStatsManager's authoritative
@@ -142,14 +145,15 @@
         </service>
 
         <!-- Focus Session system indicator: foreground service with an
-             ongoing chronometer notification and Pause/End actions. -->
+             ongoing chronometer notification and Pause/End actions.
+             Type MUST be phoneCall on API 31+: the notification uses
+             CallStyle (the status-bar duration chip) and Android drops
+             CallStyle from services that are not phoneCall-typed — the
+             reason the pill never appeared on this device. -->
         <service
             android:name=".FocusIndicatorService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Focus session timer indicator" />
+            android:foregroundServiceType="phoneCall">
         </service>
 
         <!-- Chip tap target: the translucent spring-bouncy popup that

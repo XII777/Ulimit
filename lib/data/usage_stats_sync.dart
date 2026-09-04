@@ -41,7 +41,10 @@ class UsageStatsSync {
 
     final records = await NativePermissions.fetchDeviceUsageForDays(days);
     if (records.isEmpty) {
-      UsageStatsSyncState.noteSync(rowsWritten: 0, error: 'OS returned no usage records');
+      // Normal for incremental mode: no NEW events since the last sync
+      // (nothing to add). Not an error — the earlier "failed" spam was
+      // misleading.
+      UsageStatsSyncState.noteSync(rowsWritten: 0, error: null);
       return;
     }
 

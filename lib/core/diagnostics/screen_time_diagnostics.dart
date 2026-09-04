@@ -75,6 +75,8 @@ class ScreenTimeReport {
     this.doomChecks = const [],
     this.doomRows = const [],
     this.doomNotes = const [],
+    this.webChecks = const [],
+    this.webNotes = const [],
   });
 
   final List<EngineCheck> checks;
@@ -93,6 +95,10 @@ class ScreenTimeReport {
 
   /// Free-form doomscroll state lines for the report.
   final List<String> doomNotes;
+
+  /// Website-blocking (no-VPN chain) checks + state lines.
+  final List<EngineCheck> webChecks;
+  final List<String> webNotes;
 
   int get overCountTotal {
     var sum = 0;
@@ -152,6 +158,16 @@ class ScreenTimeReport {
     }
     if (doomRows.isEmpty) b.writeln('(no doomscroll platforms configured)');
     for (final n in doomNotes) {
+      b.writeln(n);
+    }
+    b.writeln();
+    b.writeln('--- WEBSITE BLOCKING (no-VPN chain) ---');
+    for (final c in webChecks) {
+      b.write('${c.mark.padRight(4)} ${c.label}');
+      if (c.detail != null && c.detail!.isNotEmpty) b.write(' — ${c.detail}');
+      b.writeln();
+    }
+    for (final n in webNotes) {
       b.writeln(n);
     }
     b.writeln();
@@ -363,14 +379,15 @@ class ScreenTimeDiagnostics {
     final feedScans = _nativeInt('feedScans') ?? 0;
     final surfaceHits = _nativeInt('feedSurfaceHits') ?? 0;
     doomChecks.add(EngineCheck(
-      label: 'Feed surface markers matching',
-      pass: surfaceHits > 0,
-      detail: surfaceHits > 0
-          ? '$surfaceHits detection(s) — markers matched in the visible tree'
+      label: 'Feed surface detection',
+      pass: surfaceHits > 0 || sectionScrollSeen > 0,
+      detail: sectionScrollSeen > 0
+          ? 'Scroll-driven: $sectionScrollSeen in-feed scroll(s) — '
+              'scroll sessions ARE the feed (markers are a supplement'
+              '${surfaceHits > 0 ? ', $surfaceHits marker hit(s)' : ''})'
           : feedScans > 0
-              ? '0 matches in $feedScans scans — the app version renders the '
-                  'feed without the expected labels; scroll events still '
-                  'drive enforcement, but paste this report to support'
+              ? 'No in-feed activity yet — open a Reels/Shorts feed and '
+                  'scroll once'
               : 'No scans yet — open a section app (Reels/Shorts feed) once',
     ));
 
@@ -413,6 +430,78 @@ class ScreenTimeDiagnostics {
         '(${_nativeStr(native, "lastFeedEjectPkg")})');
     doomNotes.add('gap discards (attribution): ${_nativeInt("gapDiscards") ?? 0}');
 
+    // 7b. Website blocking (no-VPN chain) ----------------------------------
+    final webChecks = <EngineCheck>[];
+    final webNotes = <String>[];
+    final domainsCount = _nativeInt('domainsCount') ?? 0;
+    webChecks.add(EngineCheck(
+      label: 'Blocked-domains file on device',
+      pass: domainsCount > 0,
+      detail: domainsCount > 0
+          ? '$domainsCount domain(s) loaded by the browser scanner'
+          : 'Empty — add rules on the Internet screen or enable a block '
+              'list; the browser scan (and the VPN) both read this file',
+    ));
+
+    final vpnRunning = native['vpnRunning'] == true;
+    webChecks.add(EngineCheck(
+      label: 'VPN domain filter',
+      pass: vpnRunning,
+      detail: vpnRunning
+          ? 'Running — DNS-level blocking active network-wide'
+          : 'Not running — browser scan is the only no-VPN enforcement '
+              'path (blocks by matching domains in visible page text)',
+    ));
+
+    final websiteScans = _nativeInt('websiteScans') ?? 0;
+    webChecks.add(EngineCheck(
+      label: 'Browser text scan running',
+      pass: websiteScans > 0,
+      detail: websiteScans > 0
+          ? '$websiteScans scan(s), last ${_agoMs(_nativeInt("lastWebsiteScanAt") ?? 0)} '
+              'in ${_nativeStr(native, "lastWebsiteScanPkg")}'
+          : 'No scans yet — open any browser page once, then re-open '
+              'diagnostics (scans fire on page content changes)',
+    ));
+
+    final websiteBlocks = _nativeInt('websiteBlocks') ?? 0;
+    webChecks.add(EngineCheck(
+      label: 'Website blocks fired',
+      pass: true,
+      detail: '$websiteBlocks since launch'
+          '${websiteBlocks > 0 ? ' · last: ${_nativeStr(native, "lastWebsiteBlockDomain")} '
+              '${_agoMs(_nativeInt("lastWebsiteBlockAt") ?? 0)}' : ''}',
+    ));
+
+    final browserPkgs = [
+      if (native['browserPackages'] != null)
+        for (final p in (native['browserPackages'] as List)) p.toString(),
+    ];
+    webChecks.add(EngineCheck(
+      label: 'Browser list coverage',
+      pass: browserPkgs.isNotEmpty,
+      detail: browserPkgs.isNotEmpty
+          ? '${browserPkgs.length} base package(s) — forks/nightlies '
+              'match by prefix'
+          : 'No browser packages pushed — snapshot needs a re-push',
+    ));
+
+    final internetBlocksCount = _nativeInt('internetBlocksCount') ?? 0;
+    webChecks.add(EngineCheck(
+      label: 'Internet app-blocks (native)',
+      pass: true,
+      detail: '$internetBlocksCount app(s) with internet cut '
+              '· adult filter: ${native['adultFilterEnabled'] == true ? 'on' : 'off'}'
+              ' · VPN running: ${vpnRunning ? 'yes' : 'no'}',
+    ));
+
+    webNotes.add('domains file: ${_nativeInt('domainsFileExists') == 1 ? 'present' : 'missing'} '
+        '($domainsCount entries)');
+    webNotes.add('last browser scan: ${_agoMs(_nativeInt("lastWebsiteScanAt") ?? 0)} '
+        '(${_nativeStr(native, "lastWebsiteScanPkg")})');
+    webNotes.add('last website block: ${_agoMs(_nativeInt("lastWebsiteBlockAt") ?? 0)} '
+        '(${_nativeStr(native, "lastWebsiteBlockDomain")})');
+
     // 8. Device info -------------------------------------------------------
     String device;
     try {
@@ -443,6 +532,8 @@ class ScreenTimeDiagnostics {
       doomChecks: doomChecks,
       doomRows: doomRows,
       doomNotes: doomNotes,
+      webChecks: webChecks,
+      webNotes: webNotes,
     );
   }
 
