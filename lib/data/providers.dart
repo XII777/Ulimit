@@ -157,9 +157,13 @@ final liveScreenTimeSecondsProvider = StreamProvider<int>((ref) {
     }
     if (foreground == null || isExcludedFromScreenTime(foreground.package)) return base;
 
+    // Pending is hard-capped at 15 minutes: it bridges only the OS's
+    // aggregation lag. When events stop (service killed, app frozen)
+    // a larger pending value would be pure phantom time — the exact
+    // multi-hour over-count class this rewrite removes.
     final pending = ((DateTime.now().millisecondsSinceEpoch - foreground.sinceMillis) / 1000)
         .floor()
-        .clamp(0, 6 * 3600)
+        .clamp(0, 15 * 60)
         .toInt();
     final osAtStart = foreground.osSecondsAtSessionStart;
     if (osAtStart == null) return base; // snapshot read pending — don't guess
@@ -240,7 +244,7 @@ final livePendingScreenTimeProvider = StreamProvider<int>((ref) {
     if (foreground == null || isExcludedFromScreenTime(foreground.package)) return 0;
     final pending = ((DateTime.now().millisecondsSinceEpoch - foreground.sinceMillis) / 1000)
         .floor()
-        .clamp(0, 6 * 3600)
+        .clamp(0, 15 * 60)
         .toInt();
     final osAtStart = foreground.osSecondsAtSessionStart;
     if (osAtStart == null) return 0; // snapshot read pending — don't guess

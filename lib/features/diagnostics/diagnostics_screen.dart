@@ -471,6 +471,77 @@ class _ScreenTimeEngineCardState extends ConsumerState<_ScreenTimeEngineCard> {
                     ),
                   ),
               ],
+            const SizedBox(height: 16),
+            Text('DOOMSCROLL ENGINE',
+                style: TextStyle(
+                    fontSize: AppText.overline,
+                    color: AppColors.inkDim,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.6)),
+            const SizedBox(height: 6),
+            for (final c in report.doomChecks)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 26,
+                      child: Text(c.mark,
+                          style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: c.pass == null
+                                  ? AppColors.inkFaint
+                                  : (c.pass! ? AppColors.ink : AppColors.inkDim))),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(c.label,
+                              style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: c.pass == false ? AppColors.inkDim : AppColors.ink)),
+                          if (c.detail != null) ...[
+                            const SizedBox(height: 1),
+                            Text(c.detail!,
+                                style: TextStyle(
+                                    fontSize: 10.5, height: 1.4, color: AppColors.inkFaint)),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (report.doomRows.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              for (final r in report.doomRows)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text('${r.label}  (${r.package})',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 11, color: AppColors.ink)),
+                      ),
+                      Text(
+                        'budget ${r.budget} · native ${r.nativeOpens} / db ${r.dartOpens}',
+                        style: TextStyle(
+                            fontSize: 10.5,
+                            color: r.nativeOpens != r.dartOpens
+                                ? AppColors.inkDim
+                                : AppColors.inkFaint,
+                            fontFeatures: const [FontFeature.tabularFigures()]),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,

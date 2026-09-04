@@ -62,4 +62,22 @@ object DiagnosticsMarkers {
     @Volatile var lastScreenOffAt: Long = 0
     @Volatile var lastUnlockAt: Long = 0
     @Volatile var lastAccessibilityEventAt: Long = 0
+
+    // Doomscroll feed-detector breadcrumbs — the copyable doom report
+    // answers "is the detector even seeing events, is it matching
+    // markers, is it ejecting" without a debugger.
+    @Volatile var scrollEventsSeen: Int = 0
+    @Volatile var lastScrollEventAt: Long = 0
+    @Volatile var feedScans: Int = 0
+    @Volatile var lastFeedScanAt: Long = 0
+    @Volatile var lastFeedScanPkg: String = ""
+    @Volatile var feedSurfaceHits: Int = 0
+    @Volatile var lastFeedSurfaceHitAt: Long = 0
+    @Volatile var feedEjects: Int = 0
+    @Volatile var lastFeedEjectAt: Long = 0
+    @Volatile var lastFeedEjectPkg: String = ""
+    @Volatile var doomOpens: Int = 0
+    @Volatile var lastDoomOpenAt: Long = 0
+    @Volatile var lastDoomOpenPkg: String = ""
+    @Volatile var gapDiscards: Int = 0
 }

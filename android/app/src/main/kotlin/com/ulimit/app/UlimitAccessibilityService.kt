@@ -107,6 +107,20 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
                 scanFeedSurface(event.packageName?.toString())
             }
 
+            // Scroll events — the feed-detector's most reliable signal
+            // (the same one scroll-aware blockers are built on). Some
+            // app versions render the feed without content-change
+            // events reaching us, but a scroll ALWAYS fires while the
+            // user is doomscrolling. Debounced inside scanFeedSurface.
+            AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                DiagnosticsMarkers.scrollEventsSeen++
+                DiagnosticsMarkers.lastScrollEventAt = System.currentTimeMillis()
+                val eventPkg = event.packageName?.toString() ?: return
+                if (DoomscrollApps.isSectionLevelPackage(eventPkg)) {
+                    scanFeedSurface(eventPkg)
+                }
+            }
+
             AccessibilityEvent.TYPE_WINDOWS_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
             -> {
@@ -153,10 +167,16 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
         val previous = lastPackageName
         if (previous != null && lastEventTimestamp > 0) {
             val elapsedSeconds = ((now - lastEventTimestamp) / 1000).toInt()
-            // Discard huge gaps — almost certainly a phone-asleep period
-            // the OS didn't cleanly signal, not real foreground time.
-            if (elapsedSeconds in 1..(6 * 3600) && !BlockEngine.isShellPackage(previous)) {
+            // Gaps beyond 15 minutes are never attributed — a missed
+            // screen-off, a dead service or a frozen process would
+            // otherwise dump hours of phantom foreground time onto the
+            // last app (the multi-hour over-count class). The OS sync
+            // owns the real totals; this accumulator only feeds native
+            // enforcement.
+            if (elapsedSeconds in 1..(15 * 60) && !BlockEngine.isShellPackage(previous)) {
                 PolicySnapshot.addForegroundSeconds(this, previous, elapsedSeconds)
+            } else if (elapsedSeconds > 15 * 60) {
+                DiagnosticsMarkers.gapDiscards++
             }
         }
         lastPackageName = packageName
@@ -216,14 +236,22 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
 
         val snapshot = PolicySnapshot.read(this) ?: return
 
-        // Active during a focus session with the doomscroll flag, or
-        // outright for 0-budget section platforms.
+        // Gate — THREE paths reach the detector (the old code missed
+        // the third, which is why section platforms with a budget N>0
+        // never ejected once the budget ran out):
+        //  1. focus session with the doomscroll flag → every feed
+        //     surface ejects while the session runs;
+        //  2. budget 0 → the feed is blocked outright;
+        //  3. budget N>0 that is already exhausted today → eject too
+        //     (same "lag mode" semantics as feed-native platforms).
         val focus = snapshot.focus
         val sessionFlag = focus != null && focus.blockDoomscroll &&
             focus.untilMillis > System.currentTimeMillis()
-        val outright = packageName in snapshot.doomscrollSection &&
-            (snapshot.doomscrollFeeds[packageName] ?: -1) == 0
-        if (!sessionFlag && !outright) {
+        val budget = snapshot.doomscrollFeeds[packageName]
+        val used = PolicySnapshot.doomscrollCounts(this)[packageName] ?: 0
+        val outright = packageName in snapshot.doomscrollSection && budget == 0
+        val overBudget = budget != null && budget > 0 && used >= budget
+        if (!sessionFlag && !outright && !overBudget) {
             if (feedSurfacePackage == packageName) feedSurfacePackage = null
             return
         }
@@ -234,28 +262,32 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
         if (packageName == lastFeedScanPackage && now - lastFeedScanAt < 1500) return
         lastFeedScanPackage = packageName
         lastFeedScanAt = now
+        DiagnosticsMarkers.feedScans++
+        DiagnosticsMarkers.lastFeedScanAt = now
+        DiagnosticsMarkers.lastFeedScanPkg = packageName
 
         val markers = DoomscrollApps.feedMarkersFor(packageName)
         if (markers.isEmpty()) return
         val requireSelected = DoomscrollApps.markersRequireSelectedFor(packageName)
 
         if (feedSurfacePresent(markers, requireSelected)) {
+            DiagnosticsMarkers.feedSurfaceHits++
+            DiagnosticsMarkers.lastFeedSurfaceHitAt = now
             val wasActive = feedSurfacePackage == packageName
             feedSurfacePackage = packageName
 
-            // Budget semantics: 0 = the feed is blocked outright; N =
-            // blocked once N feed opens have been used today. A focus
-            // session with the doomscroll flag overrides everything —
-            // every feed surface ejects.
-            val budget = snapshot.doomscrollFeeds[packageName] ?: 0
-            val used = PolicySnapshot.doomscrollCounts(this)[packageName] ?: 0
-            val overBudget = sessionFlag || outright || (budget > 0 && used >= budget)
-
-            if (overBudget) {
+            // Budget semantics were already resolved in the gate above
+            // (sessionFlag / outright / overBudget) — reuse them here so
+            // the eject decision and the open-counting decision can
+            // never disagree.
+            if (sessionFlag || outright || overBudget) {
                 // Eject the scroll, debounced. The rest of the app stays
                 // usable — pressing BACK only leaves the feed surface.
                 if (now - lastFeedEjectAt > 2500) {
                     lastFeedEjectAt = now
+                    DiagnosticsMarkers.feedEjects++
+                    DiagnosticsMarkers.lastFeedEjectAt = now
+                    DiagnosticsMarkers.lastFeedEjectPkg = packageName
                     overlayManager.showSmallNotice(
                         packageName = packageName,
                         message = "Feed blocked — the rest of the app stays usable",
@@ -270,6 +302,9 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
                 // usage_events_channel.dart) — UsageTracker strips it
                 // and records the feed open.
                 PolicySnapshot.addDoomscrollOpen(this, packageName)
+                DiagnosticsMarkers.doomOpens++
+                DiagnosticsMarkers.lastDoomOpenAt = now
+                DiagnosticsMarkers.lastDoomOpenPkg = packageName
                 UsageEventBridge.emit(
                     "__doom_open__:" + packageName,
                     now

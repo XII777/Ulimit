@@ -58,14 +58,20 @@ class UsageStatsSync {
         if (isExcludedFromScreenTime(package)) continue;
         if (screenTime <= 0) continue;
 
-        // OS value into its own column only. The tracker column is
-        // untouched — the two accounting models stay independent.
+        // OS value into its own column; the tracker column is zeroed
+        // for the row so the displayed merge (OS wins when present,
+        // else tracker) reads EXACTLY the OS number for every
+        // OS-covered day — no tracker seconds can stack on top. When
+        // usage access is absent this sync never runs and the tracker
+        // column remains the (capped, approximate) fallback.
         await _db.customStatement(
           '''
           INSERT INTO app_usage (package_name, day, foreground_seconds, os_foreground_seconds)
           VALUES (?, ?, 0, ?)
           ON CONFLICT(package_name, day)
-          DO UPDATE SET os_foreground_seconds = excluded.os_foreground_seconds
+          DO UPDATE SET
+            os_foreground_seconds = excluded.os_foreground_seconds,
+            foreground_seconds = 0
           ''',
           [package, dayUnix, screenTime],
         );

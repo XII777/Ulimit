@@ -159,14 +159,14 @@ class UsageTracker {
       return;
     }
 
-    // Screen went off: Digital Wellbeing stops counting here, so do we.
-    // Attribute the open session as of THIS moment (not whenever the
-    // next event happens to come) and clear it.
+    // Screen went off: the system dashboard stops counting here, so do
+    // we. Attribute the open session as of THIS moment (not whenever
+    // the next event happens to come) and clear it.
     if (event.packageName == UlimitSentinel.screenOff) {
       lastScreenOffAt = DateTime.now();
       if (_pendingPackage != null && _pendingTimestampMillis != null) {
         final elapsedSeconds = ((now - _pendingTimestampMillis!) / 1000).floor();
-        if (elapsedSeconds > 0 && elapsedSeconds < 6 * 3600 &&
+        if (elapsedSeconds > 0 && elapsedSeconds < 15 * 60 &&
             !isExcludedFromScreenTime(_pendingPackage!)) {
           await _addUsage(_pendingPackage!, _pendingTimestampMillis!, elapsedSeconds);
           DiagnosticsLog.record(
@@ -206,9 +206,12 @@ class UsageTracker {
       // would hand the DB a second the live view already showed,
       // double-counting it on the next switch.
       final elapsedSeconds = ((now - _pendingTimestampMillis!) / 1000).floor();
-      if (elapsedSeconds > 0 && elapsedSeconds < 6 * 3600) {
-        // Discard >6h gaps — almost certainly a phone-asleep period the
-        // OS didn't cleanly signal, not real foreground time.
+      if (elapsedSeconds > 0 && elapsedSeconds < 15 * 60) {
+        // Gaps beyond 15 minutes are never attributed — a missed
+        // screen-off or a frozen service would otherwise dump hours of
+        // phantom foreground time onto the last app (the multi-hour
+        // over-count class). The OS sync owns the real totals; this
+        // accumulator only bridges the OS's aggregation lag.
         await _addUsage(_pendingPackage!, _pendingTimestampMillis!, elapsedSeconds);
         attributedSeconds = elapsedSeconds;
       }

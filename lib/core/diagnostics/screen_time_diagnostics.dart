@@ -4,6 +4,7 @@ import '../native/permissions_channel.dart';
 import '../../data/db/app_database.dart';
 import '../../data/providers.dart';
 import '../../data/screen_time_filter.dart';
+import '../../data/doomscroll_apps.dart';
 import '../../data/usage_merge.dart';
 import '../../data/usage_stats_sync.dart';
 import '../../data/usage_tracker.dart';
@@ -39,9 +40,29 @@ class UsageCompareRow {
   int get overOs => effectiveSeconds - osSeconds;
 }
 
+/// A per-platform doomscroll row: budget as native sees it vs how many
+/// feed opens each side counted today.
+class DoomscrollRow {
+  const DoomscrollRow({
+    required this.package,
+    required this.label,
+    required this.enabled,
+    required this.budget,
+    required this.nativeOpens,
+    required this.dartOpens,
+  });
+
+  final String package;
+  final String label;
+  final bool enabled;
+  final int budget;
+  final int nativeOpens;
+  final int dartOpens;
+}
+
 /// The full copyable screen-time report. "Is the feature on — and is it
 /// actually working?" answered per layer, plus the raw data needed to
-/// debug a mismatch against Digital Wellbeing.
+/// debug a mismatch against the OS dashboard and the doomscroll detector.
 class ScreenTimeReport {
   ScreenTimeReport({
     required this.checks,
@@ -51,6 +72,9 @@ class ScreenTimeReport {
     required this.device,
     required this.rawEvents,
     required this.generatedAt,
+    this.doomChecks = const [],
+    this.doomRows = const [],
+    this.doomNotes = const [],
   });
 
   final List<EngineCheck> checks;
@@ -60,6 +84,15 @@ class ScreenTimeReport {
   final String device;
   final List<String> rawEvents;
   final DateTime generatedAt;
+
+  /// Doomscroll engine checks (feature on / actually working).
+  final List<EngineCheck> doomChecks;
+
+  /// Per-platform doomscroll state.
+  final List<DoomscrollRow> doomRows;
+
+  /// Free-form doomscroll state lines for the report.
+  final List<String> doomNotes;
 
   int get overCountTotal {
     var sum = 0;
@@ -105,6 +138,22 @@ class ScreenTimeReport {
       b.writeln(e);
     }
     if (rawEvents.isEmpty) b.writeln('(none — usage access not granted or no events today)');
+    b.writeln();
+    b.writeln('--- DOOMSCROLL ENGINE ---');
+    for (final c in doomChecks) {
+      b.write('${c.mark.padRight(4)} ${c.label}');
+      if (c.detail != null && c.detail!.isNotEmpty) b.write(' — ${c.detail}');
+      b.writeln();
+    }
+    b.writeln();
+    b.writeln('platform | enabled | budget | native opens | dart opens');
+    for (final r in doomRows) {
+      b.writeln('${r.package} | ${r.enabled} | ${r.budget} | ${r.nativeOpens} | ${r.dartOpens}');
+    }
+    if (doomRows.isEmpty) b.writeln('(no doomscroll platforms configured)');
+    for (final n in doomNotes) {
+      b.writeln(n);
+    }
     b.writeln();
     b.writeln('--- EVENT LOG (last ${eventLog.length}) ---');
     for (final e in eventLog) {
@@ -234,7 +283,115 @@ class ScreenTimeDiagnostics {
       ];
     }
 
-    // 7. Device info -------------------------------------------------------
+    // 7. Doomscroll engine -------------------------------------------------
+    final doomChecks = <EngineCheck>[];
+    final doomRows = <DoomscrollRow>[];
+    final doomNotes = <String>[];
+
+    int? _nativeInt(String key) => (native[key] as num?)?.toInt();
+    final doomFeeds = <String, int>{
+      if (native['doomFeeds'] != null)
+        for (final e in (native['doomFeeds'] as Map).entries)
+          e.key.toString(): (e.value as num).toInt(),
+    };
+    final doomSection = [
+      if (native['doomSection'] != null)
+        for (final p in (native['doomSection'] as List)) p.toString(),
+    ];
+    final doomNativeOpens = <String, int>{
+      if (native['doomNativeOpens'] != null)
+        for (final e in (native['doomNativeOpens'] as Map).entries)
+          e.key.toString(): (e.value as num).toInt(),
+    };
+
+    final enabledRules = doomFeeds.length;
+    doomChecks.add(EngineCheck(
+      label: 'Doomscroll rules pushed to native',
+      pass: enabledRules > 0,
+      detail: enabledRules > 0
+          ? '$enabledRules enabled rule(s): ${doomFeeds.keys.join(', ')}'
+          : 'No doomscroll rules enabled — toggle platforms on the Doomscroll screen',
+    ));
+    doomChecks.add(EngineCheck(
+      label: 'Native snapshot present',
+      pass: native['snapshotPresent'] == true,
+      detail: native['snapshotPresent'] == true
+          ? 'Detector can evaluate rules'
+          : 'Detector has NO snapshot — open Ulimit once to push it',
+    ));
+    doomChecks.add(EngineCheck(
+      label: 'Feed-only focus flag active',
+      pass: native['focusDoomscrollFlag'] == true,
+      detail: native['focusDoomscrollFlag'] == true
+          ? 'Every feed surface ejects while the session runs'
+          : 'No focus session with feed-only blocking right now (budget rules still apply)',
+    ));
+
+    final scrollSeen = _nativeInt('scrollEventsSeen') ?? 0;
+    doomChecks.add(EngineCheck(
+      label: 'Scroll events reaching the service',
+      pass: nativeConnected ? (scrollSeen > 0) : null,
+      detail: scrollSeen > 0
+          ? '$scrollSeen since launch (last ${_agoMs(_nativeInt("lastScrollEventAt") ?? 0)})'
+          : 'None since launch — restart the accessibility service once '
+              '(Settings → Accessibility → off/on) after an app update so '
+              'the new scroll-event subscription is active',
+    ));
+
+    final feedScans = _nativeInt('feedScans') ?? 0;
+    final surfaceHits = _nativeInt('feedSurfaceHits') ?? 0;
+    doomChecks.add(EngineCheck(
+      label: 'Feed surface markers matching',
+      pass: surfaceHits > 0,
+      detail: surfaceHits > 0
+          ? '$surfaceHits detection(s) — markers matched in the visible tree'
+          : feedScans > 0
+              ? '0 matches in $feedScans scans — the app version renders the '
+                  'feed without the expected labels; scroll events still '
+                  'drive enforcement, but paste this report to support'
+              : 'No scans yet — open a section app (Reels/Shorts feed) once',
+    ));
+
+    final ejects = _nativeInt('feedEjects') ?? 0;
+    final doomOpens = _nativeInt('doomOpens') ?? 0;
+    doomChecks.add(EngineCheck(
+      label: 'Enforcement (ejects / opens counted)',
+      pass: true,
+      detail: '$ejects eject(s), $doomOpens open(s) counted since launch',
+    ));
+
+    // Per-platform rows: budget (native) vs both counters.
+    final doomPkgs = <String>{...doomFeeds.keys, ...doomNativeOpens.keys};
+    final todayRowsForDoom = rows
+        .where((r) => doomPkgs.contains(r.packageName) || kDoomscrollPackages.contains(r.packageName));
+    final dartOpensByPkg = {for (final r in todayRowsForDoom) r.packageName: r.openCount};
+    for (final platform in kDoomscrollPlatforms) {
+      final pkg = platform.packageName;
+      final inDoom = doomPkgs.contains(pkg) || (dartOpensByPkg[pkg] ?? 0) > 0;
+      if (!inDoom) continue;
+      doomRows.add(DoomscrollRow(
+        package: pkg,
+        label: platform.name,
+        enabled: doomSection.contains(pkg) || (doomFeeds[pkg] ?? 0) >= 0 && doomFeeds.containsKey(pkg),
+        budget: doomFeeds[pkg] ?? 0,
+        nativeOpens: doomNativeOpens[pkg] ?? 0,
+        dartOpens: dartOpensByPkg[pkg] ?? 0,
+      ));
+    }
+    for (final r in doomRows) {
+      if (r.dartOpens != r.nativeOpens) {
+        doomNotes.add('MISMATCH ${r.package}: native ${r.nativeOpens} vs DB ${r.dartOpens} '
+            '(DB counts via Dart engine; native counts independently)');
+      }
+    }
+    doomNotes.add('last feed scan: ${_agoMs(_nativeInt("lastFeedScanAt") ?? 0)} '
+        '(${_nativeStr(native, "lastFeedScanPkg")})');
+    doomNotes.add('last marker hit: ${_agoMs(_nativeInt("lastFeedSurfaceHitAt") ?? 0)}');
+    doomNotes.add('last eject: ${_agoMs(_nativeInt("lastFeedEjectAt") ?? 0)} '
+        '(${_nativeStr(native, "lastFeedEjectPkg")})');
+    doomNotes.add('gap discards (attribution): ${_nativeInt("gapDiscards") ?? 0}');
+
+    // 8. Device info -------------------------------------------------------
     String device;
     try {
       device = await _deviceInfo(native);
@@ -261,7 +418,20 @@ class ScreenTimeDiagnostics {
       device: device,
       rawEvents: rawLines,
       generatedAt: generatedAt,
+      doomChecks: doomChecks,
+      doomRows: doomRows,
+      doomNotes: doomNotes,
     );
+  }
+
+  String _nativeStr(Map<String, dynamic> map, String key) {
+    final v = map[key];
+    return (v == null || (v is String && v.isEmpty)) ? '—' : v.toString();
+  }
+
+  String _agoMs(int millis) {
+    if (millis <= 0) return 'never';
+    return _ago(DateTime.fromMillisecondsSinceEpoch(millis));
   }
 
   Future<String> _deviceInfo(Map<String, dynamic> native) async {

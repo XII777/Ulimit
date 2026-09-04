@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/engine/restriction_engine.dart';
 import '../../core/icons/app_icons.dart';
@@ -71,6 +72,17 @@ class DoomscrollScreen extends ConsumerWidget {
                             style: TextStyle(fontSize: AppText.caption, color: AppColors.inkDim)),
                       ],
                     ),
+                  ),
+                  // Diagnostics: when blocking "isn't working", this is
+                  // the first place to look — the engine card checks the
+                  // whole chain (snapshot, scroll events, marker hits,
+                  // ejects, budget counters) and copies a report.
+                  IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    icon: AppIcon(AppIconName.stopwatch, size: 16, color: AppColors.inkDim),
+                    tooltip: 'Diagnostics',
+                    onPressed: () => GoRouter.of(context).push('/diagnostics'),
                   ),
                 ],
               ),

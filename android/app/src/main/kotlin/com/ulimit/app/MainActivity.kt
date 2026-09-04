@@ -522,8 +522,13 @@ class MainActivity : FlutterFragmentActivity() {
      * Returns per-package daily foreground times for the last [days]
      * days (including today) as a JSON array of
      * `{packageName, day (unix seconds), screenTime}` — screenTime in
-     * seconds, from UsageStatsManager (authoritative, same as Digital
-     * Wellbeing). Empty when the permission isn't granted.
+     * seconds. Empty when the permission isn't granted.
+     *
+     * Attribution is EXACTLY how the system dashboard computes screen
+     * time: raw UsageEvents RESUMED→PAUSED intervals summed per package
+     * per calendar day, split at local midnight. See the body for why
+     * INTERVAL_DAILY buckets are only used (closed-only) for days
+     * older than the ~7-day event-retention window.
      */
     private fun fetchDeviceUsageForDays(days: Int): String {
         if (!isUsageAccessGranted()) return "[]"
@@ -538,43 +543,82 @@ class MainActivity : FlutterFragmentActivity() {
             val start = (end.clone() as java.util.Calendar).apply {
                 add(java.util.Calendar.DAY_OF_YEAR, -days)
             }
+            val endMillis = end.timeInMillis
+            val startMillis = start.timeInMillis
+            val now = System.currentTimeMillis()
+
+            // Days covered by the raw event stream (~7 days retention).
+            val eventsStart = (endMillis - 7L * 24 * 3600 * 1000L).coerceAtLeast(startMillis)
+
+            // dayUnixSeconds → (package → foreground millis)
+            val perDay = HashMap<Long, HashMap<String, Long>>()
 
             val out = org.json.JSONArray()
-            // queryUsageStats returns per-package UsageStats aggregated
-            // for INTERVAL_DAILY buckets keyed by mLastTimeUsed; to get
-            // per-DAY times we walk each day separately.
-            for (dayOffset in 0 until days) {
-                val d = (start.clone() as java.util.Calendar).apply {
-                    add(java.util.Calendar.DAY_OF_YEAR, dayOffset)
-                }
-                val dayStart = d.timeInMillis
-                val dayEnd = dayStart + (24 * 3600 * 1000L)
-                val perPackage = HashMap<String, Long>()
-                val stats = usm.queryUsageStats(
-                    android.app.usage.UsageStatsManager.INTERVAL_DAILY,
-                    dayStart, dayEnd
-                ) ?: continue
-                for (s in stats) {
-                    if (s.totalTimeInForeground <= 0) continue
-                    // queryUsageStats returns EVERY daily bucket whose
-                    // interval INTERSECTS [dayStart, dayEnd) — including
-                    // an OPEN bucket that began before this day (e.g.
-                    // today's still-accumulating bucket intersecting
-                    // yesterday's range). Summing it unguarded wrote
-                    // today's whole usage into yesterday too — a
-                    // double-count DW never shows. Ownership rule:
-                    //   - a bucket fully inside this day → count here;
-                    //   - an open/oversized bucket → count it ONLY in
-                    //     the day that contains its lastTimeUsed.
-                    val ownsThisDay = s.firstTimeStamp >= dayStart && s.lastTimeStamp < dayEnd
-                    if (!ownsThisDay) {
-                        if (s.lastTimeUsed < dayStart || s.lastTimeUsed >= dayEnd) continue
+            // Raw-event interval attribution — the system dashboard's
+            // own method. One pass over all events in the window; every
+            // RESUMED opens a session for its package, the next
+            // PAUSED/STOPPED/SCREEN_NON_INTERACTIVE (or the next
+            // RESUMED) closes it, and closed slices are split across
+            // local midnights so each day gets its exact share.
+            // INTERVAL_DAILY buckets are NOT used for this recent
+            // window: OEMs merge multi-day buckets and the whole
+            // bucket's totalTimeInForeground would land in ONE day —
+            // the 7h-vs-2h bug. A still-open session counts up to NOW
+            // so today's number is live, like the dashboard's current
+            // app.
+            if (now > eventsStart) {
+                val events = usm.queryEvents(eventsStart, endMillis)
+                val e = android.app.usage.UsageEvents.Event()
+                var openPkg: String? = null
+                var openSince = 0L
+                while (events.hasNextEvent()) {
+                    events.getNextEvent(e)
+                    val closes = e.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED ||
+                        e.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED ||
+                        e.eventType == android.app.usage.UsageEvents.Event.SCREEN_NON_INTERACTIVE
+                    if (closes) {
+                        val pkg = openPkg
+                        if (pkg != null) addForegroundInterval(perDay, pkg, openSince, e.timeStamp)
+                        openPkg = null
+                    } else if (e.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED) {
+                        val pkg = openPkg
+                        if (pkg != null) addForegroundInterval(perDay, pkg, openSince, e.timeStamp)
+                        openPkg = e.packageName ?: continue
+                        openSince = e.timeStamp
                     }
-                    perPackage[s.packageName] =
-                        (perPackage[s.packageName] ?: 0L) + s.totalTimeInForeground
                 }
-                val dayUnixSeconds = dayStart / 1000
+                val pkg = openPkg
+                if (pkg != null) addForegroundInterval(perDay, pkg, openSince, now)
+            }
+
+            // Days older than the event-retention window: CLOSED
+            // INTERVAL_DAILY buckets that sit entirely inside their day.
+            // A bucket spanning days can never be split without raw
+            // events, and dropping it whole into one day is exactly the
+            // inflation this rewrite kills — so spanning buckets are
+            // skipped, never assigned.
+            if (startMillis < eventsStart) {
+                for (dayStart in startMillis until eventsStart step (24 * 3600 * 1000L)) {
+                    val dayEnd = dayStart + (24 * 3600 * 1000L)
+                    val dayUnixSeconds = dayStart / 1000
+                    val perPackage = perDay[dayUnixSeconds] ?: HashMap()
+                    val stats = usm.queryUsageStats(
+                        android.app.usage.UsageStatsManager.INTERVAL_DAILY,
+                        dayStart, dayEnd
+                    ) ?: continue
+                    for (s in stats) {
+                        if (s.totalTimeInForeground <= 0) continue
+                        if (s.firstTimeStamp < dayStart || s.lastTimeStamp > dayEnd) continue
+                        perPackage[s.packageName] =
+                            (perPackage[s.packageName] ?: 0L) + s.totalTimeInForeground
+                    }
+                    if (perPackage.isNotEmpty()) perDay[dayUnixSeconds] = perPackage
+                }
+            }
+
+            for ((dayUnixSeconds, perPackage) in perDay) {
                 for ((pkg, ms) in perPackage) {
+                    if (ms <= 0) continue
                     out.put(
                         org.json.JSONObject().apply {
                             put("packageName", pkg)
@@ -587,6 +631,45 @@ class MainActivity : FlutterFragmentActivity() {
             out.toString()
         } catch (_: Exception) {
             "[]"
+        }
+    }
+
+    /** Adds [from, to) foreground millis for [pkg] into [perDay],
+     *  splitting the interval at every local midnight so each day gets
+     *  exactly its own share — the dashboard's day split. */
+    private fun addForegroundInterval(
+        perDay: HashMap<Long, HashMap<String, Long>>,
+        pkg: String,
+        from: Long,
+        to: Long,
+    ) {
+        if (to <= from) return
+        var cursor = from
+        while (cursor < to) {
+            val cal = java.util.Calendar.getInstance().apply {
+                timeInMillis = cursor
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+                add(java.util.Calendar.DAY_OF_YEAR, 1)
+            }
+            val dayEnd = cal.timeInMillis
+            val sliceEnd = minOf(to, dayEnd)
+            // Local midnight immediately before sliceEnd, in unix
+            // seconds — the day the slice belongs to (sliceEnd-1 is
+            // inside the day even when sliceEnd lands on midnight).
+            val midnight = java.util.Calendar.getInstance().apply {
+                timeInMillis = sliceEnd - 1
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            val dayUnixSeconds = midnight / 1000
+            val bucket = perDay.getOrPut(dayUnixSeconds) { HashMap() }
+            bucket[pkg] = (bucket[pkg] ?: 0L) + (sliceEnd - cursor)
+            cursor = sliceEnd
         }
     }
 
@@ -656,6 +739,8 @@ class MainActivity : FlutterFragmentActivity() {
             } catch (_: Exception) {
                 "?"
             }
+            val snapshot = PolicySnapshot.read(this)
+            val focus = snapshot?.focus
             org.json.JSONObject().apply {
                 put("usageAccessGranted", isUsageAccessGranted())
                 put("accessibilityConnected", UlimitAccessibilityService.instance != null)
@@ -666,6 +751,34 @@ class MainActivity : FlutterFragmentActivity() {
                 put("device", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
                 put("sdk", android.os.Build.VERSION.SDK_INT)
                 put("appVersion", version)
+                // --- Doomscroll engine breadcrumbs -------------------
+                put("scrollEventsSeen", DiagnosticsMarkers.scrollEventsSeen)
+                put("lastScrollEventAt", DiagnosticsMarkers.lastScrollEventAt)
+                put("feedScans", DiagnosticsMarkers.feedScans)
+                put("lastFeedScanAt", DiagnosticsMarkers.lastFeedScanAt)
+                put("lastFeedScanPkg", DiagnosticsMarkers.lastFeedScanPkg)
+                put("feedSurfaceHits", DiagnosticsMarkers.feedSurfaceHits)
+                put("lastFeedSurfaceHitAt", DiagnosticsMarkers.lastFeedSurfaceHitAt)
+                put("feedEjects", DiagnosticsMarkers.feedEjects)
+                put("lastFeedEjectAt", DiagnosticsMarkers.lastFeedEjectAt)
+                put("lastFeedEjectPkg", DiagnosticsMarkers.lastFeedEjectPkg)
+                put("doomOpens", DiagnosticsMarkers.doomOpens)
+                put("lastDoomOpenAt", DiagnosticsMarkers.lastDoomOpenAt)
+                put("lastDoomOpenPkg", DiagnosticsMarkers.lastDoomOpenPkg)
+                put("gapDiscards", DiagnosticsMarkers.gapDiscards)
+                // Snapshot state the detector evaluates against.
+                put("snapshotPresent", snapshot != null)
+                put("focusDoomscrollFlag", focus?.blockDoomscroll == true)
+                put("focusUntilMillis", focus?.untilMillis ?: 0)
+                put("doomFeeds", org.json.JSONObject().apply {
+                    for ((k, v) in snapshot?.doomscrollFeeds ?: emptyMap()) put(k, v)
+                })
+                put("doomSection", org.json.JSONArray().apply {
+                    for (p in snapshot?.doomscrollSection ?: emptyList()) put(p)
+                })
+                put("doomNativeOpens", org.json.JSONObject().apply {
+                    for ((k, v) in PolicySnapshot.doomscrollCounts(this@MainActivity)) put(k, v)
+                })
             }.toString()
         } catch (_: Exception) {
             "{}"
