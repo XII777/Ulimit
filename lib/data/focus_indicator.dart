@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/diagnostics/diagnostics_log.dart';
 import '../core/native/enforcement_channel.dart';
+import '../core/native/permissions_channel.dart';
 import 'doomscroll_providers.dart';
 import 'doomscroll_apps.dart';
 import 'focus_providers.dart';
 import 'providers.dart';
 import 'usage_tracker.dart';
+import 'permissions_providers.dart';
 
 /// Keeps the Android system-level Focus Session indicator (foreground
 /// service + ongoing notification with live chronometer and
@@ -44,6 +46,12 @@ class FocusIndicatorSync {
   /// and count change, but the log should only see real transitions.
   bool _lastShown = false;
 
+  /// Guards the POST_NOTIFICATIONS request+retry: Android 13+ HIDES
+  /// every notification (including a foreground-service pill) until the
+  /// user grants it — without this the indicator silently never shows.
+  /// Set while the system dialog is open so the grant-poll runs once.
+  bool _notifyAsking = false;
+
   Future<void> sync() async {
     final enabled = _ref.read(focusIndicatorEnabledProvider).valueOrNull ?? true;
     final session = _ref.read(activeFocusSessionProvider).valueOrNull;
@@ -55,6 +63,22 @@ class FocusIndicatorSync {
         _lastShown = false;
         DiagnosticsLog.record('focus indicator removed', tag: 'indicator');
       }
+      return;
+    }
+
+    // The notification-permission gate (Android 13+): ask once per
+    // session and keep the pill attempt anyway — after the dialog is
+    // answered, the re-sync below makes it appear.
+    if (!_notifyAsking && !await NativePermissions.isPostNotificationsGranted()) {
+      _notifyAsking = true;
+      DiagnosticsLog.record(
+        'focus indicator: POST_NOTIFICATIONS not granted — requesting',
+        tag: 'indicator',
+      );
+      await NativePermissions.requestPostNotifications();
+      // The dialog result is async — poll while it's (likely) open and
+      // resync the instant permission lands.
+      unawaited(_awaitNotifyGrant());
       return;
     }
 
@@ -76,6 +100,26 @@ class FocusIndicatorSync {
         tag: 'indicator',
       );
     }
+  }
+
+  /// Polls while the permission dialog is up (~30 s, 500 ms steps) and
+  /// pushes one re-sync + a Settings refresh tick once it flips to
+  /// granted, so the pill appears without the user reopening the app.
+  Future<void> _awaitNotifyGrant() async {
+    for (var i = 0; i < 60; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      if (await NativePermissions.isPostNotificationsGranted()) {
+        _notifyAsking = false;
+        DiagnosticsLog.record(
+          'focus indicator: notifications granted — resyncing',
+          tag: 'indicator',
+        );
+        _ref.invalidate(permissionsRefreshTickProvider);
+        await sync();
+        return;
+      }
+    }
+    _notifyAsking = false;
   }
 
   /// Live doomscroll counting on the notification chip: only pushes an
