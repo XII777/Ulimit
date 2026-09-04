@@ -666,11 +666,18 @@ Future<void> confirmEndFocusSession(
   }
 }
 
-/// Distraction-free fullscreen countdown: no nav pill, no swipe, no
-/// system bars — just the giant centered counter and three pill
-/// controls that auto-hide after a few seconds and return on any tap.
-/// Landscape by design; entering/exiting manages orientation and the
-/// system UI mode, and leaving the route restores both.
+/// Distraction-free fullscreen: no nav pill, no swipe, no system bars.
+/// The numbers own the exact centre of the display at all times — in
+/// LANDSCAPE the countdown (or, via the clock button, a live wall
+/// clock page) is one plain big number, un-decorated.
+///
+/// The title (top) and the controls (bottom) are chrome: a tap
+/// anywhere slides them in from their edge, they auto-slide-away after
+/// [_autoHideAfter], and a tap while they're shown hides them again.
+/// Buttons are small, bottom-CENTREd, and have no decoration at all —
+/// bare text on the background, matching the app's monochrome
+/// language; the clock button opens the current-time page which
+/// carries its own Exit control.
 class _FullScreenFocusView extends ConsumerStatefulWidget {
   const _FullScreenFocusView({required this.session});
 
@@ -684,38 +691,44 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
   static const _autoHideAfter = Duration(seconds: 4);
 
   Timer? _hideTimer;
+  Timer? _clockTimer;
   bool _controlsVisible = true;
+
+  /// 'current time' page: the centre swaps countdown → live clock.
+  bool _timeMode = false;
+  DateTime _now = DateTime.now();
 
   @override
   void initState() {
     super.initState();
-    // Landscape full-screen clock; status bar + nav bars fully hidden
-    // (not sticky-transparent — the display is ours edge to edge).
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
-    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      systemNavigationBarColor: Colors.transparent,
-      systemNavigationBarIconBrightness: Brightness.dark,
-    ));
     _scheduleHide();
   }
 
   @override
   void dispose() {
     _hideTimer?.cancel();
+    _clockTimer?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
   }
 
+  /// Tap: reveal chrome — or hide it again when it's already shown.
   void _poke() {
-    if (!_controlsVisible) setState(() => _controlsVisible = true);
-    _scheduleHide();
+    setState(() {
+      if (_controlsVisible) {
+        _controlsVisible = false;
+        _hideTimer?.cancel();
+      } else {
+        _controlsVisible = true;
+        _scheduleHide();
+      }
+    });
   }
 
   void _scheduleHide() {
@@ -723,6 +736,25 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
     _hideTimer = Timer(_autoHideAfter, () {
       if (mounted) setState(() => _controlsVisible = false);
     });
+  }
+
+  void _setTimeMode(bool on) {
+    setState(() {
+      _timeMode = on;
+      _controlsVisible = true;
+      if (on) {
+        _now = DateTime.now();
+        _clockTimer?.cancel();
+        _clockTimer =
+            Timer.periodic(const Duration(seconds: 1), (_) {
+          if (mounted) setState(() => _now = DateTime.now());
+        });
+      } else {
+        _clockTimer?.cancel();
+        _clockTimer = null;
+      }
+    });
+    _scheduleHide();
   }
 
   void _exit() => Navigator.of(context).pop();
@@ -735,109 +767,154 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
 
     return Container(
       color: AppColors.bg,
-      // Any touch brings the controls back; they auto-hide again.
+      // Any touch toggles the chrome; it auto-hides again after 4s.
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: _poke,
-        child: Column(
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            Expanded(
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // The counter — as large as the display allows.
-                    // Heading font (Space Grotesk) at the same weight the
-                    // app's headings use — no late font swaps.
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: untimed
-                          ? Text(
-                              'UNTIMED',
-                              style: GoogleFonts.spaceGrotesk(
-                                fontSize: 180,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.ink,
-                              ),
-                            )
-                          : DurationFlow(
-                              Duration(seconds: remaining.inSeconds),
-                              showSeconds: true,
-                              style: GoogleFonts.spaceGrotesk(
-                                fontSize: 180,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.ink,
-                                fontFeatures: const [FontFeature.tabularFigures()],
-                              ),
-                            ),
-                    ),
-                    if (paused) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        '${widget.session.label} · PAUSED',
-                        style: TextStyle(fontSize: 12, letterSpacing: 1.5, color: AppColors.inkDim),
+            // ---------------- centre: the big numbers only ----------------
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              child: _timeMode
+                  ? Padding(
+                      key: const ValueKey('clock'),
+                      padding: const EdgeInsets.all(24),
+                      child: Center(child: _liveClock()),
+                    )
+                  : Padding(
+                      key: const ValueKey('count'),
+                      padding: const EdgeInsets.all(24),
+                      child: Center(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: untimed
+                              ? Text(
+                                  'UNTIMED',
+                                  style: GoogleFonts.spaceGrotesk(
+                                    fontSize: 180,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.ink,
+                                  ),
+                                )
+                              : DurationFlow(
+                                  Duration(seconds: remaining.inSeconds),
+                                  showSeconds: true,
+                                  style: GoogleFonts.spaceGrotesk(
+                                    fontSize: 180,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.ink,
+                                    fontFeatures: const [FontFeature.tabularFigures()],
+                                  ),
+                                ),
+                        ),
                       ),
-                    ],
-                  ],
+                    ),
+            ),
+
+            // ---------------- top chrome: title ----------------
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: AnimatedSlide(
+                duration: const Duration(milliseconds: 240),
+                curve: _controlsVisible ? Curves.easeOutCubic : Curves.easeInCubic,
+                offset: _controlsVisible ? Offset.zero : const Offset(0, -0.9),
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 220),
+                  opacity: _controlsVisible ? 1.0 : 0.0,
+                  child: IgnorePointer(
+                    ignoring: !_controlsVisible,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                      child: Center(
+                        child: Text(
+                          _timeMode
+                              ? 'Current time'
+                              : '${widget.session.label}'
+                                  '${paused ? ' · PAUSED' : ''}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.5,
+                            color: AppColors.inkDim,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
-            // Three pill controls at the very bottom, auto-hidden.
-            AnimatedSlide(
-              duration: const Duration(milliseconds: 240),
-              curve: _controlsVisible ? Curves.easeOutCubic : Curves.easeInCubic,
-              offset: _controlsVisible ? Offset.zero : const Offset(0, 1.2),
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 220),
-                opacity: _controlsVisible ? 1.0 : 0.0,
-                child: IgnorePointer(
-                  ignoring: !_controlsVisible,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _FullScreenPill(
-                            onTap: () => paused
-                                ? ref.read(focusControllerProvider).resume()
-                                : ref.read(focusControllerProvider).pause(),
-                            filled: true,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
+
+            // ---------------- bottom chrome: small bare-text buttons,
+            //                centred — no boxes, no borders ----------------
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: AnimatedSlide(
+                duration: const Duration(milliseconds: 240),
+                curve: _controlsVisible ? Curves.easeOutCubic : Curves.easeInCubic,
+                offset: _controlsVisible ? Offset.zero : const Offset(0, 1.2),
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 220),
+                  opacity: _controlsVisible ? 1.0 : 0.0,
+                  child: IgnorePointer(
+                    ignoring: !_controlsVisible,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: _timeMode
+                          ? Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                AppIcon(paused ? AppIconName.play : AppIconName.pause,
-                                    size: 14, color: AppColors.bg),
-                                const SizedBox(width: 6),
-                                Text(
-                                  paused ? 'Resume' : 'Pause',
-                                  style: TextStyle(
-                                      fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.bg),
+                                _ChromeButton(
+                                  icon: AppIconName.close,
+                                  label: 'Exit',
+                                  onTap: () => _setTimeMode(false),
+                                ),
+                              ],
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                _ChromeButton(
+                                  icon: paused ? AppIconName.play : AppIconName.pause,
+                                  label: paused ? 'Resume' : 'Pause',
+                                  emphasized: true,
+                                  onTap: () {
+                                    unawaited(paused
+                                        ? ref.read(focusControllerProvider).resume()
+                                        : ref.read(focusControllerProvider).pause());
+                                    _scheduleHide();
+                                  },
+                                ),
+                                const SizedBox(width: 22),
+                                _ChromeButton(
+                                  label: 'End',
+                                  onTap: () => confirmEndFocusSession(
+                                    context,
+                                    ref,
+                                    widget.session,
+                                    onEnded: _exit,
+                                  ),
+                                ),
+                                const SizedBox(width: 22),
+                                _ChromeButton(
+                                  label: 'Exit',
+                                  onTap: _exit,
+                                ),
+                                const SizedBox(width: 22),
+                                _ChromeButton(
+                                  icon: AppIconName.clock,
+                                  onTap: () => _setTimeMode(true),
                                 ),
                               ],
                             ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _FullScreenPill(
-                            onTap: () => confirmEndFocusSession(
-                              context,
-                              ref,
-                              widget.session,
-                              onEnded: _exit,
-                            ),
-                            child:
-                                Text('End', style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _FullScreenPill(
-                            onTap: _exit,
-                            child: Text('Exit', style: TextStyle(fontSize: 12.5, color: AppColors.inkDim)),
-                          ),
-                        ),
-                      ],
                     ),
                   ),
                 ),
@@ -848,30 +925,79 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
       ),
     );
   }
+
+  /// The live wall clock — same giant type as the countdown, plus the
+  /// date under it in the app's caption style.
+  Widget _liveClock() {
+    final hour = _now.hour.toString().padLeft(2, '0');
+    final minute = _now.minute.toString().padLeft(2, '0');
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            '$hour:$minute',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 180,
+              fontWeight: FontWeight.w600,
+              color: AppColors.ink,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          '${weekdays[_now.weekday - 1]} · ${_now.day} ${months[_now.month - 1]} ${_now.year}',
+          style: TextStyle(
+              fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.inkDim),
+        ),
+      ],
+    );
+  }
 }
 
-/// One of the fullscreen view's bottom pills — sized small so the
-/// counter owns the screen.
-class _FullScreenPill extends StatelessWidget {
-  const _FullScreenPill({required this.child, required this.onTap, this.filled = false});
+/// One bare fullscreen-chrome button: small icon and/or text on a
+/// generous tap pad — no boxes, no borders, no fill. The primary one
+/// uses [emphasized] (ink) and the rest are [inkDim].
+class _ChromeButton extends StatelessWidget {
+  const _ChromeButton({
+    required this.onTap,
+    this.icon,
+    this.label,
+    this.emphasized = false,
+  });
 
-  final Widget child;
   final VoidCallback onTap;
-  final bool filled;
+  final AppIconName? icon;
+  final String? label;
+  final bool emphasized;
 
   @override
   Widget build(BuildContext context) {
+    final color = emphasized ? AppColors.ink : AppColors.inkDim;
     return PressableScale(
       onTap: onTap,
-      child: Container(
-        height: 40,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: filled ? AppColors.ink : AppColors.surface2,
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          border: filled ? null : Border.all(color: AppColors.stroke),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) AppIcon(icon!, size: 14, color: color),
+            if (icon != null && label != null) const SizedBox(width: 6),
+            if (label != null)
+              Text(
+                label!,
+                style: TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w600, color: color),
+              ),
+          ],
         ),
-        child: child,
       ),
     );
   }
