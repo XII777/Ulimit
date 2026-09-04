@@ -58,9 +58,6 @@ object DoomscrollApps {
 
     fun isFeedNativePackage(pkg: String?): Boolean = pkg != null && pkg in feedNativePackages
 
-    fun isDoomscrollPackage(pkg: String?): Boolean =
-        isSectionLevelPackage(pkg) || isFeedNativePackage(pkg)
-
     fun feedMarkersFor(pkg: String): List<String> =
         feedSurfaces.firstOrNull { it.pkg == pkg }?.markers ?: emptyList()
 

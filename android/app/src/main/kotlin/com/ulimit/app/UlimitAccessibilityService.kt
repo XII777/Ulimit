@@ -49,6 +49,10 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
     private var lastFeedScanPackage: String? = null
     private var lastFeedScanAt: Long = 0
 
+    /** Last feed-surface ejection time — debounces the notice+BACK so
+     *  a re-asserting surface cannot spam the user. */
+    private var lastFeedEjectAt: Long = 0
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         lastPackageName = null
@@ -147,13 +151,6 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
         lastPackageName = packageName
         lastEventTimestamp = now
 
-        // Doomscroll open counting: entering one of the infinite-feed
-        // platforms is one "reel/shorts open" — counted natively so a
-        // daily opens budget bites even with Ulimit swiped away.
-        if (DoomscrollApps.isDoomscrollPackage(packageName)) {
-            PolicySnapshot.addDoomscrollOpen(this, packageName)
-        }
-
         // Doomscroll open counting: entering a feed-native doomscroll
         // app (Reddit etc.) is one feed open — counted natively so a
         // daily budget bites even with Ulimit swiped away.
@@ -192,8 +189,9 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
 
         // Active during a focus session with the doomscroll flag, or
         // outright for 0-budget section platforms.
-        val sessionFlag = snapshot.focus?.blockDoomscroll == true &&
-            snapshot.focus.untilMillis > System.currentTimeMillis()
+        val focus = snapshot.focus
+        val sessionFlag = focus != null && focus.blockDoomscroll &&
+            focus.untilMillis > System.currentTimeMillis()
         val outright = packageName in snapshot.doomscrollSection &&
             (snapshot.doomscrollFeeds[packageName] ?: -1) == 0
         if (!sessionFlag && !outright) {
@@ -213,19 +211,41 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
         val requireSelected = DoomscrollApps.markersRequireSelectedFor(packageName)
 
         if (feedSurfacePresent(markers, requireSelected)) {
+            val wasActive = feedSurfacePackage == packageName
             feedSurfacePackage = packageName
-            // One feed open per surfaced scroll — bridged to Dart's
-            // authoritative DB via the sentinel event channel.
-            PolicySnapshot.addDoomscrollOpen(this, packageName)
-            UsageEventBridge.emit(
-                UlimitSentinel.doomOpenPrefix + packageName,
-                now
-            )
-            overlayManager.showSmallNotice(
-                packageName = packageName,
-                message = "Feed blocked — the rest of the app stays usable",
-            )
-            pressBack()
+
+            // Budget semantics: 0 = the feed is blocked outright; N =
+            // blocked once N feed opens have been used today. A focus
+            // session with the doomscroll flag overrides everything —
+            // every feed surface ejects.
+            val budget = snapshot.doomscrollFeeds[packageName] ?: 0
+            val used = PolicySnapshot.doomscrollCounts(this)[packageName] ?: 0
+            val overBudget = sessionFlag || outright || (budget > 0 && used >= budget)
+
+            if (overBudget) {
+                // Eject the scroll, debounced. The rest of the app stays
+                // usable — pressing BACK only leaves the feed surface.
+                if (now - lastFeedEjectAt > 2500) {
+                    lastFeedEjectAt = now
+                    overlayManager.showSmallNotice(
+                        packageName = packageName,
+                        message = "Feed blocked — the rest of the app stays usable",
+                    )
+                    pressBack()
+                }
+            } else if (!wasActive) {
+                // One feed open per surfaced scroll — bridged to Dart's
+                // authoritative DB via the sentinel event channel. The
+                // "__doom_open__:" prefix mirrors Dart's
+                // UlimitSentinel.doomOpenPrefix (lib/core/native/
+                // usage_events_channel.dart) — UsageTracker strips it
+                // and records the feed open.
+                PolicySnapshot.addDoomscrollOpen(this, packageName)
+                UsageEventBridge.emit(
+                    "__doom_open__:" + packageName,
+                    now
+                )
+            }
         } else if (feedSurfacePackage == packageName) {
             // Left the feed surface on our own eject or theirs.
             feedSurfacePackage = null
