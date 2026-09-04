@@ -65,6 +65,29 @@ class FocusIndicatorService : Service() {
         var isRunning: Boolean = false
             private set
 
+        /// Why the pill may be missing: the reason the LAST attempted
+        /// foreground promotion degraded or failed — null when
+        /// everything went cleanly. Read by the copyable report.
+        @Volatile var lastStartError: String? = null
+            private set
+
+        fun areNotificationsEnabled(context: Context): Boolean =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                (context.getSystemService(android.content.Context.NOTIFICATION_SERVICE)
+                    as android.app.NotificationManager).areNotificationsEnabled()
+            } else {
+                true
+            }
+
+        fun channelImportance(context: Context): Int =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                (context.getSystemService(android.content.Context.NOTIFICATION_SERVICE)
+                    as android.app.NotificationManager)
+                    .getNotificationChannel(CHANNEL_ID)?.importance ?: -1
+            } else {
+                -1
+            }
+
         private var backgroundEngine: FlutterEngine? = null
 
         /**
@@ -139,19 +162,54 @@ class FocusIndicatorService : Service() {
     }
 
     private fun startAsForeground() {
-        val notification = buildNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            // phoneCall type (manifest): REQUIRED for CallStyle — an
-            // SPECIAL_USE-typed service's CallStyle notification is
-            // rejected/demoted on Android 14+.
-            startForeground(
-                NOTIFICATION_ID, notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // Runtime-notification denial kills the pill silently on
+            // stock AND ColorOS — surface it for diagnostics.
+            lastStartError = if (!areNotificationsEnabled(this)) {
+                "notifications disabled for the app"
+            } else null
         }
-        isRunning = true
+        // Escalating attempt ladder: OEM stacks (ColorOS here) reject
+        // individual FGS types inconsistently; whichever start succeeds
+        // wins, and the FIRST REASON is recorded for the report instead
+        // of a silent dead pill.
+        val notification = buildNotification()
+        val errors = StringBuilder()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // phoneCall type: REQUIRED for CallStyle — a
+            // specialUse-typed service's CallStyle notification is
+            // rejected/demoted on Android 14+.
+            try {
+                startForeground(
+                    NOTIFICATION_ID, notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
+                )
+                isRunning = true
+                return
+            } catch (t: Throwable) {
+                errors.append("phoneCall: ${t.message}; ")
+            }
+            try {
+                startForeground(
+                    NOTIFICATION_ID, notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                )
+                isRunning = true
+                lastStartError = "phoneCall rejected ($errors)→specialUse"
+                return
+            } catch (t: Throwable) {
+                errors.append("specialUse: ${t.message}; ")
+            }
+        }
+        try {
+            startForeground(NOTIFICATION_ID, notification)
+            isRunning = true
+            lastStartError = if (errors.isEmpty()) null else "typed starts rejected ($errors)→untyped"
+        } catch (t: Throwable) {
+            isRunning = false
+            lastStartError = "$errors untyped: ${t.message}"
+            stopSelf()
+        }
     }
 
     private fun createChannel() {

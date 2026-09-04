@@ -174,7 +174,7 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
     // Inside the shell's extendBody layout, padding.bottom already
     // reflects the floating nav pill's strip — the control line floats
     // just above it, and the plus rides at its end.
-    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final bottomInset = 0.0; // control line no longer floats over the lists
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -192,28 +192,18 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
             ),
             const SizedBox(height: 18),
             const _VpnCard(),
-            const SizedBox(height: 20),
-            Expanded(
-              child: PageView(
-                controller: _pageController,
-                onPageChanged: _onPageChanged,
-                children: [
-                  _FiltersColumn(query: _query),
-                  _CustomColumn(query: _query),
-                  _AppsColumn(query: _query),
-                ],
-              ),
-            ),
-            // Bottom control line: the category pills, the search field
-            // and the conditional plus share ONE row. The search is the
-            // compact one (the pills got ~40% of its old width so the
-            // ink highlight extends further); tapping it uplifts ONLY
-            // the bar — the pills slide away and the search smoothly
-            // takes the released width. The plus rides at the far end
-            // with real breathing room around it, and uplifts in/out on
-            // its column condition (always on Custom).
+            const SizedBox(height: 14),
+            // Control line: directly under the Protection card, above the
+            // lists. The category pills, the search field and the
+            // conditional plus share ONE row. The search is the compact
+            // one (the pills got ~40% of its old width so the ink
+            // highlight extends further); tapping it uplifts ONLY the
+            // bar — the pills slide away and the search smoothly takes
+            // the released width. The plus rides at the far end with
+            // real breathing room around it, and uplifts in/out on its
+            // column condition (always on Custom).
             Padding(
-              padding: EdgeInsets.fromLTRB(16, 0, 16, bottomInset + 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: LayoutBuilder(builder: (context, constraints) {
                 final totalW = constraints.maxWidth;
                 // The plus slot is always reserved (48 + 12 gap) so the
@@ -284,6 +274,20 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
                   ),
                 );
               }),
+            ),
+            const SizedBox(height: 14),
+            // The lists below — full height now that the control line
+            // lives up here.
+            Expanded(
+              child: PageView(
+                controller: _pageController,
+                onPageChanged: _onPageChanged,
+                children: [
+                  _FiltersColumn(query: _query),
+                  _CustomColumn(query: _query),
+                  _AppsColumn(query: _query),
+                ],
+              ),
             ),
           ],
         ),
@@ -510,13 +514,13 @@ class _FiltersColumn extends ConsumerWidget {
         if (ordered.isEmpty && !showSiteHits) {
           return ListView(
             physics: springScrollPhysics,
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 110),
             children: const [_EmptyHint(text: 'No filters match this search')],
           );
         }
         return ListView(
           physics: springScrollPhysics,
-          padding: EdgeInsets.fromLTRB(20, showSiteHits ? 4 : 18, 20, 160),
+          padding: EdgeInsets.fromLTRB(20, showSiteHits ? 4 : 18, 20, 110),
           children: [
               if (showSiteHits) ...[
               const Padding(
@@ -636,7 +640,7 @@ class _CustomColumn extends ConsumerWidget {
         if (filtered.isEmpty) {
           return ListView(
             physics: springScrollPhysics,
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 110),
             children: [
               _EmptyHint(
                 text: q.isEmpty
@@ -648,7 +652,7 @@ class _CustomColumn extends ConsumerWidget {
         }
         return ListView.builder(
           physics: springScrollPhysics,
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 110),
           itemCount: filtered.length,
           // Breathing room between toggle rows so switches never crowd.
           itemBuilder: (context, i) => Padding(
@@ -689,7 +693,7 @@ class _AppsColumn extends ConsumerWidget {
         if (filtered.isEmpty) {
           return ListView(
             physics: springScrollPhysics,
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 110),
             children: [
               _EmptyHint(
                 text: q.isEmpty
@@ -701,7 +705,7 @@ class _AppsColumn extends ConsumerWidget {
         }
         return ListView.builder(
           physics: springScrollPhysics,
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 160),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 110),
           itemCount: filtered.length,
           itemBuilder: (context, i) => Padding(
             padding: const EdgeInsets.only(bottom: 12),

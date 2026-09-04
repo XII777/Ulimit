@@ -375,9 +375,10 @@ class ScreenTimeDiagnostics {
               ? '$scrollSeen total but NONE inside a managed feed app — '
                   'open Instagram Reels / TikTok and scroll once, then '
                   're-open diagnostics'
-              : 'None since launch — restart the accessibility service '
-                  'once (Settings → Accessibility → off/on) after an app '
-                  'update so the new scroll-event subscription is active',
+              : 'None since launch — the subscription is forced at '
+                  'service connect now; if it stays empty, toggle Ulimit '
+                  'off/on in Accessibility settings (see the '
+                  '"scroll-event subscription forced" check below)',
     ));
 
     final feedScans = _nativeInt('feedScans') ?? 0;
@@ -399,8 +400,55 @@ class ScreenTimeDiagnostics {
     final doomOpens = _nativeInt('doomOpens') ?? 0;
     doomChecks.add(EngineCheck(
       label: 'Enforcement (ejects / opens counted)',
-      pass: true,
-      detail: '$ejects eject(s), $doomOpens open(s) counted since launch',
+      pass: ejects > 0 || doomOpens > 0,
+      detail: '$ejects eject(s), $doomOpens live open(s) since launch'
+          ' · via scroll ${_nativeInt("doomOpenViaScroll") ?? 0}',
+    ));
+
+    // Event subscription override — the fix for OEMs that keep serving
+    // the stale cached ServiceInfo (scroll events never arrive).
+    final serviceInfoForced = native['serviceInfoForced'] == true;
+    doomChecks.add(EngineCheck(
+      label: 'Scroll-event subscription forced',
+      pass: serviceInfoForced,
+      detail: serviceInfoForced
+          ? 'TYPE_VIEW_SCROLLED requested at connect (no user toggle needed)'
+          : 'FAILED to set the subscription — the doomscroll cannot see '
+              'scroll events; disable/re-enable Ulimit in Accessibility '
+              'settings to retry',
+    ));
+    final scrollSessions = _nativeInt('scrollSessions') ?? 0;
+    doomChecks.add(EngineCheck(
+      label: 'Scroll sessions grouped (600ms)',
+      pass: scrollSessions > 0,
+      detail: scrollSessions > 0
+          ? '$scrollSessions session(s) detected — last '
+              '${_agoMs(_nativeInt("lastScrollSessionAt") ?? 0)}'
+          : 'None yet — scroll inside TikTok/Instagram once (fling, '
+              'pause ~1s, fling again = two sessions)',
+    ));
+
+    // Status-bar Focus Session pill.
+    final pillRunning = native['focusPillRunning'] == true;
+    final notifEnabled = native['notificationsEnabled'] != false;
+    final pillError = (native['focusPillStartError'] ?? '') as String;
+    final focusUntil = (native['focusUntilMillis'] as num?)?.toInt() ?? 0;
+    final nowMs = (native['now'] as num?)?.toInt() ?? 0;
+    final sessionActive = focusUntil > nowMs && focusUntil > 0;
+    checks.add(EngineCheck(
+      label: 'Focus pill (status bar)',
+      pass: !sessionActive ? null : (pillRunning && notifEnabled),
+      detail: !sessionActive
+          ? 'No active focus session to show (start one from the Focus '
+              'screen to test the pill)'
+          : !notifEnabled
+              ? 'Notifications are DISABLED for Ulimit at the system '
+                  'level — no foreground-service notification (the '
+                  'status-bar pill) can appear. Enable them in system '
+                  'Settings → Apps → Ulimit'
+              : pillError.isNotEmpty
+                  ? 'Degraded start: $pillError'
+                  : 'Foreground service running with the session active',
     ));
 
     // Per-platform rows: budget (native) vs both counters.

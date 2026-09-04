@@ -73,6 +73,35 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
         )
         BlockEngine.attachAccessibility(overlayManager, this)
 
+        // FORCE the event subscription the feed detector needs. Android
+        // caches the service's ServiceInfo (built from the XML) at the
+        // moment the accessibility service is (re)enabled — OEMs like
+        // ColorOS keep serving the OLD cached config after an app
+        // update, so TYPE_VIEW_SCROLLED never arrives and the doomscroll
+        // detector sees nothing (the "it never counts a single scroll"
+        // failure). We read the CURRENT info (so the XML's
+        // canRetrieveWindowContent etc. survive — that one has no
+        // programmatic setter at all) and re-publish it with the event
+        // types/flags we need added.
+        try {
+            val info = serviceInfo ?: android.accessibilityservice.AccessibilityServiceInfo()
+            info.eventTypes = info.eventTypes or
+                android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
+                android.view.accessibility.AccessibilityEvent.TYPE_WINDOWS_CHANGED or
+                android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
+                android.view.accessibility.AccessibilityEvent.TYPE_VIEW_SCROLLED
+            info.flags = info.flags or
+                android.accessibilityservice.AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
+                android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            info.feedbackType = android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_GENERIC
+            info.notificationTimeout = 100
+            serviceInfo = info
+            DiagnosticsMarkers.serviceInfoForced = true
+        } catch (_: Exception) {
+            DiagnosticsMarkers.serviceInfoForced = false
+        }
+
         // The guard service keeps detection + process alive; make sure
         // it's running now that enforcement is configured. Background
         // FGS-start restrictions are swallowed by ensureStarted.
@@ -107,25 +136,43 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
                 scanFeedSurface(event.packageName?.toString())
             }
 
-            // Scroll events — the feed-detector's most reliable signal
-            // (the same one scroll-aware blockers are built on). Some
-            // app versions render the feed without content-change
-            // events reaching us, but a scroll ALWAYS fires while the
-            // user is doomscrolling. Debounced inside scanFeedSurface.
+            // Scroll events — the doomscroll detector's PRIMARY signal
+            // (Friction's exact model): a 600ms gap between scrolls
+            // marks a new scroll session, and a scroll session IS a
+            // feed open. This counts live and enforces budgets with NO
+            // reliance on the node-tree markers, which proved unreliable
+            // on this device's app versions.
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                val now = System.currentTimeMillis()
                 DiagnosticsMarkers.scrollEventsSeen++
-                DiagnosticsMarkers.lastScrollEventAt = System.currentTimeMillis()
+                DiagnosticsMarkers.lastScrollEventAt = now
                 val eventPkg = event.packageName?.toString() ?: return
-                // Diagnostics only counts scrolls INSIDE managed feed
-                // apps — the diagnostics screen itself and every other
-                // app scroll too, and mixing them in made the report
-                // claim the detector was receiving feed events when it
-                // was actually seeing Ulimit's own scrollbars.
                 if (DoomscrollApps.isSectionLevelPackage(eventPkg)) {
                     DiagnosticsMarkers.sectionScrollEventsSeen++
-                    DiagnosticsMarkers.lastSectionScrollAt = System.currentTimeMillis()
+                    DiagnosticsMarkers.lastSectionScrollAt = now
                     DiagnosticsMarkers.lastSectionScrollPkg = eventPkg
-                    scanFeedSurface(eventPkg)
+
+                    val newSession = doomScrollPkg != eventPkg ||
+                        now - doomScrollLastAt > DOOM_SCROLL_SESSION_GAP_MS
+                    doomScrollPkg = eventPkg
+                    doomScrollLastAt = now
+
+                    if (newSession) {
+                        DiagnosticsMarkers.scrollSessions++
+                        DiagnosticsMarkers.lastScrollSessionAt = now
+                        // One open per app-entry session: the FIRST
+                        // scroll session inside this app visit counts
+                        // (live DB write via the same sentinel the
+                        // marker path uses). Re-entries count again.
+                        countDoomOpenOnce(eventPkg, now, viaScroll = true)
+                    }
+                    // Keep the feed session warm for content-change scans.
+                    scrollSessionPkg = eventPkg
+                    scrollSessionLastAt = now
+                    // Enforce continuously while scrolling — the user
+                    // can't keep doomscrolling a blocked feed even if
+                    // every marker missed.
+                    ejectFeedIfBlocked(eventPkg, now)
                 }
             }
 
@@ -186,6 +233,11 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
             } else if (elapsedSeconds > 15 * 60) {
                 DiagnosticsMarkers.gapDiscards++
             }
+        }
+        // A real foreground switch ends the previous app's "entry" —
+        // the next visit to a doomscroll feed counts a fresh open.
+        if (previous != null && previous != packageName) {
+            doomEntryOpenCountedPkg = null
         }
         lastPackageName = packageName
         lastEventTimestamp = now
@@ -249,6 +301,90 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
     /** A scroll session ends after this long with no in-feed scroll. */
     private val SCROLL_SESSION_TIMEOUT_MS = 20_000L
 
+    /** Raw scroll-session grouping (Friction's model): scrolls less than
+     *  [DOOM_SCROLL_SESSION_GAP_MS] apart are ONE browsing session.
+     *  A new session inside a managed app counts one live feed open. */
+    private val DOOM_SCROLL_SESSION_GAP_MS = 600L
+    private var doomScrollPkg: String? = null
+    private var doomScrollLastAt: Long = 0
+
+    /** The package whose CURRENT app entry already counted its feed
+     *  open — both detection paths (scroll sessions and markers) share
+     *  this guard so one visit never double-counts. Reset whenever a
+     *  real foreground transition moves to another package. */
+    private var doomEntryOpenCountedPkg: String? = null
+
+    /**
+     * Count ONE live feed open for [packageName] — first detection of
+     * the feed inside this app entry (scroll session or marker tree).
+     * Writes the native daily budget counter AND emits the
+     * `__doom_open__:` sentinel so Dart's SQLite increments the same
+     * instant — the Doomscroll screen's count ticks live while the
+     * user scrolls.
+     */
+    private fun countDoomOpenOnce(
+        packageName: String,
+        now: Long,
+        viaScroll: Boolean,
+    ) {
+        if (doomEntryOpenCountedPkg == packageName) return
+        val snapshot = PolicySnapshot.read(this) ?: return
+        // Only manage packages that actually have a rule (budget map) —
+        // or an active session flag — so unmanaged app visits never
+        // pre-empt the once-guard.
+        if (snapshot.doomscrollFeeds[packageName] == null &&
+            !(snapshot.focus?.let { it.blockDoomscroll && it.untilMillis > now } == true)
+        ) return
+        doomEntryOpenCountedPkg = packageName
+
+        PolicySnapshot.addDoomscrollOpen(this, packageName)
+        DiagnosticsMarkers.doomOpens++
+        DiagnosticsMarkers.lastDoomOpenAt = now
+        DiagnosticsMarkers.lastDoomOpenPkg = packageName
+        if (viaScroll) DiagnosticsMarkers.doomOpenViaScroll++
+        UsageEventBridge.emit(
+            "__doom_open__:" + packageName,
+            now
+        )
+    }
+
+    /** True while [packageName]'s feed should be blocked right now:
+     *  focus session flag, budget 0, or the daily opens already spent.
+     *  (The old gate made detection wait for blocking while blocking
+     *  waited for detection — circular; rules are resolved here
+     *  independently of any detection now.) */
+    private fun feedBlockedNow(packageName: String, snapshot: PolicySnapshot.Snapshot?): Boolean {
+        val snap = snapshot ?: return false
+        val now = System.currentTimeMillis()
+        val focus = snap.focus
+        val sessionFlag = focus != null && focus.blockDoomscroll &&
+            focus.untilMillis > now
+        val budget = snap.doomscrollFeeds[packageName]
+        val used = PolicySnapshot.doomscrollCounts(this)[packageName] ?: 0
+        val outright = packageName in snap.doomscrollSection && budget == 0
+        val overBudget = budget != null && budget > 0 && used >= budget
+        return sessionFlag || outright || overBudget
+    }
+
+    /** Notice + BACK for a blocked feed, debounced 2.5s so a
+     * re-asserting surface can't spam. Callers reach this from EVERY
+     * scroll inside a managed feed — enforcement no longer depends on
+     * the node-tree markers matching. */
+    private fun ejectFeedIfBlocked(packageName: String, now: Long) {
+        val snapshot = PolicySnapshot.read(this) ?: return
+        if (!feedBlockedNow(packageName, snapshot)) return
+        if (now - lastFeedEjectAt < 2500) return
+        lastFeedEjectAt = now
+        DiagnosticsMarkers.feedEjects++
+        DiagnosticsMarkers.lastFeedEjectAt = now
+        DiagnosticsMarkers.lastFeedEjectPkg = packageName
+        overlayManager.showSmallNotice(
+            packageName = packageName,
+            message = "Feed blocked — the rest of the app stays usable",
+        )
+        pressBack()
+    }
+
     private fun scanFeedSurface(packageName: String?) {
         if (packageName == null) return
         if (!DoomscrollApps.isSectionLevelPackage(packageName)) return
@@ -257,21 +393,6 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
 
         val now = System.currentTimeMillis()
 
-        // Resolve rules FIRST — the gating decision, not the detection.
-        // The old order was circular: the gate required blocking to be
-        // active, blocking required counted opens, opens required a
-        // scan that the gate prevented — so nothing ever counted or
-        // ejected (feedScans stayed 0 despite dozens of in-feed
-        // scrolls).
-        val focus = snapshot.focus
-        val sessionFlag = focus != null && focus.blockDoomscroll &&
-            focus.untilMillis > now
-        val budget = snapshot.doomscrollFeeds[packageName]
-        val used = PolicySnapshot.doomscrollCounts(this)[packageName] ?: 0
-        val outright = packageName in snapshot.doomscrollSection && budget == 0
-        val overBudget = budget != null && budget > 0 && used >= budget
-        val blockActive = sessionFlag || outright || overBudget
-
         // Scroll session tracking: the TYPE_VIEW_SCROLLED handler
         // refreshes scrollSessionLastAt on every in-feed scroll, so a
         // still-warm session means "the user is inside this feed".
@@ -279,8 +400,6 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
         // session alive via the marker hit or the unexpired timer.
         val sessionWarm = scrollSessionPkg == packageName &&
             now - scrollSessionLastAt <= SCROLL_SESSION_TIMEOUT_MS
-        scrollSessionPkg = packageName
-        scrollSessionLastAt = now
 
         // Debounce for the UI-tree scan (cheap supplement to scrolls).
         val scanDebounced = packageName == lastFeedScanPackage &&
@@ -294,8 +413,8 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
         }
 
         // In-feed = a recent scroll OR the marker tree confirming the
-        // feed surface (markers alone can also open a session when the
-        // user is watching without scrolling).
+        // feed surface (markers can also confirm an entry the scrolls
+        // missed — watching without touching).
         val markers = DoomscrollApps.feedMarkersFor(packageName)
         val markerHit = if (markers.isEmpty()) false else {
             val requireSelected = DoomscrollApps.markersRequireSelectedFor(packageName)
@@ -307,43 +426,13 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
             }
         }
         val inFeed = sessionWarm || markerHit
-        if (inFeed) {
-            DiagnosticsMarkers.lastFeedSurfaceHitAt = now
-        }
-        val wasActive = feedSurfacePackage == packageName
         feedSurfacePackage = if (inFeed) packageName else null
-
         if (!inFeed) return
 
-        if (blockActive) {
-            // Eject the scroll, debounced. The rest of the app stays
-            // usable — pressing BACK only leaves the feed surface.
-            if (now - lastFeedEjectAt > 2500) {
-                lastFeedEjectAt = now
-                DiagnosticsMarkers.feedEjects++
-                DiagnosticsMarkers.lastFeedEjectAt = now
-                DiagnosticsMarkers.lastFeedEjectPkg = packageName
-                overlayManager.showSmallNotice(
-                    packageName = packageName,
-                    message = "Feed blocked — the rest of the app stays usable",
-                )
-                pressBack()
-            }
-        } else if (!wasActive) {
-            // One feed open per surfaced scroll — bridged to Dart's
-            // authoritative DB via the sentinel event channel. The
-            // "__doom_open__:" prefix mirrors Dart's
-            // UlimitSentinel.doomOpenPrefix (lib/core/native/
-            // usage_events_channel.dart) — UsageTracker strips it
-            // and records the feed open.
-            PolicySnapshot.addDoomscrollOpen(this, packageName)
-            DiagnosticsMarkers.doomOpens++
-            DiagnosticsMarkers.lastDoomOpenAt = now
-            DiagnosticsMarkers.lastDoomOpenPkg = packageName
-            UsageEventBridge.emit(
-                "__doom_open__:" + packageName,
-                now
-            )
+        if (feedBlockedNow(packageName, snapshot)) {
+            ejectFeedIfBlocked(packageName, now)
+        } else {
+            countDoomOpenOnce(packageName, now, viaScroll = markerHit && !sessionWarm)
         }
     }
 

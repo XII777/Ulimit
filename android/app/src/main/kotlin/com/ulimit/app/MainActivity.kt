@@ -924,7 +924,16 @@ class MainActivity : FlutterFragmentActivity() {
                 put("doomOpens", DiagnosticsMarkers.doomOpens)
                 put("lastDoomOpenAt", DiagnosticsMarkers.lastDoomOpenAt)
                 put("lastDoomOpenPkg", DiagnosticsMarkers.lastDoomOpenPkg)
+                put("scrollSessions", DiagnosticsMarkers.scrollSessions)
+                put("lastScrollSessionAt", DiagnosticsMarkers.lastScrollSessionAt)
+                put("doomOpenViaScroll", DiagnosticsMarkers.doomOpenViaScroll)
+                put("serviceInfoForced", DiagnosticsMarkers.serviceInfoForced)
                 put("gapDiscards", DiagnosticsMarkers.gapDiscards)
+                // --- Focus Session pill (status bar) -----------------
+                put("focusPillRunning", FocusIndicatorService.isRunning)
+                put("focusPillStartError", FocusIndicatorService.lastStartError ?: "")
+                put("notificationsEnabled", FocusIndicatorService.areNotificationsEnabled(this@MainActivity))
+                put("focusPillChannel", FocusIndicatorService.channelImportance(this@MainActivity))
                 // --- Website blocking (no-VPN chain) -----------------
                 val domainsFile = java.io.File(filesDir, "blocked_domains.txt")
                 put("domainsFileExists", domainsFile.exists())

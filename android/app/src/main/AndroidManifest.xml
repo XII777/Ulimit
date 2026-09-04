@@ -146,14 +146,19 @@
 
         <!-- Focus Session system indicator: foreground service with an
              ongoing chronometer notification and Pause/End actions.
-             Type MUST be phoneCall on API 31+: the notification uses
-             CallStyle (the status-bar duration chip) and Android drops
-             CallStyle from services that are not phoneCall-typed — the
-             reason the pill never appeared on this device. -->
+             phoneCall is FIRST (API 34 CallStyle requires the
+             phoneCall type for the status-bar duration chip — specialUse
+             typed services get their CallStyle silently dropped);
+             specialUse stays as the OEM-rejection fallback — the
+             service walks the ladder at start and reports which rung
+             it landed on in the diagnostics. -->
         <service
             android:name=".FocusIndicatorService"
             android:exported="false"
-            android:foregroundServiceType="phoneCall">
+            android:foregroundServiceType="phoneCall|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Focus session timer indicator" />
         </service>
 
         <!-- Chip tap target: the translucent spring-bouncy popup that

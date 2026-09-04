@@ -86,6 +86,14 @@ object DiagnosticsMarkers {
     @Volatile var lastDoomOpenAt: Long = 0
     @Volatile var lastDoomOpenPkg: String = ""
     @Volatile var gapDiscards: Int = 0
+
+    // Scroll-SESSION grouping (the live doom counter) and the
+    // subscription override — the report shows whether the detector is
+    // even receiving scroll events.
+    @Volatile var scrollSessions: Int = 0
+    @Volatile var lastScrollSessionAt: Long = 0
+    @Volatile var doomOpenViaScroll: Int = 0
+    @Volatile var serviceInfoForced: Boolean = false
 }
 
 /// Browser-scan breadcrumbs for the no-VPN website blocking chain —
