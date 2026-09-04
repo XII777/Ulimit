@@ -375,10 +375,15 @@ class _FloatingNavContainer extends StatelessWidget {
 // overlaps.
 const double _kNavItemHeight = 38.0;
 const double _kNavIconSize = 20.0;
-const double _kNavIconGap = 7.0; // icon → label gap inside the active item
-const double _kNavItemPadH = 12.0; // ink pill horizontal padding
+const double _kNavIconGap = 8.0; // icon → label gap inside the active item
+const double _kNavItemPadH = 14.0; // ink pill horizontal padding
 const double _kNavLabelFontSize = 12.0;
-const double _kNavIdleSlotWidth = 44.0; // 12 + icon 20 + 12
+const double _kNavIdleSlotWidth = 46.0; // 13 + icon 20 + 13
+
+/// Width budget for the revealed label — sized for the longest label at
+/// scale 1.0 and multiplied by the device text scaler so bigger system
+/// text gets a proportionally wider active slot.
+const double _kNavLabelBudget = 64.0;
 
 class _FloatingNavBar extends StatelessWidget {
   const _FloatingNavBar({
@@ -397,31 +402,20 @@ class _FloatingNavBar extends StatelessWidget {
   final List<double> morph;
   final ValueChanged<int> onTap;
 
-  /// Exact label widths, measured once from the real text style — the
-  /// label set is static, so this cache never invalidates.
-  static final Map<String, double> _labelWidthCache = {
-    'Home': _measure('Home'),
-    'Focus': _measure('Focus'),
-    'Limits': _measure('Limits'),
-    'Bedtime': _measure('Bedtime'),
-    'Settings': _measure('Settings'),
-  };
-
-  static double _measure(String label) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: label,
-        style: TextStyle(fontSize: _kNavLabelFontSize, fontWeight: FontWeight.w600),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    return tp.width;
-  }
-
   @override
   Widget build(BuildContext context) {
     final x = pillPosition.clamp(0.0, tabs.length - 1.0);
     final m = morph;
+
+    // The label budget follows the device text scale, so the expanded
+    // slot always has room for the real rendered text — the label
+    // itself lays out at its NATURAL width (no measurement, no
+    // clipping) and is revealed with a width factor + fade.
+    final fontScale =
+        MediaQuery.textScalerOf(context).scale(_kNavLabelFontSize) / _kNavLabelFontSize;
+    final activeSlot =
+        _kNavIconSize + _kNavIconGap + _kNavLabelBudget * fontScale + 2 * _kNavItemPadH;
+
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -439,24 +433,19 @@ class _FloatingNavBar extends StatelessWidget {
       child: SizedBox(
         height: _kNavItemHeight,
         child: LayoutBuilder(builder: (context, constraints) {
-          final inner = constraints.maxWidth;
-
-          // Raw slot widths: idle blended toward the active measure by
-          // each slot's morph factor.
+          // Raw slot widths: idle blended toward the expanded measure
+          // by each slot's morph factor.
           final raw = [
             for (var i = 0; i < tabs.length; i++)
               _kNavIdleSlotWidth +
-                  (_kNavIconSize + _kNavIconGap + 2 * _kNavItemPadH +
-                          (_labelWidthCache[tabs[i].$3] ?? 0.0) -
-                          _kNavIdleSlotWidth) *
-                      (m[i].clamp(0.0, 1.0)),
+                  (activeSlot - _kNavIdleSlotWidth) * (m[i].clamp(0.0, 1.0)),
           ];
 
           // Normalize so the row fills the capsule EXACTLY — item
           // centers and the ink geometry are computed from these same
           // numbers, which is what keeps them locked together.
           final rawSum = raw.fold(0.0, (a, b) => a + b);
-          final widths = [for (final w in raw) w * inner / rawSum];
+          final widths = [for (final w in raw) w * constraints.maxWidth / rawSum];
 
           // Ink geometry: walk the normalized slot boundaries to the
           // fractional highlight position; the ink's left edge and
@@ -494,7 +483,6 @@ class _FloatingNavBar extends StatelessWidget {
                       child: _NavItem(
                         icon: tabs[i].$2,
                         label: tabs[i].$3,
-                        labelWidth: _labelWidthCache[tabs[i].$3] ?? 0.0,
                         reveal: m[i].clamp(0.0, 1.0),
                         onTap: () => onTap(i),
                       ),
@@ -511,23 +499,24 @@ class _FloatingNavBar extends StatelessWidget {
 
 /// The nav item: icon + width-revealed label, centered in its slot —
 /// the same slot the ink covers, so content is always centered on the
-/// highlight. The label unfolds continuously with [reveal] (a wipe out
-/// from behind the icon + fade) — no AnimatedSize, no discrete flips,
-/// nothing that can lag the ink.
+/// highlight.
+///
+/// The label lays out at its NATURAL width (no measurement, no
+/// clipping — immune to theme fonts and device text scale) and is
+/// revealed by [Align]'s `widthFactor` + fade, both driven by the same
+/// continuous [reveal] factor that drives the slot width and the ink.
+/// A FittedBox guard scales the whole content down if a huge device
+/// text scale would ever exceed the slot.
 class _NavItem extends StatelessWidget {
   const _NavItem({
     required this.icon,
     required this.label,
-    required this.labelWidth,
     required this.reveal,
     required this.onTap,
   });
 
   final AppIconName icon;
   final String label;
-
-  /// Measured text width (static per label).
-  final double labelWidth;
 
   /// 0 = icon-only, 1 = icon + label fully revealed.
   final double reveal;
@@ -540,32 +529,33 @@ class _NavItem extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Center(
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppIcon(
-              icon,
-              size: _kNavIconSize,
-              color: Color.lerp(AppColors.inkDim, AppColors.bg, t),
-            ),
-            // The label wipes out from behind the icon: its container
-            // width and opacity both follow the same continuous factor
-            // that drives the slot width and the ink.
-            ClipRect(
-              child: SizedBox(
-                width: (_kNavIconGap + labelWidth) * t,
-                height: _kNavIconSize,
-                child: Opacity(
-                  opacity: t,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppIcon(
+                icon,
+                size: _kNavIconSize,
+                color: Color.lerp(AppColors.inkDim, AppColors.bg, t),
+              ),
+              // The label wipes out from behind the icon: Align's
+              // widthFactor grows with the reveal factor, ClipRect
+              // masks the still-hidden part.
+              ClipRect(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: t,
+                  child: Opacity(
+                    opacity: t,
                     child: Padding(
-                      padding: const EdgeInsets.only(left: 7),
+                      padding: const EdgeInsets.only(left: _kNavIconGap),
                       child: Text(
                         label,
                         maxLines: 1,
+                        softWrap: false,
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: _kNavLabelFontSize,
                           fontWeight: FontWeight.w600,
                           color: AppColors.bg,
                         ),
@@ -574,8 +564,8 @@ class _NavItem extends StatelessWidget {
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
