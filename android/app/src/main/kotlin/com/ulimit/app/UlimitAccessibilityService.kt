@@ -116,7 +116,15 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
                 DiagnosticsMarkers.scrollEventsSeen++
                 DiagnosticsMarkers.lastScrollEventAt = System.currentTimeMillis()
                 val eventPkg = event.packageName?.toString() ?: return
+                // Diagnostics only counts scrolls INSIDE managed feed
+                // apps — the diagnostics screen itself and every other
+                // app scroll too, and mixing them in made the report
+                // claim the detector was receiving feed events when it
+                // was actually seeing Ulimit's own scrollbars.
                 if (DoomscrollApps.isSectionLevelPackage(eventPkg)) {
+                    DiagnosticsMarkers.sectionScrollEventsSeen++
+                    DiagnosticsMarkers.lastSectionScrollAt = System.currentTimeMillis()
+                    DiagnosticsMarkers.lastSectionScrollPkg = eventPkg
                     scanFeedSurface(eventPkg)
                 }
             }

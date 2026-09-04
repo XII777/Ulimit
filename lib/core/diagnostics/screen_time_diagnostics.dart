@@ -319,23 +319,33 @@ class ScreenTimeDiagnostics {
           ? 'Detector can evaluate rules'
           : 'Detector has NO snapshot — open Ulimit once to push it',
     ));
+    final focusDoomFlag = native['focusDoomscrollFlag'] == true;
     doomChecks.add(EngineCheck(
       label: 'Feed-only focus flag active',
-      pass: native['focusDoomscrollFlag'] == true,
-      detail: native['focusDoomscrollFlag'] == true
+      pass: focusDoomFlag ? true : null,
+      detail: focusDoomFlag
           ? 'Every feed surface ejects while the session runs'
-          : 'No focus session with feed-only blocking right now (budget rules still apply)',
+          : 'No feed-only focus session right now (— budget rules still '
+              'apply: feeds eject once their daily open budget is used)',
     ));
 
     final scrollSeen = _nativeInt('scrollEventsSeen') ?? 0;
+    final sectionScrollSeen = _nativeInt('sectionScrollEventsSeen') ?? 0;
     doomChecks.add(EngineCheck(
       label: 'Scroll events reaching the service',
-      pass: nativeConnected ? (scrollSeen > 0) : null,
-      detail: scrollSeen > 0
-          ? '$scrollSeen since launch (last ${_agoMs(_nativeInt("lastScrollEventAt") ?? 0)})'
-          : 'None since launch — restart the accessibility service once '
-              '(Settings → Accessibility → off/on) after an app update so '
-              'the new scroll-event subscription is active',
+      pass: nativeConnected ? (sectionScrollSeen > 0) : null,
+      detail: sectionScrollSeen > 0
+          ? '$sectionScrollSeen inside managed feeds '
+              '(of $scrollSeen total; last in-feed scroll '
+              '${_agoMs(_nativeInt("lastSectionScrollAt") ?? 0)} '
+              'in ${_nativeStr(native, "lastSectionScrollPkg")})'
+          : scrollSeen > 0
+              ? '$scrollSeen total but NONE inside a managed feed app — '
+                  'open Instagram Reels / TikTok and scroll once, then '
+                  're-open diagnostics'
+              : 'None since launch — restart the accessibility service '
+                  'once (Settings → Accessibility → off/on) after an app '
+                  'update so the new scroll-event subscription is active',
     ));
 
     final feedScans = _nativeInt('feedScans') ?? 0;

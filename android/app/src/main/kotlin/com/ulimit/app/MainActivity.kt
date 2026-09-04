@@ -573,20 +573,51 @@ class MainActivity : FlutterFragmentActivity() {
                 var openSince = 0L
                 while (events.hasNextEvent()) {
                     events.getNextEvent(e)
-                    val closes = e.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED ||
-                        e.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED ||
-                        e.eventType == android.app.usage.UsageEvents.Event.SCREEN_NON_INTERACTIVE
-                    if (closes) {
-                        val pkg = openPkg
-                        if (pkg != null) addForegroundInterval(perDay, pkg, openSince, e.timeStamp)
-                        openPkg = null
-                    } else if (e.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED) {
-                        val pkg = openPkg
-                        if (pkg != null) addForegroundInterval(perDay, pkg, openSince, e.timeStamp)
-                        openPkg = e.packageName ?: continue
-                        openSince = e.timeStamp
+                    val ts = e.timeStamp
+                    when (e.eventType) {
+                        android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED -> {
+                            val pkg = e.packageName ?: continue
+                            val cur = openPkg
+                            // A DIFFERENT app coming to the front always
+                            // closes the current session.
+                            if (cur != null && cur != pkg) {
+                                addForegroundInterval(perDay, cur, openSince, ts)
+                                openPkg = pkg
+                                openSince = ts
+                            } else if (cur == null) {
+                                openPkg = pkg
+                                openSince = ts
+                            }
+                            // Same-package duplicate RESUMED: continuation,
+                            // keep the original openSince.
+                        }
+                        android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
+                        android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED,
+                        -> {
+                            // ONLY the foreground package's own pause or
+                            // stop may close its session. STOPPED events
+                            // for background apps arrive seconds after a
+                            // switch (and for apps that merely showed a
+                            // notification) — treating them as closers
+                            // chopped every session at the last switch
+                            // and collapsed a day's 2h into ~30 min.
+                            val cur = openPkg
+                            if (cur != null && e.packageName == cur) {
+                                addForegroundInterval(perDay, cur, openSince, ts)
+                                openPkg = null
+                            }
+                        }
+                        android.app.usage.UsageEvents.Event.SCREEN_NON_INTERACTIVE -> {
+                            val cur = openPkg
+                            if (cur != null) {
+                                addForegroundInterval(perDay, cur, openSince, ts)
+                                openPkg = null
+                            }
+                        }
                     }
                 }
+                // Still-open session counts up to NOW (live, like the
+                // dashboard's current app).
                 val pkg = openPkg
                 if (pkg != null) addForegroundInterval(perDay, pkg, openSince, now)
             }
@@ -754,6 +785,9 @@ class MainActivity : FlutterFragmentActivity() {
                 // --- Doomscroll engine breadcrumbs -------------------
                 put("scrollEventsSeen", DiagnosticsMarkers.scrollEventsSeen)
                 put("lastScrollEventAt", DiagnosticsMarkers.lastScrollEventAt)
+                put("sectionScrollEventsSeen", DiagnosticsMarkers.sectionScrollEventsSeen)
+                put("lastSectionScrollAt", DiagnosticsMarkers.lastSectionScrollAt)
+                put("lastSectionScrollPkg", DiagnosticsMarkers.lastSectionScrollPkg)
                 put("feedScans", DiagnosticsMarkers.feedScans)
                 put("lastFeedScanAt", DiagnosticsMarkers.lastFeedScanAt)
                 put("lastFeedScanPkg", DiagnosticsMarkers.lastFeedScanPkg)

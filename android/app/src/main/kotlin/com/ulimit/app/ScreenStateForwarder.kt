@@ -68,6 +68,12 @@ object DiagnosticsMarkers {
     // markers, is it ejecting" without a debugger.
     @Volatile var scrollEventsSeen: Int = 0
     @Volatile var lastScrollEventAt: Long = 0
+    /** Scrolls that happened INSIDE a managed section-level feed app —
+     *  the only ones relevant to the detector (Ulimit's own scrollbars
+     *  and other apps' lists are excluded). */
+    @Volatile var sectionScrollEventsSeen: Int = 0
+    @Volatile var lastSectionScrollAt: Long = 0
+    @Volatile var lastSectionScrollPkg: String = ""
     @Volatile var feedScans: Int = 0
     @Volatile var lastFeedScanAt: Long = 0
     @Volatile var lastFeedScanPkg: String = ""
