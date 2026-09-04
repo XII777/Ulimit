@@ -15,6 +15,8 @@ class AppSearchField extends StatelessWidget {
     this.hint = 'Search',
     this.onChanged,
     this.autofocus = false,
+    this.textStyle,
+    this.hintStyle,
   });
 
   final TextEditingController? controller;
@@ -23,6 +25,12 @@ class AppSearchField extends StatelessWidget {
   final ValueChanged<String>? onChanged;
   final bool autofocus;
 
+  /// Optional typography overrides — hosts that need to match a local
+  /// type scale (e.g. the Internet screen's nav-ribbon sizing) pass
+  /// these; everyone else keeps the default body-scale field.
+  final TextStyle? textStyle;
+  final TextStyle? hintStyle;
+
   @override
   Widget build(BuildContext context) {
     return TextField(
@@ -30,11 +38,12 @@ class AppSearchField extends StatelessWidget {
       focusNode: focusNode,
       onChanged: onChanged,
       autofocus: autofocus,
-      style: TextStyle(color: AppColors.ink, fontSize: 13.5),
+      style: textStyle ?? TextStyle(color: AppColors.ink, fontSize: 13.5),
       decoration: InputDecoration(
         isDense: true,
         hintText: hint,
-        hintStyle: TextStyle(color: AppColors.inkFaint, fontSize: 13.5),
+        hintStyle:
+            hintStyle ?? TextStyle(color: AppColors.inkFaint, fontSize: 13.5),
         filled: true,
         fillColor: AppColors.surface,
         border: OutlineInputBorder(

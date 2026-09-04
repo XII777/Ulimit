@@ -38,22 +38,31 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
   String _query = '';
   int _column = 0;
 
+  /// Whether the search field is focused — drives the bottom-row
+  /// animation: pills collapse and ONLY the search bar uplifts.
+  bool _searchFocused = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _searchController.addListener(_onSearchChanged);
+    _searchFocus.addListener(_onSearchFocusChanged);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _searchController.removeListener(_onSearchChanged);
+    _searchFocus.removeListener(_onSearchFocusChanged);
     _searchController.dispose();
     _searchFocus.dispose();
     _pageController.dispose();
     super.dispose();
   }
+
+  void _onSearchFocusChanged() =>
+      setState(() => _searchFocused = _searchFocus.hasFocus);
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -115,23 +124,19 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
     ref.read(enforcementSyncProvider).push();
   }
 
-  /// Resolves the floating plus button for the visible column. A plus
-  /// on Custom adds the typed domain directly; on Apps it opens the
-  /// picker (pre-filled with the query when nothing matches). Hidden
-  /// when there is nothing sensible to add.
+  /// Resolves the plus button for the visible column. On Custom it is
+  /// ALWAYS present (the user's request): with a valid domain typed it
+  /// adds it, otherwise it uplifts the keyboard to type one. On Apps it
+  /// opens the picker. Hidden on Filters (downloads are per-list).
   ({bool visible, VoidCallback? onTap}) _resolveFab() {
     final q = _query.trim();
 
     if (_column == 1) {
-      if (q.isEmpty) return (visible: false, onTap: null);
-      final rules = ref.watch(customWebsiteRulesProvider).valueOrNull ?? const <WebsiteRule>[];
-      final present = rules.any((r) => r.domain.contains(q.toLowerCase()));
       final domain = normalizeDomain(q);
-      if (!present && domain.isNotEmpty) {
+      if (domain.isNotEmpty) {
         return (visible: true, onTap: _addTypedDomain);
       }
-      // Present in the list, or not a plausible domain — nothing to add.
-      return (visible: false, onTap: null);
+      return (visible: true, onTap: _focusSearchForDomain);
     }
 
     if (_column == 2) {
@@ -149,79 +154,136 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
     return (visible: false, onTap: null);
   }
 
+  /// Empty/garbage domain typed: focus the search bar and tell the user
+  /// what the plus is waiting for.
+  void _focusSearchForDomain() {
+    _searchFocus.requestFocus();
+    if (mounted) {
+      showAppSnack(context, 'Type a domain (example.com) and tap + to block it.');
+    }
+  }
+
+  // Shared motion for the bottom row — one curve so pills, search and
+  // the plus all move as one gesture.
+  static const _rowAnim = Duration(milliseconds: 340);
+  static const _rowCurve = Curves.easeOutCubic;
+
   @override
   Widget build(BuildContext context) {
     final fab = _resolveFab();
     // Inside the shell's extendBody layout, padding.bottom already
     // reflects the floating nav pill's strip — the control line floats
-    // 12dp above it, and the plus button rides above the line.
+    // just above it, and the plus rides at its end.
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(
         bottom: false,
-        child: Stack(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
-                  child: PremiumHeader(
-                    title: 'Internet & Sites',
-                    subtitle: 'Local, on-device filtering — no remote proxy',
-                  ),
-                ),
-                const SizedBox(height: 18),
-                const _VpnCard(),
-                const SizedBox(height: 20),
-                Expanded(
-                  child: PageView(
-                    controller: _pageController,
-                    onPageChanged: _onPageChanged,
-                    children: [
-                      _FiltersColumn(query: _query),
-                      _CustomColumn(query: _query),
-                      _AppsColumn(query: _query),
-                    ],
-                  ),
-                ),
-              ],
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
+              child: PremiumHeader(
+                title: 'Internet & Sites',
+                subtitle: 'Local, on-device filtering — no remote proxy',
+              ),
             ),
-            // Simple plus button above the bottom control line.
-            Positioned(
-              right: 20,
-              bottom: bottomInset + 68,
-              child: _ActionFab(visible: fab.visible, onTap: fab.onTap),
-            ),
-            // Bottom control line: the compact category pills and the
-            // wide search field share ONE line, floating above the app's
-            // nav pill.
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: bottomInset + 12,
-              child: Row(
+            const SizedBox(height: 18),
+            const _VpnCard(),
+            const SizedBox(height: 20),
+            Expanded(
+              child: PageView(
+                controller: _pageController,
+                onPageChanged: _onPageChanged,
                 children: [
-                  SizedBox(
-                    width: 168,
-                    child: _ColumnPills(
-                      controller: _pageController,
-                      activeIndex: _column,
-                      onTap: _goToColumn,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: AppSearchField(
-                      controller: _searchController,
-                      focusNode: _searchFocus,
-                      hint: 'Search sites, filters or apps…',
-                    ),
-                  ),
+                  _FiltersColumn(query: _query),
+                  _CustomColumn(query: _query),
+                  _AppsColumn(query: _query),
                 ],
               ),
+            ),
+            // Bottom control line: the category pills, the search field
+            // and the conditional plus share ONE row. The search is the
+            // compact one (the pills got ~40% of its old width so the
+            // ink highlight extends further); tapping it uplifts ONLY
+            // the bar — the pills slide away and the search smoothly
+            // takes the released width. The plus rides at the far end
+            // with real breathing room around it, and uplifts in/out on
+            // its column condition (always on Custom).
+            Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, bottomInset + 16),
+              child: LayoutBuilder(builder: (context, constraints) {
+                final totalW = constraints.maxWidth;
+                // The plus slot is always reserved (48 + 12 gap) so the
+                // search never reflows when tabs change — only the plus
+                // itself animates.
+                const fabSlot = 60.0;
+                // The search keeps ~40% less width than the old full
+                // Expanded; everything else flows to the pills bar.
+                final searchTarget = (totalW - fabSlot - 22) * 0.45; // minus both gaps
+                final naturalPillsW =
+                    (totalW - fabSlot - 22 - searchTarget).clamp(160.0, totalW);
+
+                return SizedBox(
+                  height: 48,
+                  child: Row(
+                    children: [
+                      // Category bar — AnimatedSize glides the whole
+                      // pill stack out of the way when the search is
+                      // focused (clip so content slides, never squashes).
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                        child: AnimatedSize(
+                          duration: _rowAnim,
+                          curve: _rowCurve,
+                          alignment: Alignment.centerLeft,
+                          child: _searchFocused
+                              ? const SizedBox(width: 0, height: 48)
+                              : SizedBox(
+                                  width: naturalPillsW,
+                                  child: _ColumnPills(
+                                    controller: _pageController,
+                                    activeIndex: _column,
+                                    onTap: _goToColumn,
+                                  ),
+                                ),
+                        ),
+                      ),
+                      AnimatedContainer(
+                        duration: _rowAnim,
+                        curve: _rowCurve,
+                        width: _searchFocused ? 0 : 10,
+                      ),
+                      // Search field — Expanded absorbs whatever the
+                      // pills release, so its uplift is perfectly
+                      // synced with the pills' slide-away.
+                      Expanded(
+                        child: AppSearchField(
+                          controller: _searchController,
+                          focusNode: _searchFocus,
+                          hint: 'Search sites, filters or apps…',
+                          textStyle:
+                              TextStyle(color: AppColors.ink, fontSize: 12),
+                          hintStyle: TextStyle(
+                              color: AppColors.inkFaint, fontSize: 12),
+                        ),
+                      ),
+                      // Plus — rides at the line's end with its own
+                      // slide/scale/fade uplift on the column
+                      // condition. Slot stays reserved so the search
+                      // never reflows between tabs.
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: _ActionFab(visible: fab.visible, onTap: fab.onTap),
+                      ),
+                    ],
+                  ),
+                );
+              }),
             ),
           ],
         ),
@@ -334,8 +396,9 @@ class _PillLabel extends StatelessWidget {
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
           style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+            // Match the bottom-nav labels exactly: 12 Semibold.
+            fontSize: 12.0,
+            fontWeight: FontWeight.w600,
             color: active ? AppColors.bg : AppColors.inkDim,
           ),
           child: Text(label, maxLines: 1),
@@ -437,11 +500,12 @@ class _FiltersColumn extends ConsumerWidget {
         final siteHits = ref.watch(filterSiteSearchProvider(query)).valueOrNull ?? const {};
         final showSiteHits = q.length >= 2 && siteHits.isNotEmpty;
 
-        // Active (downloaded + enabled) lists float to the top so the
-        // column reads active-first.
+        // Ordering: ACTIVE (downloaded + enabled) lists first, then
+        // DOWNLOADED-but-off, then everything NOT DOWNLOADED.
         final ordered = [
           ...list.where((v) => v.downloaded && v.enabled),
-          ...list.where((v) => !(v.downloaded && v.enabled)),
+          ...list.where((v) => v.downloaded && !v.enabled),
+          ...list.where((v) => !v.downloaded),
         ];
         if (ordered.isEmpty && !showSiteHits) {
           return ListView(
@@ -709,8 +773,10 @@ class _EmptyHint extends StatelessWidget {
 // Floating plus button
 // ---------------------------------------------------------------------------
 
-/// A simple round plus button — no label — shown only when the visible
-/// column has an add action. Fades/scales in and out, iOS-style.
+/// The plus, riding at the end of the control line. Uplifts on its
+/// condition: it springs up from the line (slide + scale + fade under
+/// one eased curve) when the visible column has an add action, and
+/// sinks back when it has none.
 class _ActionFab extends StatelessWidget {
   const _ActionFab({required this.visible, this.onTap});
 
@@ -723,30 +789,37 @@ class _ActionFab extends StatelessWidget {
       ignoring: !visible,
       child: AnimatedOpacity(
         opacity: visible ? 1.0 : 0.0,
-        duration: const Duration(milliseconds: 200),
+        duration: const Duration(milliseconds: 280),
         curve: Curves.easeOutCubic,
-        child: AnimatedScale(
-          scale: visible ? 1.0 : 0.6,
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutBack,
-          child: PressableScale(
-            onTap: visible ? onTap : null,
-            child: Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: AppColors.ink,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.35),
-                    blurRadius: 18,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
+        child: AnimatedSlide(
+          // Uplift: springs out of the control line (½ circle ≈ 18px
+          // of travel) instead of popping in place.
+          offset: visible ? Offset.zero : const Offset(0, 0.4),
+          duration: const Duration(milliseconds: 340),
+          curve: Curves.easeOutCubic,
+          child: AnimatedScale(
+            scale: visible ? 1.0 : 0.6,
+            duration: const Duration(milliseconds: 340),
+            curve: Curves.easeOutBack,
+            child: PressableScale(
+              onTap: visible ? onTap : null,
+              child: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.ink,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      blurRadius: 18,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                alignment: Alignment.center,
+                child: AppIcon(AppIconName.add, size: 22, color: AppColors.bg),
               ),
-              alignment: Alignment.center,
-              child: AppIcon(AppIconName.add, size: 22, color: AppColors.bg),
             ),
           ),
         ),

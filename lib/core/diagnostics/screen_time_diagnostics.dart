@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../constants/build_info.dart';
 import '../native/permissions_channel.dart';
 import '../../data/db/app_database.dart';
 import '../../data/providers.dart';
@@ -113,7 +114,10 @@ class ScreenTimeReport {
     b.writeln('=== ULIMIT SCREEN-TIME REPORT ===');
     b.writeln('generated: $generatedAt');
     b.writeln('device: $device');
-    b.writeln('app: usage engine v2 (OS-column merge)');
+    // The build stamp settles "did my fixes actually reach the device?"
+    // instantly — compare `build:` against the deployed APK's CI label.
+    b.writeln('app: usage engine v3 (incremental attribution, '
+        'scroll-session doom, no-VPN web scan) · build $buildLabel');
     b.writeln();
     b.writeln('--- CHECKS ---');
     for (final c in checks) {

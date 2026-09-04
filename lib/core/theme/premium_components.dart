@@ -105,9 +105,11 @@ class PremiumSectionLabel extends StatelessWidget {
 
 /// A tappable section header that collapses/expands its child card.
 /// Used by Settings for the GENERAL / FOCUS / PERMISSIONS / DATA /
-/// ABOUT categories — the header is the section label plus a chevron,
-/// the card below animates its height (AnimatedSize) instead of
-/// popping in/out, and taps anywhere on the header toggle.
+/// ABOUT categories. The header is a CONTROL-TILE-style row — 38dp
+/// icon holder + 16pt semibold title (the exact language of the home
+/// Controls tiles) — with the rotating chevron as the only trailing
+/// element. The card below animates its height (AnimatedSize) instead
+/// of popping in/out, and taps anywhere on the header toggle.
 class CollapsibleSection extends StatelessWidget {
   const CollapsibleSection({
     super.key,
@@ -123,8 +125,8 @@ class CollapsibleSection extends StatelessWidget {
   final VoidCallback onToggle;
   final Widget child;
 
-  /// Optional small icon rendered before the label — gives each
-  /// Settings tab a recognizable mark.
+  /// Section icon, rendered in the tile-style holder (same box, radius
+  /// and ink palette as the home Controls tiles).
   final AppIconName? icon;
 
   @override
@@ -136,18 +138,39 @@ class CollapsibleSection extends StatelessWidget {
         // is easier on a phone and matches how every other tile works.
         InkWell(
           onTap: onToggle,
+          borderRadius: BorderRadius.circular(AppRadius.md),
           splashColor: Colors.transparent,
           highlightColor: Colors.transparent,
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
+            padding: const EdgeInsets.symmetric(vertical: 8),
             child: Row(
               children: [
                 if (icon != null) ...[
-                  AppIcon(icon!, size: 13, color: AppColors.inkFaint),
-                  const SizedBox(width: 7),
+                  Container(
+                    width: 38,
+                    height: 38,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.surface2,
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      border: Border.all(color: AppColors.stroke),
+                    ),
+                    child: AppIcon(
+                      icon!,
+                      size: 18,
+                      color: expanded ? AppColors.ink : AppColors.inkDim,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
                 ],
                 Expanded(
-                  child: PremiumSectionLabel(label),
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                        fontSize: AppText.title,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.ink),
+                  ),
                 ),
                 // Chevron rotates 180° when open. CurvedRotationTransition
                 // animates the turn itself — same motion language as the
