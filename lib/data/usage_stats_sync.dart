@@ -45,10 +45,33 @@ class UsageStatsSync {
       return;
     }
 
+    // The native side works INCREMENTALLY (ColorOS prunes queryEvents,
+    // so a from-scratch recompute loses hours): each record is either a
+    // DELTA to ADD, or — once, on first run — an ABSOLUTE baseline set
+    // flagged with bootstrapToday:true. The bootstrap also means
+    // today's OS column must be zeroed first so additive deltas start
+    // from a clean slate.
+    var bootstrapToday = false;
+    final rows = <Map<String, dynamic>>[];
+    for (final raw in records) {
+      if (raw['bootstrapToday'] == true) {
+        bootstrapToday = true;
+        continue;
+      }
+      rows.add(raw);
+    }
+
     var written = 0;
     // Batched write in one transaction (no per-row autocommit churn).
     await _db.transaction(() async {
-      for (final record in records) {
+      if (bootstrapToday) {
+        final todayUnix = startOfDay(DateTime.now()).millisecondsSinceEpoch ~/ 1000;
+        await _db.customStatement(
+          'UPDATE app_usage SET os_foreground_seconds = 0 WHERE day = ?',
+          [todayUnix],
+        );
+      }
+      for (final record in rows) {
         final package = record['packageName'] as String?;
         final dayUnix = record['day'] as int?;
         final screenTime = record['screenTime'] as int?;
@@ -57,21 +80,20 @@ class UsageStatsSync {
         // launcher, system UI, or Ulimit itself (see screen_time_filter).
         if (isExcludedFromScreenTime(package)) continue;
         if (screenTime <= 0) continue;
+        final delta = record['delta'] == true;
 
-        // OS value into its own column; the tracker column is zeroed
-        // for the row so the displayed merge (OS wins when present,
-        // else tracker) reads EXACTLY the OS number for every
-        // OS-covered day — no tracker seconds can stack on top. When
-        // usage access is absent this sync never runs and the tracker
-        // column remains the (capped, approximate) fallback.
+        // DELTA rows ADD to the OS column (attribution is incremental —
+        // each sync contributes only the intervals since the cursor).
+        // ABS rows (bootstrap) REPLACE it. The tracker column is left
+        // alone: it remains the fallback for rows the OS stream cannot
+        // see at all (e.g. IMEs, which never get ACTIVITY_RESUMED).
         await _db.customStatement(
           '''
           INSERT INTO app_usage (package_name, day, foreground_seconds, os_foreground_seconds)
           VALUES (?, ?, 0, ?)
           ON CONFLICT(package_name, day)
-          DO UPDATE SET
-            os_foreground_seconds = excluded.os_foreground_seconds,
-            foreground_seconds = 0
+          DO UPDATE SET os_foreground_seconds =
+            ${delta ? 'os_foreground_seconds + excluded.os_foreground_seconds' : 'excluded.os_foreground_seconds'}
           ''',
           [package, dayUnix, screenTime],
         );

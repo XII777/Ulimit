@@ -234,6 +234,18 @@ class ScreenTimeDiagnostics {
               'Last run ${_ago(UsageStatsSyncState.lastSyncAt!)} — ${UsageStatsSyncState.lastRowsWritten} row(s)',
     ));
 
+    // 3b. Incremental cursor — proves the events window is being
+    // consumed continuously (the anti-pruning mechanism).
+    final usageCursorAt = (native['usageCursorAt'] as num?)?.toInt() ?? 0;
+    checks.add(EngineCheck(
+      label: 'Attribution cursor advancing',
+      pass: usageGranted ? (usageCursorAt > 0) : null,
+      detail: usageCursorAt == 0
+          ? 'No cursor yet — first sync pending'
+          : 'Last consumed event ${_ago(DateTime.fromMillisecondsSinceEpoch(usageCursorAt))}'
+              ' · open session: ${_nativeStr(native, 'usageOpenPkg')}',
+    ));
+
     // 4. Session state -----------------------------------------------------
     final fg = UsageTracker.liveForeground.value;
     checks.add(EngineCheck(

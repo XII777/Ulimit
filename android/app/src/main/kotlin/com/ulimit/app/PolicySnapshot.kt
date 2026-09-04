@@ -40,6 +40,18 @@ object PolicySnapshot {
     const val KEY_DOOM_DAY = "doomscroll_day"
     const val KEY_DOOM = "doomscroll_opens_json"
 
+    // Incremental UsageEvents attribution cursor + open-session state.
+    // ColorOS prunes/batches the UsageEvents query window, so a
+    // from-scratch recompute each sync silently loses older intervals
+    // (2h of a 5h day). Instead: each sync consumes ONLY events newer
+    // than the cursor, adds their deltas to the DB, and persists the
+    // cursor + the still-open session (package + start millis) so
+    // counted events stay counted across process death and reboots.
+    const val KEY_CURSOR = "usage_events_cursor"
+    const val KEY_OPEN_PKG = "usage_open_pkg"
+    const val KEY_OPEN_SINCE = "usage_open_since"
+    const val KEY_OPEN_ATTRIB = "usage_open_attributed_up_to"
+
     data class ManualRule(val pkg: String, val permanent: Boolean, val untilMillis: Long)
 
     data class Focus(

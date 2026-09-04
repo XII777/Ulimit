@@ -519,16 +519,20 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     /**
-     * Returns per-package daily foreground times for the last [days]
-     * days (including today) as a JSON array of
-     * `{packageName, day (unix seconds), screenTime}` — screenTime in
-     * seconds. Empty when the permission isn't granted.
+     * Returns per-package daily foreground times as a JSON array.
+     * INCREMENTAL attribution — the design that survives OEM event
+     * pruning (ColorOS batches/prunes queryEvents, so a from-scratch
+     * recompute loses hours): each sync consumes ONLY events newer
+     * than the persisted cursor, converts RESUMED→PAUSED intervals
+     * into per-day deltas, and the caller ADDS them to its database.
+     * Counted events stay counted.
      *
-     * Attribution is EXACTLY how the system dashboard computes screen
-     * time: raw UsageEvents RESUMED→PAUSED intervals summed per package
-     * per calendar day, split at local midnight. See the body for why
-     * INTERVAL_DAILY buckets are only used (closed-only) for days
-     * older than the ~7-day event-retention window.
+     * Return shapes:
+     *  - incremental deltas: {packageName, day, screenTime, delta:true}
+     *  - first-run bootstrap (no cursor yet): a {bootstrapToday:true}
+     *    marker row plus {packageName, day, screenTime} ABSOLUTE rows
+     *    (closed buckets for old days, full event walk for the recent
+     *    window) that Dart writes as a REPLACE baseline.
      */
     private fun fetchDeviceUsageForDays(days: Int): String {
         if (!isUsageAccessGranted()) return "[]"
@@ -547,13 +551,37 @@ class MainActivity : FlutterFragmentActivity() {
             val startMillis = start.timeInMillis
             val now = System.currentTimeMillis()
 
-            // Days covered by the raw event stream (~7 days retention).
+            // Incremental attribution state (see PolicySnapshot.KEY_*):
+            // the cursor + carried open session survive process death,
+            // so counted events stay counted even though ColorOS prunes
+            // the queryEvents window.
+            val prefs = PolicySnapshot.prefs(this)
+            val cursor = prefs.getLong(PolicySnapshot.KEY_CURSOR, 0L)
+            val incremental = cursor > 0L
+            var openPkg = prefs.getString(PolicySnapshot.KEY_OPEN_PKG, null)
+            var openSince = prefs.getLong(PolicySnapshot.KEY_OPEN_SINCE, 0L)
+            var attribUpTo = prefs.getLong(PolicySnapshot.KEY_OPEN_ATTRIB, cursor)
+            if (openPkg.isNullOrEmpty()) {
+                openPkg = null
+                attribUpTo = 0L
+            }
+            var newCursor = cursor
+
+            // Days covered by the raw event stream (~7 days retention) —
+            // used by the bootstrap pass only.
             val eventsStart = (endMillis - 7L * 24 * 3600 * 1000L).coerceAtLeast(startMillis)
 
             // dayUnixSeconds → (package → foreground millis)
             val perDay = HashMap<Long, HashMap<String, Long>>()
 
             val out = org.json.JSONArray()
+            val scanFrom = if (incremental) {
+                // Small overlap guards against clock jitter; events at
+                // or before the cursor are skipped below.
+                (cursor - 60_000L).coerceAtLeast(startMillis)
+            } else {
+                eventsStart
+            }
             // Raw-event interval attribution — the system dashboard's
             // own method. One pass over all events in the window; every
             // RESUMED opens a session for its package, the next
@@ -566,14 +594,18 @@ class MainActivity : FlutterFragmentActivity() {
             // the 7h-vs-2h bug. A still-open session counts up to NOW
             // so today's number is live, like the dashboard's current
             // app.
-            if (now > eventsStart) {
-                val events = usm.queryEvents(eventsStart, endMillis)
+            if (now > scanFrom) {
+                val events = usm.queryEvents(scanFrom, endMillis)
                 val e = android.app.usage.UsageEvents.Event()
                 var openPkg: String? = null
                 var openSince = 0L
                 while (events.hasNextEvent()) {
                     events.getNextEvent(e)
                     val ts = e.timeStamp
+                    // Incremental mode: events at/before the cursor were
+                    // already counted on an earlier sync.
+                    if (incremental && ts <= cursor) continue
+                    if (ts > newCursor) newCursor = ts
                     when (e.eventType) {
                         android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED -> {
                             val pkg = e.packageName ?: continue
@@ -581,15 +613,17 @@ class MainActivity : FlutterFragmentActivity() {
                             // A DIFFERENT app coming to the front always
                             // closes the current session.
                             if (cur != null && cur != pkg) {
-                                addForegroundInterval(perDay, cur, openSince, ts)
+                                closeSession(out, perDay, incremental, cur, openSince, attribUpTo, ts)
                                 openPkg = pkg
                                 openSince = ts
+                                attribUpTo = ts
                             } else if (cur == null) {
                                 openPkg = pkg
                                 openSince = ts
+                                attribUpTo = ts
                             }
                             // Same-package duplicate RESUMED: continuation,
-                            // keep the original openSince.
+                            // keep the original openSince/attribUpTo.
                         }
                         android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
                         android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED,
@@ -603,23 +637,31 @@ class MainActivity : FlutterFragmentActivity() {
                             // and collapsed a day's 2h into ~30 min.
                             val cur = openPkg
                             if (cur != null && e.packageName == cur) {
-                                addForegroundInterval(perDay, cur, openSince, ts)
+                                closeSession(out, perDay, incremental, cur, openSince, attribUpTo, ts)
                                 openPkg = null
                             }
                         }
                         android.app.usage.UsageEvents.Event.SCREEN_NON_INTERACTIVE -> {
                             val cur = openPkg
                             if (cur != null) {
-                                addForegroundInterval(perDay, cur, openSince, ts)
+                                closeSession(out, perDay, incremental, cur, openSince, attribUpTo, ts)
                                 openPkg = null
                             }
                         }
                     }
                 }
-                // Still-open session counts up to NOW (live, like the
-                // dashboard's current app).
+                // Still-open session: bootstrap → bucket credit to NOW;
+                // incremental → emit the growth since attribUpTo as a
+                // delta and carry the session forward (attribUpTo=NOW).
                 val pkg = openPkg
-                if (pkg != null) addForegroundInterval(perDay, pkg, openSince, now)
+                if (pkg != null) {
+                    if (incremental) {
+                        if (now > attribUpTo) emitDelta(out, pkg, attribUpTo, now)
+                        attribUpTo = now
+                    } else {
+                        addForegroundInterval(perDay, pkg, openSince, now)
+                    }
+                }
             }
 
             // Days older than the event-retention window: CLOSED
@@ -627,8 +669,9 @@ class MainActivity : FlutterFragmentActivity() {
             // A bucket spanning days can never be split without raw
             // events, and dropping it whole into one day is exactly the
             // inflation this rewrite kills — so spanning buckets are
-            // skipped, never assigned.
-            if (startMillis < eventsStart) {
+            // skipped, never assigned. BOOTSTRAP ONLY — incremental
+            // syncs never re-read buckets (they'd double-count).
+            if (!incremental && startMillis < eventsStart) {
                 for (dayStart in startMillis until eventsStart step (24 * 3600 * 1000L)) {
                     val dayEnd = dayStart + (24 * 3600 * 1000L)
                     val dayUnixSeconds = dayStart / 1000
@@ -647,21 +690,96 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             }
 
-            for ((dayUnixSeconds, perPackage) in perDay) {
-                for ((pkg, ms) in perPackage) {
-                    if (ms <= 0) continue
-                    out.put(
-                        org.json.JSONObject().apply {
-                            put("packageName", pkg)
-                            put("day", dayUnixSeconds)
-                            put("screenTime", ms / 1000)
-                        }
-                    )
+            // Bootstrap: emit the recompute as ABSOLUTE rows plus the
+            // marker telling Dart to REPLACE. Incremental: rows are
+            // already emitted as deltas inside the loop above.
+            if (!incremental) {
+                for ((dayUnixSeconds, perPackage) in perDay) {
+                    for ((pkg, ms) in perPackage) {
+                        if (ms <= 0) continue
+                        out.put(
+                            org.json.JSONObject().apply {
+                                put("packageName", pkg)
+                                put("day", dayUnixSeconds)
+                                put("screenTime", ms / 1000)
+                            }
+                        )
+                    }
                 }
+                out.put(org.json.JSONObject().apply {
+                    put("bootstrapToday", true)
+                    put("day", 0)
+                    put("screenTime", 0)
+                })
             }
+
+            // Persist cursor + open-session state so the next sync
+            // consumes only events newer than newCursor and the open
+            // session's head is never lost (even across process death).
+            prefs.edit()
+                .putLong(PolicySnapshot.KEY_CURSOR, newCursor)
+                .putString(PolicySnapshot.KEY_OPEN_PKG, openPkg ?: "")
+                .putLong(PolicySnapshot.KEY_OPEN_SINCE, if (openPkg != null) openSince else 0L)
+                .putLong(PolicySnapshot.KEY_OPEN_ATTRIB, attribUpTo)
+                .apply()
+
             out.toString()
         } catch (_: Exception) {
             "[]"
+        }
+    }
+
+    /** Closes one foreground session in the mode-appropriate shape:
+     *  incremental → emit an ADD delta row; bootstrap → credit the
+     *  perDay buckets for the full-recompute baseline. */
+    private fun closeSession(
+        out: org.json.JSONArray,
+        perDay: HashMap<Long, HashMap<String, Long>>,
+        incremental: Boolean,
+        pkg: String,
+        openSince: Long,
+        attribUpTo: Long,
+        closeAt: Long,
+    ) {
+        if (incremental) {
+            if (closeAt > attribUpTo) emitDelta(out, pkg, attribUpTo, closeAt)
+        } else {
+            addForegroundInterval(perDay, pkg, openSince, closeAt)
+        }
+    }
+
+    /** Emits one incremental delta row for [pkg] covering
+     *  [from, to), split at local midnights, flagged delta=true so
+     *  Dart ADDS it instead of replacing. */
+    private fun emitDelta(out: org.json.JSONArray, pkg: String, from: Long, to: Long) {
+        var cursorMs = from
+        while (cursorMs < to) {
+            val cal = java.util.Calendar.getInstance().apply {
+                timeInMillis = cursorMs
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+                add(java.util.Calendar.DAY_OF_YEAR, 1)
+            }
+            val dayEnd = cal.timeInMillis
+            val sliceEnd = minOf(to, dayEnd)
+            val midnight = java.util.Calendar.getInstance().apply {
+                timeInMillis = sliceEnd - 1
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            out.put(
+                org.json.JSONObject().apply {
+                    put("packageName", pkg)
+                    put("day", midnight / 1000)
+                    put("screenTime", (sliceEnd - cursorMs) / 1000)
+                    put("delta", true)
+                }
+            )
+            cursorMs = sliceEnd
         }
     }
 
@@ -800,6 +918,10 @@ class MainActivity : FlutterFragmentActivity() {
                 put("lastDoomOpenAt", DiagnosticsMarkers.lastDoomOpenAt)
                 put("lastDoomOpenPkg", DiagnosticsMarkers.lastDoomOpenPkg)
                 put("gapDiscards", DiagnosticsMarkers.gapDiscards)
+                // Incremental attribution cursor + carried session.
+                val prefsD = PolicySnapshot.prefs(this@MainActivity)
+                put("usageCursorAt", prefsD.getLong(PolicySnapshot.KEY_CURSOR, 0L))
+                put("usageOpenPkg", prefsD.getString(PolicySnapshot.KEY_OPEN_PKG, "") ?: "")
                 // Snapshot state the detector evaluates against.
                 put("snapshotPresent", snapshot != null)
                 put("focusDoomscrollFlag", focus?.blockDoomscroll == true)

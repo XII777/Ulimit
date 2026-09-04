@@ -29,6 +29,12 @@ object ScreenTimeFilter {
         "com.oneplus.launcher",
         "com.nothing.launcher",                   // Nothing Phone
         "org.lineageos.launcher3",                // LineageOS
+        // Third-party launchers that don't carry "launcher" in the
+        // package name but ARE the home screen.
+        "ginlemon.flowerfree",                    // Flower Launcher (free)
+        "ginlemon.flower",                        // Flower Launcher
+        "ginlemon.smartlauncher",                 // Smart Launcher
+        "home.slaunch.launcherx",                 // Smart Launcher 6
     )
 
     /** True for packages that must NEVER count as screen time: the
@@ -37,6 +43,9 @@ object ScreenTimeFilter {
         if (packageName.isNullOrEmpty()) return true
         if (packageName == "com.ulimit.app") return true
         if (packageName == "com.android.systemui") return true
+        // OEM settings/battery/screenshot chrome the dashboard excludes.
+        if (packageName.startsWith("com.oplus.")) return true
+        if (packageName.startsWith("com.coloros.")) return true
         if (packageName in excludedPackages) return true
         // Generic catch for custom/unknown launchers — every home-shell
         // package carries "launcher" in its name.

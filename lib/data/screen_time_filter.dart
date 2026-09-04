@@ -11,6 +11,9 @@ bool isExcludedFromScreenTime(String packageName) {
   if (packageName == 'com.ulimit.app') return true;
   // System UI (shade, recents, keyguard) is OS chrome, not an app.
   if (packageName == 'com.android.systemui') return true;
+  // OEM settings/battery/screenshot chrome the dashboard doesn't count.
+  if (packageName.startsWith('com.oplus.')) return true;
+  if (packageName.startsWith('com.coloros.')) return true;
   if (_excludedPackages.contains(packageName)) return true;
   // Generic catch for custom/unknown launchers — every home-shell
   // package carries "launcher" in its name (Xiaomi uses com.miui.home,
@@ -37,4 +40,10 @@ const Set<String> _excludedPackages = <String>{
   'com.oneplus.launcher',
   'com.nothing.launcher', // Nothing Phone
   'org.lineageos.launcher3', // LineageOS
+  // Third-party launchers that don't carry "launcher" in the package
+  // name but ARE the home screen.
+  'ginlemon.flowerfree', // Flower Launcher (free)
+  'ginlemon.flower', // Flower Launcher
+  'ginlemon.smartlauncher', // Smart Launcher
+  'home.slaunch.launcherx', // Smart Launcher 6
 };
