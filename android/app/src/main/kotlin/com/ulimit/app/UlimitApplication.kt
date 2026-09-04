@@ -7,13 +7,16 @@ import android.app.Application
  * previous handler is always invoked afterwards, so the system crash
  * dialog / process death behave exactly as the OS expects. Also seeds
  * the [BlockEngine] with the application context (the single blocking
- * brain shared by the accessibility service and the guard service).
+ * brain shared by the accessibility service and the guard service) and
+ * registers the screen on/off forwarder that closes open usage sessions
+ * at screen-off (Digital Wellbeing parity — see [ScreenStateForwarder]).
  */
 class UlimitApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
         BlockEngine.init(this)
+        ScreenStateForwarder.register(this)
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             CrashLogStore.write(this, thread, throwable)

@@ -31,6 +31,15 @@ import android.view.accessibility.AccessibilityEvent
  */
 class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
 
+    companion object {
+        /// Live instance while the service is bound — lets the screen-off
+        /// forwarder close the native usage session at the exact moment
+        /// Digital Wellbeing stops counting.
+        @Volatile
+        var instance: UlimitAccessibilityService? = null
+            private set
+    }
+
     // Usage tracking dedupe state.
     private var lastPackageName: String? = null
     private var lastEventTimestamp: Long = 0
@@ -55,6 +64,7 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        instance = this
         lastPackageName = null
         lastEventTimestamp = 0
         overlayManager = BlockOverlayManager(
@@ -122,6 +132,7 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
     private fun attributeUsage(packageName: String?) {
         if (packageName == null) return
         val now = System.currentTimeMillis()
+        DiagnosticsMarkers.lastAccessibilityEventAt = now
 
         // Reaching Ulimit itself is only possible after the overlay was
         // already released (the Home escape hides it first), and the
@@ -164,6 +175,24 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
         // SQLite usage history and pickup counting). Native emits the
         // *new* package; Dart attributes elapsed time itself.
         UsageEventBridge.emit(packageName, now)
+    }
+
+    /**
+     * Closes the open native usage session as of NOW. Called by the
+     * screen-state forwarder on ACTION_SCREEN_OFF so the native-side
+     * tracker (which keeps counting when the Dart engine is down)
+     * stops attributing locked-screen time too — the framework's own
+     * pause event covers the same moment in the OS numbers.
+     */
+    fun closeUsageSession() {
+        val pkg = lastPackageName ?: return
+        val now = System.currentTimeMillis()
+        val elapsedSeconds = ((now - lastEventTimestamp) / 1000).toInt()
+        if (elapsedSeconds in 1..(6 * 3600) && !BlockEngine.isShellPackage(pkg)) {
+            PolicySnapshot.addForegroundSeconds(this, pkg, elapsedSeconds)
+        }
+        lastPackageName = null
+        lastEventTimestamp = 0
     }
 
     // ------------------------------------------------------------------
@@ -328,11 +357,17 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
+        instance = null
+        // Tell Dart tracking just stopped — the open usage session must
+        // be dropped there, otherwise its pending counter keeps growing
+        // with no events ever arriving to close it.
+        UsageEventBridge.emit(UsageEventBridge.ACCESSIBILITY_DOWN, System.currentTimeMillis())
         BlockEngine.detachAccessibility(this)
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
+        instance = null
         BlockEngine.detachAccessibility(this)
         super.onDestroy()
     }

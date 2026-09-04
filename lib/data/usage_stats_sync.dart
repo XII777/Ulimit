@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:drift/drift.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/diagnostics/diagnostics_log.dart';
 import '../core/native/permissions_channel.dart';
 import 'db/app_database.dart';
 import 'providers.dart';
@@ -11,7 +11,7 @@ import 'screen_time_filter.dart';
 
 /// Syncs the authoritative per-app screen times from UsageStatsManager
 /// (the OS's own usage stats — the same source Digital Wellbeing shows)
-/// into the `app_usage` table.
+/// into the `os_foreground_seconds` column of the `app_usage` table.
 ///
 /// Why: the accessibility tracker is excellent at *when* switches
 /// happen, but its totals drift from the OS numbers over time (events
@@ -19,15 +19,14 @@ import 'screen_time_filter.dart';
 /// UsageStats is the ground truth for per-day durations, so we merge it
 /// on app start, on resume, and on a slow cadence while foregrounded.
 ///
-/// Merge semantics: screen time must reflect FOREGROUND use only. The OS
-/// `totalTimeInForeground` from UsageStatsManager (the source Digital
-/// Wellbeing shows) is the authoritative foreground-only measure, so it
-/// always wins when present. The accessibility tracker is only used as a
-/// fallback for seconds the OS hasn't reported yet (fresh use this
-/// session) — its gap attribution can over-count (time across the
-/// notification shade / app switcher / screen-off where no tracked
-/// foreground event fires), so it must never extend the total above the
-/// OS's real foreground figure.
+/// Merge semantics: the OS value is written to its OWN column and never
+/// mixed with the tracker's. The user-visible number is
+/// [mergedUsageSeconds] — OS wins when present, tracker fills the gap
+/// (fresh seconds this session, or no usage-access permission). The old
+/// single-column replace-then-increment design let a tracker
+/// attribution stack on top of an OS value that already contained the
+/// same session — the main reason our total exceeded Digital
+/// Wellbeing's.
 class UsageStatsSync {
   UsageStatsSync(this._db);
 
@@ -35,22 +34,18 @@ class UsageStatsSync {
 
   Future<void> syncHistory({int days = 90}) async {
     final granted = await NativePermissions.isUsageAccessGranted();
-    if (!granted) return;
+    if (!granted) {
+      UsageStatsSyncState.noteSync(rowsWritten: 0, error: 'usage access not granted');
+      return;
+    }
 
     final records = await NativePermissions.fetchDeviceUsageForDays(days);
-    if (records.isEmpty) return;
+    if (records.isEmpty) {
+      UsageStatsSyncState.noteSync(rowsWritten: 0, error: 'OS returned no usage records');
+      return;
+    }
 
-    // Load existing tracker values for the same window so the merge is
-    // read-before-write (not blindly overwriting tracker-only seconds).
-    final start = DateTime.now().subtract(Duration(days: days));
-    final existingRows = await (_db.select(_db.appUsage)
-          ..where((t) => t.day.isBiggerOrEqualValue(start)))
-        .get();
-    final existing = <String, int>{
-      for (final row in existingRows)
-        '${row.packageName}|${row.day.millisecondsSinceEpoch ~/ 1000}': row.foregroundSeconds,
-    };
-
+    var written = 0;
     // Batched write in one transaction (no per-row autocommit churn).
     await _db.transaction(() async {
       for (final record in records) {
@@ -61,26 +56,45 @@ class UsageStatsSync {
         // Screen time counts OPENED APPS only — never the home screen/
         // launcher, system UI, or Ulimit itself (see screen_time_filter).
         if (isExcludedFromScreenTime(package)) continue;
+        if (screenTime <= 0) continue;
 
-        final trackerValue = existing['$package|$dayUnix'] ?? 0;
-        // OS foreground is authoritative (foreground-only). The tracker
-        // value is only a fallback for seconds the OS hasn't aggregated
-        // yet — never a ceiling raiser, so over-counted gaps can't inflate
-        // the total.
-        final merged = screenTime > 0 ? screenTime : trackerValue;
-        if (merged <= 0) continue;
-
+        // OS value into its own column only. The tracker column is
+        // untouched — the two accounting models stay independent.
         await _db.customStatement(
           '''
-          INSERT INTO app_usage (package_name, day, foreground_seconds)
-          VALUES (?, ?, ?)
+          INSERT INTO app_usage (package_name, day, foreground_seconds, os_foreground_seconds)
+          VALUES (?, ?, 0, ?)
           ON CONFLICT(package_name, day)
-          DO UPDATE SET foreground_seconds = ?3
+          DO UPDATE SET os_foreground_seconds = excluded.os_foreground_seconds
           ''',
-          [package, dayUnix, merged],
+          [package, dayUnix, screenTime],
         );
+        written++;
       }
     });
+
+    UsageStatsSyncState.noteSync(rowsWritten: written, error: null);
+  }
+}
+
+/// Observable state of the sync loop — read by the diagnostics report
+/// ("is the OS sync actually running?") and logged per cycle.
+class UsageStatsSyncState {
+  UsageStatsSyncState._();
+
+  static DateTime? lastSyncAt;
+  static int lastRowsWritten = 0;
+  static String? lastError;
+
+  static void noteSync({required int rowsWritten, required String? error}) {
+    lastSyncAt = DateTime.now();
+    lastRowsWritten = rowsWritten;
+    lastError = error;
+    if (error != null) {
+      DiagnosticsLog.record('OS usage sync failed: $error', tag: 'sync');
+    } else {
+      DiagnosticsLog.record('OS usage sync: $rowsWritten row(s) updated', tag: 'sync');
+    }
   }
 }
 
@@ -101,7 +115,8 @@ class UsageStatsSyncCoordinator {
 
   void start(WidgetRef ref) {
     if (_started) return;
-    _started = true;    final sync = ref.read(usageStatsSyncProvider);
+    _started = true;
+    final sync = ref.read(usageStatsSyncProvider);
 
     WidgetsBinding.instance.addObserver(AppLifecycleObserver((state) {
       if (state == AppLifecycleState.resumed) sync.syncHistory();

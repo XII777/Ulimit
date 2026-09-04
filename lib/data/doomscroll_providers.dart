@@ -4,6 +4,7 @@ import '../core/diagnostics/diagnostics_log.dart';
 import 'db/app_database.dart';
 import 'doomscroll_apps.dart';
 import 'providers.dart';
+import 'usage_merge.dart';
 import 'usage_tracker.dart';
 
 // ---------------------------------------------------------------------------
@@ -117,7 +118,7 @@ final doomscrollTodaySecondsProvider = StreamProvider<int>((ref) {
     ..where((t) => t.day.equals(today) & t.packageName.isIn(kDoomscrollPackages));
 
   return query.watch().map(
-        (rows) => rows.fold(0, (sum, r) => sum + r.foregroundSeconds),
+        (rows) => rows.fold(0, (sum, r) => sum + r.effectiveSeconds),
       );
 });
 
@@ -169,7 +170,7 @@ final doomscrollWeeklyOpensProvider = StreamProvider<List<DoomscrollDay>>((ref) 
     for (final r in rows) {
       final d = startOfDay(r.day.toLocal());
       opensByDay[d] = (opensByDay[d] ?? 0) + r.openCount;
-      secondsByDay[d] = (secondsByDay[d] ?? 0) + r.foregroundSeconds;
+      secondsByDay[d] = (secondsByDay[d] ?? 0) + r.effectiveSeconds;
     }
     return [
       for (var i = 0; i <= 6; i++)

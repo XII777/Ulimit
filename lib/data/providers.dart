@@ -8,6 +8,7 @@ import 'db/app_database.dart';
 import 'db/tables.dart';
 import 'permissions_providers.dart';
 import 'screen_time_filter.dart';
+import 'usage_merge.dart';
 import 'usage_tracker.dart';
 
 /// Single DB instance for the app's lifetime. `keepAlive` so switching
@@ -119,30 +120,62 @@ final themeModeProvider = StreamProvider<String>((ref) {
   return db.select(db.ulimitSettings).watchSingle().map((s) => s.themeMode);
 });
 
-/// Live today screen time in seconds: the persisted per-day total plus
-/// the un-attributed elapsed time of whatever app is currently in front
-/// (updated by usage events, ticked adaptively). Only consumers that
-/// listen to this stream rebuild — the rest of Home does not.
+/// Live today screen time in seconds: the persisted per-day merged
+/// total plus the un-committed part of the current foreground session.
+///
+/// The current session needs care to avoid double-counting: the 30s OS
+/// sync continuously commits the ongoing session into the row's
+/// `os_foreground_seconds`, so only the part of the session the OS has
+/// NOT yet committed may be added on top. The tracker snapshots the OS
+/// column at session start; per tick we subtract (osNow − osAtStart)
+/// from the raw pending time. When the OS has already committed the
+/// whole session nothing extra is added — matching Digital Wellbeing
+/// instead of showing DW + session length (the old bug).
 ///
 /// Battery-aware cadence: 1s while the app is foreground (the counter
 /// must feel live), 5s while it is backgrounded (keep-alive tabs still
 /// hold the subscription; a 1s tick there is pure drain), and the timer
 /// is cancelled entirely when nothing is listening.
 final liveScreenTimeSecondsProvider = StreamProvider<int>((ref) {
+  final db = ref.watch(databaseProvider);
   late final StreamController<int> controller;
   Timer? timer;
 
-  int compute() {
-    final base = ref.read(todayScreenTimeProvider).valueOrNull?.inSeconds ?? 0;
+  Future<int> compute() async {
+    final today = startOfDay(DateTime.now());
+    final rows = await (db.select(db.appUsage)..where((t) => t.day.equals(today))).get();
+
     final foreground = UsageTracker.liveForeground.value;
-    // Screen time counts opened apps only — the pending window never
-    // adds launcher/system-UI/Ulimit time (see screen_time_filter).
+    // Screen time counts opened apps only — launcher/system-UI/Ulimit
+    // rows never enter the total (see screen_time_filter).
+    var base = 0;
+    AppUsageData? fgRow;
+    for (final r in rows) {
+      if (isExcludedFromScreenTime(r.packageName)) continue;
+      if (foreground != null && r.packageName == foreground.package) fgRow = r;
+      base += r.effectiveSeconds;
+    }
     if (foreground == null || isExcludedFromScreenTime(foreground.package)) return base;
+
     final pending = ((DateTime.now().millisecondsSinceEpoch - foreground.sinceMillis) / 1000)
         .floor()
         .clamp(0, 6 * 3600)
         .toInt();
-    return base + pending;
+    final osAtStart = foreground.osSecondsAtSessionStart;
+    if (osAtStart == null) return base; // snapshot read pending — don't guess
+    final osNow = fgRow?.osForegroundSeconds ?? 0;
+    // How much of THIS session the OS sync has already committed.
+    final committedDuringSession = (osNow - osAtStart).clamp(0, pending);
+    return base + pending - committedDuringSession;
+  }
+
+  Future<void> tick() async {
+    if (controller.isClosed) return;
+    try {
+      controller.add(await compute());
+    } catch (_) {
+      // DB read raced a dispose — the next tick retries.
+    }
   }
 
   // 1s foreground / 5s background throttling.
@@ -153,14 +186,12 @@ final liveScreenTimeSecondsProvider = StreamProvider<int>((ref) {
     final cadence = appBackgrounded
         ? const Duration(seconds: 5)
         : const Duration(seconds: 1);
-    timer = Timer.periodic(cadence, (_) {
-      if (!controller.isClosed) controller.add(compute());
-    });
+    timer = Timer.periodic(cadence, (_) => tick());
   }
 
   controller = StreamController<int>(
     onListen: () {
-      controller.add(compute());
+      tick();
       _armTicker();
       // Pause the fast tick while backgrounded — keep-alive tabs keep
       // the subscription alive even when the app is not in view.
@@ -193,37 +224,55 @@ final liveScreenTimeSecondsProvider = StreamProvider<int>((ref) {
 });
 
 /// Just the un-committed pending screen time of the current foreground
-/// app (seconds since the last tracker event), ticking at the same
-/// adaptive cadence. Used to make the weekly line graph's today point
-/// live without polluting the persisted totals.
+/// app (raw elapsed seconds since the last tracker event, minus the
+/// part the OS sync already committed during this session), ticking at
+/// the same adaptive cadence. Used to make the weekly line graph's
+/// today point live without polluting the persisted totals.
 final livePendingScreenTimeProvider = StreamProvider<int>((ref) {
+  final db = ref.watch(databaseProvider);
   late final StreamController<int> controller;
   Timer? timer;
   bool backgrounded = false;
   _AppLifecycleObserver? observer;
 
-  int compute() {
+  Future<int> compute() async {
     final foreground = UsageTracker.liveForeground.value;
     if (foreground == null || isExcludedFromScreenTime(foreground.package)) return 0;
-    return ((DateTime.now().millisecondsSinceEpoch - foreground.sinceMillis) / 1000)
+    final pending = ((DateTime.now().millisecondsSinceEpoch - foreground.sinceMillis) / 1000)
         .floor()
         .clamp(0, 6 * 3600)
         .toInt();
+    final osAtStart = foreground.osSecondsAtSessionStart;
+    if (osAtStart == null) return 0; // snapshot read pending — don't guess
+    final today = startOfDay(DateTime.now());
+    final row = await (db.select(db.appUsage)
+          ..where((t) => t.day.equals(today) & t.packageName.equals(foreground.package)))
+        .getSingleOrNull();
+    final osNow = row?.osForegroundSeconds ?? 0;
+    final committed = (osNow - osAtStart).clamp(0, pending);
+    return pending - committed;
+  }
+
+  Future<void> tick() async {
+    if (controller.isClosed) return;
+    try {
+      controller.add(await compute());
+    } catch (_) {
+      // DB read raced a dispose — the next tick retries.
+    }
   }
 
   void armTicker() {
     timer?.cancel();
     timer = Timer.periodic(
       backgrounded ? const Duration(seconds: 5) : const Duration(seconds: 1),
-      (_) {
-        if (!controller.isClosed) controller.add(compute());
-      },
+      (_) => tick(),
     );
   }
 
   controller = StreamController<int>(
     onListen: () {
-      controller.add(compute());
+      tick();
       armTicker();
       observer = _AppLifecycleObserver((state) {
         backgrounded = state != AppLifecycleState.resumed;
@@ -281,7 +330,7 @@ final todayScreenTimeProvider = StreamProvider<Duration>((ref) {
         (rows) => Duration(
           seconds: rows
               .where((r) => !isExcludedFromScreenTime(r.packageName))
-              .fold(0, (sum, r) => sum + r.foregroundSeconds),
+              .fold(0, (sum, r) => sum + r.effectiveSeconds),
         ),
       );
 });
@@ -298,7 +347,7 @@ final todayUsageByPackageProvider = StreamProvider<Map<String, int>>((ref) {
         (rows) => {
           for (final r in rows)
             if (!isExcludedFromScreenTime(r.packageName))
-              r.packageName: r.foregroundSeconds,
+              r.packageName: r.effectiveSeconds,
         },
       );
 });
@@ -361,7 +410,7 @@ final weeklyScreenTimeProvider = StreamProvider<List<Duration>>((ref) {
   final query = db.select(db.appUsage)..where((t) => t.day.isBiggerOrEqualValue(start));
 
   return query.watch().map(
-        (rows) => bucketByDay(rows.map((r) => (r.day, r.foregroundSeconds)), start),
+        (rows) => bucketByDay(rows.map((r) => (r.day, r.effectiveSeconds)), start),
       );
 });
 
@@ -380,7 +429,7 @@ final windowUsageByPackageProvider = StreamProvider<Map<String, int>>((ref) {
         (rows) => {
           for (final r in rows)
             if (!isExcludedFromScreenTime(r.packageName))
-              r.packageName: r.foregroundSeconds,
+              r.packageName: r.effectiveSeconds,
         },
       );
 });
@@ -405,7 +454,7 @@ final appWeeklyUsageProvider =
     };
     for (final r in rows) {
       final d = startOfDay(r.day.toLocal());
-      byDay[d] = (byDay[d] ?? 0) + r.foregroundSeconds;
+      byDay[d] = (byDay[d] ?? 0) + r.effectiveSeconds;
     }
     return List.generate(7, (i) {
       final day = start.add(Duration(days: i));
@@ -429,7 +478,7 @@ final appPreviousWeekUsageProvider =
         t.packageName.equals(packageName));
 
   return query.watch().map(
-        (rows) => rows.fold<int>(0, (sum, r) => sum + r.foregroundSeconds),
+        (rows) => rows.fold<int>(0, (sum, r) => sum + r.effectiveSeconds),
       );
 });
 
@@ -440,7 +489,7 @@ final appTodayUsageProvider = StreamProvider.family<int, String>((ref, packageNa
   final query = db.select(db.appUsage)
     ..where((t) => t.day.equals(today) & t.packageName.equals(packageName));
   return query.watch().map(
-        (rows) => rows.fold(0, (sum, r) => sum + r.foregroundSeconds),
+        (rows) => rows.fold(0, (sum, r) => sum + r.effectiveSeconds),
       );
 });
 
@@ -453,7 +502,7 @@ final dayScreenTimeProvider = StreamProvider.family<Duration, DateTime>((ref, da
   return query.watch().map((rows) => Duration(
         seconds: rows
             .where((r) => !isExcludedFromScreenTime(r.packageName))
-            .fold(0, (sum, r) => sum + r.foregroundSeconds),
+            .fold(0, (sum, r) => sum + r.effectiveSeconds),
       ));
 });
 
@@ -466,7 +515,7 @@ final dayUsageByPackageProvider =
   final query = db.select(db.appUsage)..where((t) => t.day.equals(start));
   return query.watch().map((rows) => {
         for (final r in rows)
-          if (!isExcludedFromScreenTime(r.packageName)) r.packageName: r.foregroundSeconds,
+          if (!isExcludedFromScreenTime(r.packageName)) r.packageName: r.effectiveSeconds,
       });
 });
 
@@ -484,8 +533,8 @@ final appDayHistoryProvider =
   return query.watch().map((rows) {
     final byDay = <DateTime, int>{};
     for (final r in rows) {
-      byDay.update(startOfDay(r.day.toLocal()), (v) => v + r.foregroundSeconds,
-          ifAbsent: () => r.foregroundSeconds);
+      byDay.update(startOfDay(r.day.toLocal()), (v) => v + r.effectiveSeconds,
+          ifAbsent: () => r.effectiveSeconds);
     }
     final list = <int>[];
     var total = 0;
@@ -618,7 +667,7 @@ final restrictionGroupsProvider = StreamProvider<List<RestrictionGroupView>>((re
     '''
     SELECT rg.id AS group_id, rg.name AS name, rg.daily_limit_seconds AS daily_limit_seconds,
            rg.invincible AS invincible, rga.package_name AS package_name,
-           COALESCE(usage.foreground_seconds, 0) AS pkg_seconds
+           ${mergedUsageSecondsSql} AS pkg_seconds
     FROM restriction_groups rg
     LEFT JOIN restriction_group_apps rga ON rga.group_id = rg.id
     LEFT JOIN app_usage usage ON usage.package_name = rga.package_name AND usage.day = ?

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers.dart';
+import 'usage_merge.dart';
 
 /// Weekly/delta computation for the Home dashboard. Kept separate from
 /// providers.dart so the Home screen imports a small, purpose-shaped
@@ -78,8 +79,8 @@ final previousWeekScreenTimeHoursProvider = StreamProvider<List<double>>((ref) {
       // Drift reads DateTimeColumn as UTC; convert to local before
       // bucketing (see bucketByDay's note) so prior-week deltas match
       // the user's calendar days.
-      byDay.update(startOfDay(r.day.toLocal()), (v) => v + r.foregroundSeconds,
-          ifAbsent: () => r.foregroundSeconds);
+      byDay.update(startOfDay(r.day.toLocal()), (v) => v + r.effectiveSeconds,
+          ifAbsent: () => r.effectiveSeconds);
     }
     return List.generate(7, (i) {
       final day = _daysAgo(13 - i);

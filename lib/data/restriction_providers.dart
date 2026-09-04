@@ -10,6 +10,7 @@ import 'doomscroll_apps.dart';
 import 'doomscroll_providers.dart';
 import 'focus_providers.dart';
 import 'providers.dart';
+import 'usage_merge.dart';
 import 'website_providers.dart';
 
 /// Popular browser packages, the targets of adult-content screen
@@ -62,7 +63,7 @@ final appLimitsProvider = StreamProvider<List<AppLimitView>>((ref) {
   final query = db.customSelect(
     '''
     SELECT al.package_name AS package_name, al.daily_limit_seconds AS daily_limit_seconds,
-           al.enabled AS enabled, COALESCE(usage.foreground_seconds, 0) AS used_seconds
+           al.enabled AS enabled, ${mergedUsageSecondsSql} AS used_seconds
     FROM app_limits al
     LEFT JOIN app_usage usage ON usage.package_name = al.package_name AND usage.day = ?
     ORDER BY used_seconds DESC

@@ -157,6 +157,33 @@ class NativePermissions {
     }
   }
 
+  /// Raw UsageEvents dump for today (resumed/paused/screen events),
+  /// capped to the last [limit] entries:
+  /// [{t (millis), type (int), pkg}]. Diagnostics only.
+  static Future<List<Map<String, dynamic>>> fetchRawUsageEventsToday({int limit = 300}) async {
+    try {
+      final raw = await _channel.invokeMethod<String>('fetchRawUsageEventsToday', limit);
+      if (raw == null || raw.isEmpty) return [];
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } on PlatformException {
+      return [];
+    }
+  }
+
+  /// Native-layer counters for the screen-time report: usage-access
+  /// state, accessibility connectivity, last accessibility event, and
+  /// whether the screen on/off bridge has fired.
+  static Future<Map<String, dynamic>> fetchUsageDiagnostics() async {
+    try {
+      final raw = await _channel.invokeMethod<String>('fetchUsageDiagnostics');
+      if (raw == null || raw.isEmpty) return {};
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } on PlatformException {
+      return {};
+    }
+  }
+
   /// Shows the system BiometricPrompt (or device credential fallback)
   /// and resolves true only on success. Used by Invincible Mode before
   /// restriction changes and by early-ending an invincible session.

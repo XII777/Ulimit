@@ -71,6 +71,15 @@ class AppUsage extends Table {
   // Number of distinct opens (foreground entries) for this package on
   // this day — the doomscroll feature's "reels/shorts count" metric.
   IntColumn get openCount => integer().withDefault(const Constant(0))();
+  // Authoritative foreground seconds as reported by the OS
+  // (UsageStatsManager.totalTimeInForeground — the exact source Digital
+  // Wellbeing shows). Kept SEPARATE from [foregroundSeconds] (the
+  // accessibility tracker's own attribution) so the two accounting
+  // models can never contaminate each other: the tracker's incremental
+  // adds used to stack on top of an OS value that already contained the
+  // same session, double-counting it. Readers combine both via
+  // [mergedUsageSeconds]: OS wins when present, tracker fills gaps.
+  IntColumn get osForegroundSeconds => integer().withDefault(const Constant(0))();
 
   @override
   List<Set<Column>> get uniqueKeys => [

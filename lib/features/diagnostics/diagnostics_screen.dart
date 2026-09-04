@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/diagnostics/diagnostics_log.dart';
+import '../../core/diagnostics/screen_time_diagnostics.dart';
 import '../../core/engine/restriction_engine.dart';
 import '../../core/icons/app_icons.dart';
 import '../../core/theme/premium_components.dart';
@@ -80,6 +82,8 @@ class DiagnosticsScreen extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
                 children: [
                   _CheckCard(checks: checks),
+                  const SizedBox(height: 16),
+                  const _ScreenTimeEngineCard(),
                   const SizedBox(height: 16),
                   _EventLogCard(),
                   const SizedBox(height: 12),
@@ -291,6 +295,208 @@ class _CheckCard extends StatelessWidget {
                 ],
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Screen-time engine: feature-on/working checks + copyable report
+// ---------------------------------------------------------------------------
+
+/// The screen-time specific health card: does the UsageStats sync run,
+/// do events reach the tracker, does the screen-off bridge fire, and is
+/// our stored total within noise of the OS's own number. One button
+/// copies the FULL report (checks + per-app compare + raw OS events +
+/// event log) to the clipboard for sharing.
+class _ScreenTimeEngineCard extends ConsumerStatefulWidget {
+  const _ScreenTimeEngineCard();
+
+  @override
+  ConsumerState<_ScreenTimeEngineCard> createState() => _ScreenTimeEngineCardState();
+}
+
+class _ScreenTimeEngineCardState extends ConsumerState<_ScreenTimeEngineCard> {
+  ScreenTimeReport? _report;
+  bool _building = false;
+  String? _error;
+  bool _copied = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _rebuild();
+  }
+
+  Future<void> _rebuild() async {
+    if (_building) return;
+    _building = true;
+    if (mounted) setState(() => _error = null);
+    try {
+      final db = ref.read(databaseProvider);
+      final report = await ScreenTimeDiagnostics(db).build();
+      if (mounted) setState(() => _report = report);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      _building = false;
+    }
+  }
+
+  Future<void> _copyReport() async {
+    final report = _report;
+    if (report == null) return;
+    await Clipboard.setData(ClipboardData(text: report.render()));
+    if (!mounted) return;
+    setState(() => _copied = true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Screen-time report copied — paste it wherever needed')),
+    );
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _copied = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final report = _report;
+
+    return PremiumCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              AppIcon(AppIconName.stopwatch, size: 14, color: AppColors.inkDim),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text('SCREEN TIME ENGINE',
+                    style: TextStyle(
+                        fontSize: AppText.overline,
+                        color: AppColors.inkDim,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.6)),
+              ),
+              IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                icon: AppIcon(AppIconName.refresh, size: 14, color: AppColors.inkDim),
+                onPressed: _building ? null : _rebuild,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (_error != null)
+            Text('Report failed: $_error',
+                style: TextStyle(fontSize: 11, color: AppColors.inkDim)),
+          if (_building && report == null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text('Building report…',
+                  style: TextStyle(fontSize: 11, color: AppColors.inkFaint)),
+            )
+          else if (report != null) ...[
+            for (final c in report.checks)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 26,
+                      child: Text(c.mark,
+                          style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: c.pass == null
+                                  ? AppColors.inkFaint
+                                  : (c.pass! ? AppColors.ink : AppColors.inkDim))),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(c.label,
+                              style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: c.pass == false ? AppColors.inkDim : AppColors.ink)),
+                          if (c.detail != null) ...[
+                            const SizedBox(height: 1),
+                            Text(c.detail!,
+                                style: TextStyle(
+                                    fontSize: 10.5, height: 1.4, color: AppColors.inkFaint)),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 8),
+            Text('TODAY PER APP — OS vs OURS',
+                style: TextStyle(
+                    fontSize: AppText.overline,
+                    color: AppColors.inkDim,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.6)),
+            const SizedBox(height: 6),
+            if (report.todayRows.isEmpty)
+              Text('No usage rows for today yet.',
+                  style: TextStyle(fontSize: 11, color: AppColors.inkFaint))
+            else
+              ...[
+                for (final r in report.todayRows.take(10))
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(r.package,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 11, color: AppColors.ink)),
+                        ),
+                        Text(
+                          '${formatDurationShort(Duration(seconds: r.effectiveSeconds))}'
+                          '${r.overOs > 0 ? '  (+${Duration(seconds: r.overOs).inMinutes}m over OS)' : ''}',
+                          style: TextStyle(
+                              fontSize: 10.5,
+                              color: r.overOs > 0 ? AppColors.inkDim : AppColors.inkFaint,
+                              fontFeatures: const [FontFeature.tabularFigures()]),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                onPressed: _copyReport,
+                icon: AppIcon(AppIconName.export, size: 13, color: AppColors.ink),
+                label: Text(_copied ? 'Copied' : 'Copy report',
+                    style: TextStyle(fontSize: 12.5, color: AppColors.ink)),
+                style: TextButton.styleFrom(
+                  backgroundColor: AppColors.surface2,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'The report includes permission states, sync health, the '
+              'per-app OS comparison, the raw OS event stream and the '
+              'event log — everything needed to diagnose a mismatch with '
+              'Digital Wellbeing.',
+              style: TextStyle(fontSize: 10.5, height: 1.5, color: AppColors.inkFaint),
+            ),
+          ],
         ],
       ),
     );

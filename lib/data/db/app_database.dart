@@ -32,7 +32,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.connect(super.e);
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   // Migrations are explicit (rather than "just delete and recreate")
   // because this is local user data — wiping someone's focus history on
@@ -128,6 +128,15 @@ class AppDatabase extends _$AppDatabase {
             await _addColumnIfMissing(
                 m, focusSessions, focusSessions.blockDoomscroll, 'block_doomscroll');
           }
+          if (from < 10) {
+            // v9 → v10: separate OS-authoritative usage column. The
+            // accessibility tracker's incremental adds and the
+            // UsageStatsManager sync now write different columns, so a
+            // sync overwrite can never be stacked on by the tracker
+            // (and vice versa). See lib/data/usage_merge.dart.
+            await _addColumnIfMissing(
+                m, appUsage, appUsage.osForegroundSeconds, 'os_foreground_seconds');
+          }
         },
         beforeOpen: (details) async {
           final m = createMigrator();
@@ -152,6 +161,8 @@ class AppDatabase extends _$AppDatabase {
           await _addColumnIfMissing(
               m, ulimitSettings, ulimitSettings.hideNavBar, 'hide_nav_bar');
           await _addColumnIfMissing(m, appUsage, appUsage.openCount, 'open_count');
+          await _addColumnIfMissing(
+              m, appUsage, appUsage.osForegroundSeconds, 'os_foreground_seconds');
           await _addColumnIfMissing(
               m, focusSessions, focusSessions.blockDoomscroll, 'block_doomscroll');
           if (await _tableExists('doomscroll_rules') == false) {

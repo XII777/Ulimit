@@ -14,6 +14,12 @@ import io.flutter.plugin.common.EventChannel
 object UsageEventBridge {
     var sink: EventChannel.EventSink? = null
 
+    /// Sentinel package names — keep in sync with
+    /// lib/core/native/usage_events_channel.dart (UlimitSentinel).
+    const val SCREEN_OFF = "__screen_off__"
+    const val SCREEN_ON = "__screen_on__"
+    const val ACCESSIBILITY_DOWN = "__accessibility_down__"
+
     fun emit(packageName: String, timestampMillis: Long) {
         sink?.success(
             mapOf(
@@ -21,5 +27,8 @@ object UsageEventBridge {
                 "timestamp" to timestampMillis
             )
         )
+        if (packageName == SCREEN_OFF || packageName == SCREEN_ON) {
+            DiagnosticsMarkers.lastAccessibilityEventAt = timestampMillis
+        }
     }
 }

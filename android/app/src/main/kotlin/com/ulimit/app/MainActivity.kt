@@ -176,6 +176,10 @@ class MainActivity : FlutterFragmentActivity() {
                         fetchDayHourlyUsage(call.arguments as? Long ?: System.currentTimeMillis())
                     )
                     "fetchDeviceHourlyUsage" -> result.success(fetchDeviceHourlyUsage())
+                    "fetchRawUsageEventsToday" -> result.success(
+                        fetchRawUsageEventsToday(call.arguments as? Int ?: 300)
+                    )
+                    "fetchUsageDiagnostics" -> result.success(fetchUsageDiagnostics())
                     "exportData" -> result.success(exportData(call.arguments as? String ?: "{}"))
                     "importData" -> pendingImportResult = result
                     else -> result.notImplemented()
@@ -496,9 +500,7 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     lastEventAt = event.timeStamp
                     lastEventWasTracked =
-                        event.packageName != packageName &&
-                        event.packageName != "com.android.launcher" &&
-                        event.packageName != "com.google.android.apps.nexuslauncher"
+                        !ScreenTimeFilter.isExcludedFromScreenTime(event.packageName)
                 }
             }
             if (lastEventWasTracked && lastEventAt > 0) {
@@ -551,9 +553,23 @@ class MainActivity : FlutterFragmentActivity() {
                 val stats = usm.queryUsageStats(
                     android.app.usage.UsageStatsManager.INTERVAL_DAILY,
                     dayStart, dayEnd
-                )
-                for (s in stats ?: continue) {
+                ) ?: continue
+                for (s in stats) {
                     if (s.totalTimeInForeground <= 0) continue
+                    // queryUsageStats returns EVERY daily bucket whose
+                    // interval INTERSECTS [dayStart, dayEnd) — including
+                    // an OPEN bucket that began before this day (e.g.
+                    // today's still-accumulating bucket intersecting
+                    // yesterday's range). Summing it unguarded wrote
+                    // today's whole usage into yesterday too — a
+                    // double-count DW never shows. Ownership rule:
+                    //   - a bucket fully inside this day → count here;
+                    //   - an open/oversized bucket → count it ONLY in
+                    //     the day that contains its lastTimeUsed.
+                    val ownsThisDay = s.firstTimeStamp >= dayStart && s.lastTimeStamp < dayEnd
+                    if (!ownsThisDay) {
+                        if (s.lastTimeUsed < dayStart || s.lastTimeUsed >= dayEnd) continue
+                    }
                     perPackage[s.packageName] =
                         (perPackage[s.packageName] ?: 0L) + s.totalTimeInForeground
                 }
@@ -571,6 +587,88 @@ class MainActivity : FlutterFragmentActivity() {
             out.toString()
         } catch (_: Exception) {
             "[]"
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Screen-time diagnostics (the copyable report cross-checks our
+    // numbers against the OS raw event stream).
+    // ------------------------------------------------------------------
+
+    /**
+     * Raw UsageEvents dump for today (ACTIVITY_RESUMED / PAUSED /
+     * SCREEN_INTERACTIVE / NON_INTERACTIVE), capped to the last [limit]
+     * events: [{t, type, pkg}]. Lets the diagnostics report verify the
+     * OS itself saw every transition our tracker claims to have seen.
+     */
+    private fun fetchRawUsageEventsToday(limit: Int): String {
+        if (!isUsageAccessGranted()) return "[]"
+        return try {
+            val usm = getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
+            val midnight = java.util.Calendar.getInstance().apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            val out = org.json.JSONArray()
+            val events = usm.queryEvents(midnight, System.currentTimeMillis())
+            val event = android.app.usage.UsageEvents.Event()
+            val all = ArrayList<Triple<Long, Int, String>>()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                when (event.eventType) {
+                    android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED,
+                    android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
+                    android.app.usage.UsageEvents.Event.SCREEN_INTERACTIVE,
+                    android.app.usage.UsageEvents.Event.SCREEN_NON_INTERACTIVE ->
+                        all.add(Triple(event.timeStamp, event.eventType, event.packageName ?: "?"))
+                }
+            }
+            val from = (all.size - limit).coerceAtLeast(0)
+            for (i in from until all.size) {
+                val (t, type, pkg) = all[i]
+                out.put(
+                    org.json.JSONObject().apply {
+                        put("t", t)
+                        put("type", type)
+                        put("pkg", pkg)
+                    }
+                )
+            }
+            out.toString()
+        } catch (_: Exception) {
+            "[]"
+        }
+    }
+
+    /**
+     * Diagnostic counters from the native layer: whether the screen
+     * on/off bridge has fired, when the accessibility service last saw
+     * an event, and whether usage access is granted. Read by the
+     * copyable screen-time report to answer "is the feature ON and
+     * actually WORKING?".
+     */
+    private fun fetchUsageDiagnostics(): String {
+        return try {
+            val version = try {
+                packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+            } catch (_: Exception) {
+                "?"
+            }
+            org.json.JSONObject().apply {
+                put("usageAccessGranted", isUsageAccessGranted())
+                put("accessibilityConnected", UlimitAccessibilityService.instance != null)
+                put("lastAccessibilityEventAt", DiagnosticsMarkers.lastAccessibilityEventAt)
+                put("lastScreenOffAt", DiagnosticsMarkers.lastScreenOffAt)
+                put("lastUnlockAt", DiagnosticsMarkers.lastUnlockAt)
+                put("now", System.currentTimeMillis())
+                put("device", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+                put("sdk", android.os.Build.VERSION.SDK_INT)
+                put("appVersion", version)
+            }.toString()
+        } catch (_: Exception) {
+            "{}"
         }
     }
 }
