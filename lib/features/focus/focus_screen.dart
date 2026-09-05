@@ -871,54 +871,58 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
 
             // ---------------- bottom chrome: floating pill buttons,
             //                centred — elevated capsules with shadow
-            //                that levitate over the numbers ----------------
+            //                that levitate over the numbers.
+            //                RepaintBoundary: the 1 Hz countdown digits
+            //                never re-rasterise the shadowed pills. ------
             Positioned(
               left: 0,
               right: 0,
               bottom: 0,
-              child: AnimatedSlide(
-                duration: const Duration(milliseconds: 240),
-                curve: _controlsVisible ? Curves.easeOutCubic : Curves.easeInCubic,
-                offset: _controlsVisible ? Offset.zero : const Offset(0, 1.2),
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 220),
-                  opacity: _controlsVisible ? 1.0 : 0.0,
-                  child: IgnorePointer(
-                    ignoring: !_controlsVisible,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          _FloatPillButton(
-                            // Icon-only pause/rescue — the larger
-                            // primary capsule of the row.
-                            icon: paused ? AppIconName.play : AppIconName.pause,
-                            iconSize: 26,
-                            primary: true,
-                            onTap: () {
-                              unawaited(paused
-                                  ? ref.read(focusControllerProvider).resume()
-                                  : ref.read(focusControllerProvider).pause());
-                              _scheduleHide();
-                            },
-                          ),
-                          const SizedBox(width: 14),
-                          _FloatPillButton(
-                            label: 'End',
-                            onTap: () => confirmEndFocusSession(
-                              context,
-                              ref,
-                              session,
-                              onEnded: _exit,
+              child: RepaintBoundary(
+                child: AnimatedSlide(
+                  duration: const Duration(milliseconds: 240),
+                  curve: _controlsVisible ? Curves.easeOutCubic : Curves.easeInCubic,
+                  offset: _controlsVisible ? Offset.zero : const Offset(0, 1.2),
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 220),
+                    opacity: _controlsVisible ? 1.0 : 0.0,
+                    child: IgnorePointer(
+                      ignoring: !_controlsVisible,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _FloatPillButton(
+                              // Icon-only pause/rescue — the larger
+                              // primary capsule of the row.
+                              icon: paused ? AppIconName.play : AppIconName.pause,
+                              iconSize: 26,
+                              primary: true,
+                              onTap: () {
+                                unawaited(paused
+                                    ? ref.read(focusControllerProvider).resume()
+                                    : ref.read(focusControllerProvider).pause());
+                                _scheduleHide();
+                              },
                             ),
-                          ),
-                          const SizedBox(width: 14),
-                          _FloatPillButton(
-                            label: 'Exit',
-                            onTap: _exit,
-                          ),
-                        ],
+                            const SizedBox(width: 14),
+                            _FloatPillButton(
+                              label: 'End',
+                              onTap: () => confirmEndFocusSession(
+                                context,
+                                ref,
+                                session,
+                                onEnded: _exit,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            _FloatPillButton(
+                              label: 'Exit',
+                              onTap: _exit,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -969,9 +973,12 @@ class _FloatPillButton extends StatelessWidget {
               : Border.all(color: AppColors.stroke),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.45),
-              blurRadius: 18,
-              offset: const Offset(0, 8),
+              // Budgeted shadow: large blurs are the single most
+              // expensive raster op on low-end Mali GPUs — keep radii
+              // small and offsets tight so the chrome never janks.
+              color: Colors.black.withValues(alpha: 0.30),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
@@ -1007,7 +1014,11 @@ class ScreenClockScreen extends StatefulWidget {
 class _ScreenClockScreenState extends State<ScreenClockScreen> {
   static const _autoHideAfter = Duration(seconds: 7);
 
-  late DateTime _now = DateTime.now();
+  /// Owns the 1 Hz tick: the ValueNotifier re-renders ONLY the digits
+  /// (via ValueListenableBuilder + RepaintBoundary) — the scrim, date
+  /// line and chrome never rebuild per second, which is what made the
+  /// clock feel jittery.
+  final ValueNotifier<DateTime> _clock = ValueNotifier(DateTime.now());
   Timer? _ticker;
   Timer? _hideTimer;
   bool _controlsVisible = false;
@@ -1024,7 +1035,7 @@ class _ScreenClockScreenState extends State<ScreenClockScreen> {
     // Immersive, no status bar, no gesture-reveal peek (sticky).
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _now = DateTime.now());
+      _clock.value = DateTime.now();
     });
   }
 
@@ -1032,6 +1043,7 @@ class _ScreenClockScreenState extends State<ScreenClockScreen> {
   void dispose() {
     _ticker?.cancel();
     _hideTimer?.cancel();
+    _clock.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
@@ -1049,13 +1061,17 @@ class _ScreenClockScreenState extends State<ScreenClockScreen> {
     });
   }
 
+  String _dateText(DateTime t) {
+    const weekdays = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const months = [
+      'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
+      'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
+    ];
+    return '${weekdays[t.weekday - 1]}  ${t.day} ${months[t.month - 1]}';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final sinceMidnight = Duration(
-      hours: _now.hour,
-      minutes: _now.minute,
-      seconds: _now.second,
-    );
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: GestureDetector(
@@ -1069,18 +1085,27 @@ class _ScreenClockScreenState extends State<ScreenClockScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
-                  // THE app's rolling numbers — DurationFlow odometer
-                  // wheels with the iOS spring (same widget as the
-                  // countdown and every in-app number).
-                  child: DurationFlow(
-                    sinceMidnight,
-                    showSeconds: true,
-                    style: GoogleFonts.spaceGrotesk(
-                      fontSize: 150,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.ink,
-                      letterSpacing: 2,
-                      fontFeatures: const [FontFeature.tabularFigures()],
+                  // RepaintBoundary + ValueListenableBuilder: the 1 Hz
+                  // rolling digits repaint in ISOLATION — the rest of
+                  // the screen never rebuilds per second.
+                  child: RepaintBoundary(
+                    child: ValueListenableBuilder<DateTime>(
+                      valueListenable: _clock,
+                      builder: (context, now, _) => DurationFlow(
+                        Duration(
+                          hours: now.hour,
+                          minutes: now.minute,
+                          seconds: now.second,
+                        ),
+                        showSeconds: true,
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 150,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.ink,
+                          letterSpacing: 2,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -1091,10 +1116,15 @@ class _ScreenClockScreenState extends State<ScreenClockScreen> {
               alignment: Alignment.bottomCenter,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 28),
-                child: Text(
-                  _dateText(_now),
-                  style: TextStyle(
-                      fontSize: 12, letterSpacing: 1.5, color: AppColors.inkFaint),
+                child: ValueListenableBuilder<DateTime>(
+                  valueListenable: _clock,
+                  builder: (context, now, _) => Text(
+                    _dateText(now),
+                    style: TextStyle(
+                        fontSize: 12,
+                        letterSpacing: 1.5,
+                        color: AppColors.inkFaint),
+                  ),
                 ),
               ),
             ),
@@ -1125,15 +1155,6 @@ class _ScreenClockScreenState extends State<ScreenClockScreen> {
         ),
       ),
     );
-  }
-
-  String _dateText(DateTime t) {
-    const weekdays = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
-    const months = [
-      'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
-      'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
-    ];
-    return '${weekdays[t.weekday - 1]}  ${t.day} ${months[t.month - 1]}';
   }
 }
 

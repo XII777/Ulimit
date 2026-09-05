@@ -215,46 +215,39 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
             ),
             // ---------------- the floating bottom bar ----------------
             // FULL-BLEED: the bar spans the whole screen width; the
-            // search pill + plus float over it with the standard iOS
-            // shrink curve as the plus appears on the Custom/Apps tabs.
+            // search pill + plus float over it. NO width animation:
+            // the field is full width and the plus overlays its right
+            // end — a 340 ms AnimatedContainer width here re-layouted
+            // the text every frame (the typing/tab jank). The hint
+            // clearance switch is a single relayout per tab change.
             Positioned(
               left: 0,
               right: 0,
               bottom: MediaQuery.paddingOf(context).bottom + 10,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: LayoutBuilder(builder: (context, box) {
-                  return SizedBox(
-                    height: 50,
-                    child: Stack(
-                      alignment: Alignment.centerRight,
-                      children: [
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 340),
-                            // iOS-ish standard: long tail, no bounce.
-                            curve: const Cubic(0.32, 0.72, 0, 1),
-                            height: 50,
-                            width: box.maxWidth - (fab.visible ? 66 : 0),
-                            child: AppSearchField(
-                              controller: _searchController,
-                              focusNode: _searchFocus,
-                              hint: 'Search sites, filters or apps…',
-                              textStyle: TextStyle(
-                                  color: AppColors.ink, fontSize: 12),
-                              hintStyle: TextStyle(
-                                  color: AppColors.inkFaint, fontSize: 12),
-                            ),
-                          ),
-                        ),
-                        // Plus — the lift/sink spring already lives inside
-                        // _ActionFab; it rides the bar's right end.
-                        _ActionFab(visible: fab.visible, onTap: fab.onTap),
-                      ],
-                    ),
-                  );
-                }),
+                child: SizedBox(
+                  height: 50,
+                  child: Stack(
+                    alignment: Alignment.centerRight,
+                    children: [
+                      AppSearchField(
+                        controller: _searchController,
+                        focusNode: _searchFocus,
+                        hint: 'Search sites, filters or apps…',
+                        textStyle: TextStyle(color: AppColors.ink, fontSize: 12),
+                        hintStyle:
+                            TextStyle(color: AppColors.inkFaint, fontSize: 12),
+                        // Clears the plus's hit area with ONE relayout
+                        // on tab switch — not a per-frame animation.
+                        hintPaddingRight: fab.visible ? 66 : 0,
+                      ),
+                      // Plus — the lift/sink spring already lives inside
+                      // _ActionFab; it rides the bar's right end.
+                      _ActionFab(visible: fab.visible, onTap: fab.onTap),
+                    ],
+                  ),
+                ),
               ),
             ),
           ],
@@ -783,9 +776,9 @@ class _ActionFab extends StatelessWidget {
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.35),
-                      blurRadius: 18,
-                      offset: const Offset(0, 10),
+                      color: Colors.black.withValues(alpha: 0.30),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
                     ),
                   ],
                 ),

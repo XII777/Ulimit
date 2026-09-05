@@ -18,6 +18,7 @@ class AppSearchField extends StatelessWidget {
     this.textStyle,
     this.hintStyle,
     this.transparent = false,
+    this.hintPaddingRight = 0,
   });
 
   final TextEditingController? controller;
@@ -37,6 +38,11 @@ class AppSearchField extends StatelessWidget {
   /// while the text stays legible. Hairline stroke keeps the tap target
   /// obvious. Used by the Internet bottom bar.
   final bool transparent;
+
+  /// Extra END padding for the hint/text area — reserved for a
+  /// floating action that overlays the field's right end (the plus on
+  /// the Internet bar). Changing it is a single relayout on tab switch.
+  final double hintPaddingRight;
 
   @override
   Widget build(BuildContext context) {
@@ -66,7 +72,12 @@ class AppSearchField extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.pill),
           borderSide: BorderSide(color: AppColors.inkDim),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: EdgeInsets.only(
+          left: 16,
+          right: 16 + hintPaddingRight,
+          top: 14,
+          bottom: 14,
+        ),
       ),
     );
   }
