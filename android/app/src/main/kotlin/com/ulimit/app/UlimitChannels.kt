@@ -216,6 +216,10 @@ object FocusIndicatorCommands {
                             (args?.get("endMillis") as? Number)?.toLong() ?: 0L
                         )
                         putExtra(FocusIndicatorService.EXTRA_PAUSED, args?.get("paused") as? Boolean ?: false)
+                        putExtra(
+                            FocusIndicatorService.EXTRA_FLOATING_PILL,
+                            args?.get("floatingPill") as? Boolean ?: false,
+                        )
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         context.startForegroundService(intent)
@@ -227,11 +231,19 @@ object FocusIndicatorCommands {
                     val intent = Intent(context, FocusIndicatorService::class.java).apply {
                         action = FocusIndicatorService.ACTION_UPDATE
                         putExtra(FocusIndicatorService.EXTRA_LABEL, args?.get("label") as? String ?: "Focus")
+                        val st = (args?.get("startedAtMillis") as? Number)?.toLong() ?: 0L
+                        if (st > 0L) {
+                            putExtra(FocusIndicatorService.EXTRA_STARTED_AT, st)
+                        }
                         putExtra(
                             FocusIndicatorService.EXTRA_END,
                             (args?.get("endMillis") as? Number)?.toLong() ?: 0L
                         )
                         putExtra(FocusIndicatorService.EXTRA_PAUSED, args?.get("paused") as? Boolean ?: false)
+                        putExtra(
+                            FocusIndicatorService.EXTRA_FLOATING_PILL,
+                            args?.get("floatingPill") as? Boolean ?: false,
+                        )
                         // Live doomscroll counting (optional fields).
                         val doomPkg = args?.get("doomPackage") as? String
                         if (doomPkg != null) {

@@ -91,6 +91,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     // POST_NOTIFICATIONS is granted — surface it right on the tile.
     final notificationsOk =
         ref.watch(postNotificationsGrantedProvider).valueOrNull ?? true;
+    // Ulimit's own floating session pill (overlay capsule) + the
+    // one-time "display over other apps" permission it needs.
+    final floatingPillEnabled =
+        ref.watch(floatingPillEnabledProvider).valueOrNull ?? false;
+    final overlayOk = ref.watch(overlayGrantedProvider).valueOrNull ?? false;
 
     // Top spacing is owned by NavShell's collapsing inset.
     return ListView(
@@ -182,6 +187,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                         final tick = ref.read(permissionsRefreshTickProvider.notifier);
                         tick.state++; // recheck permission display
                       }
+                      await ref.read(focusIndicatorSyncProvider).sync();
+                    },
+                  ),
+                ),
+                PremiumListTile(
+                  label: 'Floating Session Pill',
+                  // Ulimit's OWN capsule overlay (rolling remaining
+                  // time) — independent of the system notifications
+                  // channel; needs the one-time overlay grant.
+                  sublabel: !overlayOk
+                      ? 'A small rolling-time capsule above your apps — '
+                          'needs "Display over other apps". Tap to allow.'
+                      : 'Small "● FOCUS · 24:38" capsule with the live '
+                          'remaining time · tap for Pause / End',
+                  onTap: overlayOk
+                      ? null
+                      : () => NativePermissions.openOverlaySettings(),
+                  trailing: Switch(
+                    value: floatingPillEnabled,
+                    onChanged: (v) async {
+                      await ref
+                          .read(settingsControllerProvider)
+                          .setFloatingPillEnabled(v);
+                      if (v && !await NativePermissions.isOverlayGranted()) {
+                        await NativePermissions.openOverlaySettings();
+                        final tick =
+                            ref.read(permissionsRefreshTickProvider.notifier);
+                        tick.state++;
+                      }
+                      // Applies to a LIVE session straight away.
                       await ref.read(focusIndicatorSyncProvider).sync();
                     },
                   ),

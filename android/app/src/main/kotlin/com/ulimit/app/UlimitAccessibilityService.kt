@@ -404,10 +404,15 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
         DiagnosticsMarkers.feedEjects++
         DiagnosticsMarkers.lastFeedEjectAt = now
         DiagnosticsMarkers.lastFeedEjectPkg = packageName
-        overlayManager.showSmallNotice(
-            packageName = packageName,
-            message = "Feed blocked — the rest of the app stays usable",
-        )
+        val appName = try {
+            val info = packageManager.getApplicationInfo(packageName, 0)
+            packageManager.getApplicationLabel(info)?.toString() ?: packageName
+        } catch (_: Exception) {
+            packageName
+        }
+        // Bottom toast + exit (the app keeps working above it) — the
+        // top badge treatment was replaced by request.
+        overlayManager.showBottomToast("$appName — daily feed limit reached")
         pressBack()
     }
 
@@ -726,11 +731,13 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
     }
 
     private fun onBlockedDomainInBrowser(packageName: String, domain: String, source: String) {
-        // A full block PAGE instead of the back press: it says the app
-        // name (Ulimit), the domain, and which filter matched. Its
-        // Back pill performs the actual pressBack once the user is
-        // ready to leave.
-        overlayManager.onWebBack = { pressBack() }
-        overlayManager.showBlockedPage(packageName, domain, source)
+        // Back out + a BOTTOM toast naming the domain and the exact
+        // filter that caught it (custom rule / category). The full-page
+        // takeover was removed by request — the page behind simply
+        // never appears.
+        overlayManager.showBottomToast(
+            "Blocked · $domain — by $source",
+        )
+        pressBack()
     }
 }

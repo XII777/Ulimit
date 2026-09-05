@@ -389,13 +389,55 @@ class BlockOverlayManager(
     }
 
     /**
-     * The browser block page — a FULL-SCREEN opaque takeover shown
-     * inside the browser instead of the silent back press. It states
-     * WHO blocked (Ulimit), WHAT was blocked (the domain) and WHICH
-     * filter caught it (custom rule / category name). The user leaves
-     * through Back (also returns the browser a step) or Close.
+     * Bottom-anchored toast (capsule) — the doom-limit and web-block
+     * confirmations the user asked for: the blocked screen is left via
+     * the service's back press, this rides at the bottom for 2.5s.
      */
-    fun showBlockedPage(packageName: String, domain: String, source: String) {
+    fun showBottomToast(message: String) {
+        dismissOverlay()
+        try {
+            val density = context.resources.displayMetrics.density
+            fun dp(v: Int) = (v * density).toInt()
+
+            val view = TextView(context).apply {
+                text = message
+                setTextColor(Color.parseColor("#F5F5F4"))
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(Color.parseColor("#E6141414"))
+                    cornerRadius = dp(24) * density
+                    setStroke(dp(1), Color.parseColor("#26262A"))
+                }
+                textSize = 12.5f
+                gravity = Gravity.CENTER
+                setPadding(dp(18), dp(9), dp(18), dp(9))
+            }
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                windowType,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                y = dp(42)
+            }
+
+            windowManager.addView(view, params)
+            overlayView = view
+            overlayPackageName = "toast"
+            handler.postDelayed({ dismissOverlay() }, 2500)
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * Superseded by [showBottomToast] (kept as reference for the
+      * takeover-style wording request) — no longer called from the
+      * browser path.
+      */
+     fun showBlockedPage(packageName: String, domain: String, source: String) {
         if (overlayView != null && overlayPackageName == "$packageName#web") return
         dismissOverlay()
         try {

@@ -79,6 +79,14 @@ class SettingsController {
   Future<void> setFocusIndicatorEnabled(bool v) =>
       _update(UlimitSettingsCompanion(focusIndicatorEnabled: Value(v)));
 
+  /// Custom floating focus-session pill (overlay capsule with the live
+  /// rolling remaining time; tap opens the mini control panel).
+  /// Persisted in the legacy `rollingNumberMode` column — the old
+  /// "rolling number display" setting was removed and nothing reads it
+  /// anymore, so the repurpose needs no migration.
+  Future<void> setFloatingPillEnabled(bool v) =>
+      _update(UlimitSettingsCompanion(rollingNumberMode: Value(v)));
+
   /// Marks the permissions onboarding as completed — the cold-start gate
   /// uses this to show a compact "re-enable after update" screen rather
   /// than the full onboarding wizard when Android resets privileged

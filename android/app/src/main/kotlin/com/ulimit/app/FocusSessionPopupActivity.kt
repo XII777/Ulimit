@@ -371,29 +371,11 @@ class FocusSessionPopupActivity : Activity() {
         }
     }
 
-    /** NumberFlow descending roll: the old value lifts away faded,
-     *  the new springs up from under it. */
+    /** NumberFlow descending roll — the SAME shared implementation the
+     *  floating pill uses (RollingDigits), never a second system. */
     private fun rollTo(next: String) {
         lastShownTime = next
-        timeText.animate().cancel()
-        timeText.animate()
-            .alpha(0f)
-            .translationY(-dpF(20f))
-            .setDuration(110)
-            .withEndAction {
-                timeText.text = next
-                timeText.translationY = dpF(20f)
-                timeText.alpha = 0f
-                timeText.animate()
-                    .alpha(1f)
-                    .translationY(0f)
-                    .setDuration(200)
-                    .setInterpolator(
-                        SpringBounceInterpolator(stiffness = 250f, dampingRatio = 0.82f),
-                    )
-                    .start()
-            }
-            .start()
+        RollingDigits.roll(timeText, next, resources.displayMetrics.density)
     }
 
     /** Remaining time: live while running, FROZEN at the moment the

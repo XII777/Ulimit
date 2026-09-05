@@ -24,6 +24,9 @@ final focusIndicatorSyncProvider = Provider<FocusIndicatorSync>((ref) {
   final sync = FocusIndicatorSync(ref);
   ref.listen(activeFocusSessionProvider, (_, __) => sync.sync());
   ref.listen(focusIndicatorEnabledProvider, (_, __) => sync.sync());
+  // Flipping the floating-pill setting applies to a LIVE session
+  // straight away (show/hide), not only on the next transition.
+  ref.listen(floatingPillEnabledProvider, (_, __) => sync.sync());
   ref.listen(doomscrollTodayCountsProvider, (_, __) => sync.sync());
   // Live foreground transitions drive the doomscroll counting on the
   // notification chip: entering a feed app pushes its count to the chip,
@@ -42,6 +45,15 @@ final focusIndicatorSyncProvider = Provider<FocusIndicatorSync>((ref) {
 final focusIndicatorEnabledProvider = StreamProvider<bool>((ref) {
   final db = ref.watch(databaseProvider);
   return db.select(db.ulimitSettings).watchSingle().map((s) => s.focusIndicatorEnabled);
+});
+
+/// Whether the app's OWN floating pill (overlay capsule with the live
+/// rolling remaining time) is enabled. Lives in the repurposed legacy
+/// `rollingNumberMode` column — no schema migration needed. Off by
+/// default; the ongoing-notification Indicator is separate.
+final floatingPillEnabledProvider = StreamProvider<bool>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.select(db.ulimitSettings).watchSingle().map((s) => s.rollingNumberMode);
 });
 
 class FocusIndicatorSync {
@@ -90,14 +102,15 @@ class FocusIndicatorSync {
     }
 
     final live = _doomscrollLive();
-    await EnforcementChannel.startFocusIndicator(
-      label: session.label,
-      startedAt: session.startedAt,
-      endsAt: FocusClock.plannedEnd(session),
-      paused: FocusClock.isPaused(session),
-      doomPackage: live?.$1,
-      doomCount: live?.$2 ?? 0,
-    );
+      await EnforcementChannel.startFocusIndicator(
+        label: session.label,
+        startedAt: session.startedAt,
+        endsAt: FocusClock.plannedEnd(session),
+        paused: FocusClock.isPaused(session),
+        doomPackage: live?.$1,
+        doomCount: live?.$2 ?? 0,
+        floatingPill: _ref.read(floatingPillEnabledProvider).valueOrNull ?? false,
+      );
     if (!_lastShown) {
       _lastShown = true;
       DiagnosticsLog.record(
@@ -141,10 +154,12 @@ class FocusIndicatorSync {
     final live = _doomscrollLive();
     await EnforcementChannel.updateFocusNotification(
       label: session.label,
+      startedAt: session.startedAt,
       endsAt: FocusClock.plannedEnd(session),
       paused: FocusClock.isPaused(session),
       doomPackage: live?.$1,
       doomCount: live?.$2 ?? 0,
+      floatingPill: _ref.read(floatingPillEnabledProvider).valueOrNull ?? false,
     );
   }
 

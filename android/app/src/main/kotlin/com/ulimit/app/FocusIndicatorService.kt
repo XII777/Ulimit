@@ -52,6 +52,10 @@ class FocusIndicatorService : Service() {
         const val EXTRA_STARTED_AT = "startedAtMillis"
         const val EXTRA_END = "endMillis"
         const val EXTRA_PAUSED = "paused"
+        // The custom floating pill (overlay capsule). Independent of the
+        // ongoing notification: shown only when the user enabled it in
+        // Settings AND the overlay permission is granted.
+        const val EXTRA_FLOATING_PILL = "floatingPill"
         // Doomscroll live counting: package the user is currently in
         // (when it's a doomscroll platform) + today's opens for it. The
         // notification text becomes "12 opens today · Reels" while the
@@ -158,6 +162,12 @@ class FocusIndicatorService : Service() {
     private var paused: Boolean = false
     private var doomPackage: String? = null
     private var doomCount: Int = 0
+    private var floatingPillEnabled: Boolean = false
+
+    /// The custom floating overlay capsule — owned by this service so
+    /// its lifecycle is exactly the session's lifecycle (no orphan
+    /// overlay after end / stop / process death cleans up here).
+    private var pill: FocusSessionPill? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -182,10 +192,24 @@ class FocusIndicatorService : Service() {
                 paused = intent.getBooleanExtra(EXTRA_PAUSED, paused)
                 doomPackage = intent.getStringExtra(EXTRA_DOOM_PACKAGE)
                 doomCount = intent.getIntExtra(EXTRA_DOOM_COUNT, doomCount)
+                floatingPillEnabled = intent.getBooleanExtra(EXTRA_FLOATING_PILL, floatingPillEnabled)
                 pushNotification()
+                syncPill()
             }
         }
         return START_STICKY
+    }
+
+    /** Show/refresh or remove the floating capsule — strictly mirroring
+     *  the toggle + overlay permission; session timestamps drive it. */
+    private fun syncPill() {
+        if (!floatingPillEnabled || !FocusSessionPill.canShow(this)) {
+            pill?.hide()
+            pill = null
+            return
+        }
+        val p = pill ?: FocusSessionPill(this).also { pill = it }
+        p.show(startedAtMillis, endMillis, paused)
     }
 
     private fun startAsForeground() {
@@ -373,6 +397,8 @@ class FocusIndicatorService : Service() {
 
     private fun stopEverything() {
         isRunning = false
+        pill?.hide()
+        pill = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
@@ -384,6 +410,8 @@ class FocusIndicatorService : Service() {
 
     override fun onDestroy() {
         isRunning = false
+        pill?.hide()
+        pill = null
         super.onDestroy()
     }
 }

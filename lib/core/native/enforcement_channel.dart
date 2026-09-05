@@ -204,6 +204,7 @@ class EnforcementChannel {
     required bool paused,
     String? doomPackage,
     int doomCount = 0,
+    bool floatingPill = false,
   }) async {
     try {
       await _channel.invokeMethod('startFocusIndicator', {
@@ -213,6 +214,7 @@ class EnforcementChannel {
         'paused': paused,
         if (doomPackage != null) 'doomPackage': doomPackage,
         'doomCount': doomCount,
+        'floatingPill': floatingPill,
       });
     } on PlatformException {
       /* indicator is best-effort presentation */
@@ -227,14 +229,19 @@ class EnforcementChannel {
     required bool paused,
     String? doomPackage,
     int doomCount = 0,
+    bool floatingPill = false,
+    DateTime? startedAt,
   }) async {
     try {
       await _channel.invokeMethod('updateFocusNotification', {
         'label': label,
+        if (startedAt != null)
+          'startedAtMillis': startedAt.millisecondsSinceEpoch,
         'endMillis': endsAt.millisecondsSinceEpoch,
         'paused': paused,
         if (doomPackage != null) 'doomPackage': doomPackage,
         'doomCount': doomCount,
+        'floatingPill': floatingPill,
       });
     } on PlatformException {
     } on MissingPluginException {

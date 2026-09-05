@@ -95,6 +95,24 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
     }
   }
 
+  /// Fullscreen rolling CLOCK (landscape, immersive — HH:MM:SS with
+  /// the app's rolling numbers): lives on the main focus screen, not
+  /// inside the countdown takeover.
+  void _openClock(BuildContext context) {
+    Navigator.of(context, rootNavigator: true).push(
+      PageRouteBuilder(
+        opaque: true,
+        transitionDuration: const Duration(milliseconds: 280),
+        reverseTransitionDuration: const Duration(milliseconds: 220),
+        pageBuilder: (_, __, ___) => const ScreenClockScreen(),
+        transitionsBuilder: (_, animation, __, child) => FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+          child: child,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final customTags = ref.watch(focusTagsProvider).valueOrNull ?? const <FocusTag>[];
@@ -102,7 +120,23 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
       physics: springScrollPhysics,
       padding: EdgeInsets.fromLTRB(20, 16, 20, ref.watch(hideNavBarProvider).valueOrNull == true ? navBarHiddenInset : navBarPillInset),
       children: [
-        Text('Focus', style: Theme.of(context).textTheme.headlineSmall),
+        // The clock lives HERE — on the main (start) focus screen,
+        // beside the title — not inside the countdown takeover.
+        Row(
+          children: [
+            Expanded(
+              child: Text('Focus',
+                  style: Theme.of(context).textTheme.headlineSmall),
+            ),
+            IconButton(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+              icon: AppIcon(AppIconName.clock, size: 17, color: AppColors.inkDim),
+              tooltip: 'Clock',
+              onPressed: () => _openClock(context),
+            ),
+          ],
+        ),
         const SizedBox(height: 4),
         Text('One session. One intention.', style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 22),
@@ -563,21 +597,6 @@ class _RunningFocusView extends ConsumerWidget {
                       child: Text('Full screen', style: TextStyle(color: AppColors.inkDim)),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  // The clock lives on the MAIN focus screen — not
-                  // inside the countdown takeover. Opens a silent,
-                  // steady, edge-to-edge HH:MM:SS wall.
-                  OutlinedButton(
-                    onPressed: () => _openClock(context),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.all(14),
-                      minimumSize: const Size(52, 48),
-                      backgroundColor: AppColors.surface2,
-                      side: BorderSide(color: AppColors.stroke),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-                    ),
-                    child: AppIcon(AppIconName.clock, size: 16, color: AppColors.inkDim),
-                  ),
                 ],
               ),
             ],
@@ -598,26 +617,6 @@ class _RunningFocusView extends ConsumerWidget {
         transitionDuration: const Duration(milliseconds: 280),
         reverseTransitionDuration: const Duration(milliseconds: 220),
         pageBuilder: (_, __, ___) => _FullScreenFocusView(session: session),
-        transitionsBuilder: (_, animation, __, child) => FadeTransition(
-          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
-          child: child,
-        ),
-      ),
-    );
-  }
-
-  /// The full-screen CLOCK — reached from this running focus screen
-  /// (not from the countdown takeover). Silent, steady HH:MM:SS on a
-  /// black immersive canvas: no status bar, no rolling numbers,
-  /// nothing that moves. Tap reveals an Exit pill; it retreats itself
-  /// after a few seconds.
-  void _openClock(BuildContext context) {
-    Navigator.of(context, rootNavigator: true).push(
-      PageRouteBuilder(
-        opaque: true,
-        transitionDuration: const Duration(milliseconds: 280),
-        reverseTransitionDuration: const Duration(milliseconds: 220),
-        pageBuilder: (_, __, ___) => const ScreenClockScreen(),
         transitionsBuilder: (_, animation, __, child) => FadeTransition(
           opacity: CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
           child: child,
@@ -774,22 +773,25 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
 
   void _exit() => Navigator.of(context).pop();
 
-  /// Plain mm:ss / h:mm:ss — deliberately NO rolling animation here.
-  String _fmt(Duration d) {
-    final s = d.isNegative ? Duration.zero : d;
-    final h = s.inHours;
-    final m = s.inMinutes % 60;
-    final sec = s.inSeconds % 60;
-    final mm = m.toString().padLeft(2, '0');
-    final ss = sec.toString().padLeft(2, '0');
-    return h > 0 ? '$h:$mm:$ss' : '$mm:$ss';
-  }
-
   @override
   Widget build(BuildContext context) {
     final remaining = ref.watch(focusRemainingProvider).valueOrNull ?? Duration.zero;
-    final untimed = FocusClock.isUntimed(widget.session);
-    final paused = widget.session.pausedAt != null;
+    // LIVE session row — the frozen widget.session snapshot never
+    // reflects pause/resume, which is why the resume control looked
+    // dead: the UI state could not change. Watch the same stream the
+    // running view uses.
+    final session = ref.watch(activeFocusSessionProvider).valueOrNull;
+    if (session == null) {
+      // Session ended while fullscreen: leave with the next frame.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
+      });
+      return const SizedBox.shrink();
+    }
+    final untimed = FocusClock.isUntimed(session);
+    final paused = session.pausedAt != null;
 
     return Container(
       color: AppColors.bg,
@@ -815,12 +817,11 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
                             color: AppColors.ink,
                           ),
                         )
-                      : Text(
-                          // STATIC digits — the rolling
-                          // (DurationFlow/scroll) effect was
-                          // explicitly removed from fullscreen:
-                          // only the numbers change, nothing moves.
-                          _fmt(remaining),
+                      : DurationFlow(
+                          // THE app rolling numbers — odometer wheels
+                          // with the iOS spring, every changing digit.
+                          remaining,
+                          showSeconds: true,
                           style: GoogleFonts.spaceGrotesk(
                             fontSize: 180,
                             fontWeight: FontWeight.w600,
@@ -850,7 +851,7 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
                       padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
                       child: Center(
                         child: Text(
-                          '${widget.session.label}'
+                          '${session.label}'
                               '${paused ? ' · PAUSED' : ''}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -868,8 +869,9 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
               ),
             ),
 
-            // ---------------- bottom chrome: small bare-text buttons,
-            //                centred — no boxes, no borders ----------------
+            // ---------------- bottom chrome: floating pill buttons,
+            //                centred — elevated capsules with shadow
+            //                that levitate over the numbers ----------------
             Positioned(
               left: 0,
               right: 0,
@@ -884,16 +886,16 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
                   child: IgnorePointer(
                     ignoring: !_controlsVisible,
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          _ChromeButton(
-                            // Icon-only (the text was removed by
-                            // request) and larger than the rest.
+                          _FloatPillButton(
+                            // Icon-only pause/rescue — the larger
+                            // primary capsule of the row.
                             icon: paused ? AppIconName.play : AppIconName.pause,
                             iconSize: 26,
-                            emphasized: true,
+                            primary: true,
                             onTap: () {
                               unawaited(paused
                                   ? ref.read(focusControllerProvider).resume()
@@ -901,18 +903,18 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
                               _scheduleHide();
                             },
                           ),
-                          const SizedBox(width: 22),
-                          _ChromeButton(
+                          const SizedBox(width: 14),
+                          _FloatPillButton(
                             label: 'End',
                             onTap: () => confirmEndFocusSession(
                               context,
                               ref,
-                              widget.session,
+                              session,
                               onEnded: _exit,
                             ),
                           ),
-                          const SizedBox(width: 22),
-                          _ChromeButton(
+                          const SizedBox(width: 14),
+                          _FloatPillButton(
                             label: 'Exit',
                             onTap: _exit,
                           ),
@@ -930,41 +932,59 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
   }
 }
 
-/// One bare fullscreen-chrome button: small icon and/or text on a
-/// generous tap pad — no boxes, no borders, no fill. The primary one
-/// uses [emphasized] (ink) and the rest are [inkDim].
-class _ChromeButton extends StatelessWidget {
-  const _ChromeButton({
+/// One floating pill button for the fullscreen chrome: an elevated,
+/// fully-rounded capsule that levitates above the edge — ink-filled
+/// capsule with the inverse glyph when [primary], otherwise the app's
+/// raised surface2 capsule with a hairline stroke. Press feedback via
+/// [PressableScale], same as every in-app control.
+class _FloatPillButton extends StatelessWidget {
+  const _FloatPillButton({
     required this.onTap,
     this.icon,
     this.label,
-    this.emphasized = false,
-    this.iconSize = 14,
+    this.iconSize = 16,
+    this.primary = false,
   });
 
   final VoidCallback onTap;
   final AppIconName? icon;
   final String? label;
-  final bool emphasized;
   final double iconSize;
+  final bool primary;
 
   @override
   Widget build(BuildContext context) {
-    final color = emphasized ? AppColors.ink : AppColors.inkDim;
+    final color = primary ? AppColors.bg : AppColors.ink;
     return PressableScale(
       onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      child: Container(
+        height: 48,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: primary ? AppColors.ink : AppColors.surface2,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: primary
+              ? null
+              : Border.all(color: AppColors.stroke),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.45),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (icon != null) AppIcon(icon!, size: iconSize, color: color),
-            if (icon != null && label != null) const SizedBox(width: 6),
+            if (icon != null && label != null) const SizedBox(width: 7),
             if (label != null)
               Text(
                 label!,
                 style: TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w600, color: color),
+                    fontSize: 13.5, fontWeight: FontWeight.w600, color: color),
               ),
           ],
         ),
@@ -973,10 +993,10 @@ class _ChromeButton extends StatelessWidget {
   }
 }
 
-/// Full-screen CLOCK from the running focus screen: a steady,
-/// un-animated HH:MM:SS on an edge-to-edge immersive black canvas —
-/// no status bar, no rolling digits, no transitions. The only motion
-/// is the tap-revealed Exit pill, which auto-retreats.
+/// Full-screen CLOCK from the MAIN focus screen: a LANDSCAPE,
+/// edge-to-edge HH:MM:SS wall rolling with the app's own DurationFlow
+/// odometer, immersive (no status bar). The only control is a
+/// floating-pill Exit, revealed by tap and auto-retreating.
 class ScreenClockScreen extends StatefulWidget {
   const ScreenClockScreen({super.key});
 
@@ -995,6 +1015,12 @@ class _ScreenClockScreenState extends State<ScreenClockScreen> {
   @override
   void initState() {
     super.initState();
+    // Landscape wall — the time owns the whole edge, like the
+    // fullscreen countdown.
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     // Immersive, no status bar, no gesture-reveal peek (sticky).
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -1007,16 +1033,15 @@ class _ScreenClockScreenState extends State<ScreenClockScreen> {
     _ticker?.cancel();
     _hideTimer?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
   }
 
   void _poke() {
     setState(() {
-      _controlsVisible = !_controlsVisible ? true : false;
-      if (!_controlsVisible) {
-        _hideTimer?.cancel();
-      } else {
-        _hideTimer?.cancel();
+      _controlsVisible = !_controlsVisible;
+      _hideTimer?.cancel();
+      if (_controlsVisible) {
         _hideTimer = Timer(_autoHideAfter, () {
           if (mounted) setState(() => _controlsVisible = false);
         });
@@ -1024,15 +1049,13 @@ class _ScreenClockScreenState extends State<ScreenClockScreen> {
     });
   }
 
-  String get _timeText {
-    final h = _now.hour.toString().padLeft(2, '0');
-    final m = _now.minute.toString().padLeft(2, '0');
-    final s = _now.second.toString().padLeft(2, '0');
-    return '$h:$m:$s';
-  }
-
   @override
   Widget build(BuildContext context) {
+    final sinceMidnight = Duration(
+      hours: _now.hour,
+      minutes: _now.minute,
+      seconds: _now.second,
+    );
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: GestureDetector(
@@ -1046,11 +1069,14 @@ class _ScreenClockScreenState extends State<ScreenClockScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
-                  // Plain Text — no AnimatedSwitcher, no rolling.
-                  child: Text(
-                    _timeText,
+                  // THE app's rolling numbers — DurationFlow odometer
+                  // wheels with the iOS spring (same widget as the
+                  // countdown and every in-app number).
+                  child: DurationFlow(
+                    sinceMidnight,
+                    showSeconds: true,
                     style: GoogleFonts.spaceGrotesk(
-                      fontSize: 120,
+                      fontSize: 150,
                       fontWeight: FontWeight.w600,
                       color: AppColors.ink,
                       letterSpacing: 2,
@@ -1085,10 +1111,9 @@ class _ScreenClockScreenState extends State<ScreenClockScreen> {
                     alignment: Alignment.bottomCenter,
                     child: Padding(
                       padding: const EdgeInsets.only(bottom: 56),
-                      child: _ChromeButton(
+                      child: _FloatPillButton(
                         icon: AppIconName.close,
                         label: 'Exit',
-                        emphasized: true,
                         onTap: () => Navigator.of(context).pop(),
                       ),
                     ),

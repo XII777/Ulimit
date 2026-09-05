@@ -214,52 +214,47 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
               ],
             ),
             // ---------------- the floating bottom bar ----------------
-            // iOS curve: the search pill smoothly gives up room on its
-            // right when the plus is up (Custom / Apps tabs) and takes
-            // the full width back on Filters. The Scaffold resizes the
-            // body above the keyboard, so this bar rides up with it.
+            // FULL-BLEED: the bar spans the whole screen width; the
+            // search pill + plus float over it with the standard iOS
+            // shrink curve as the plus appears on the Custom/Apps tabs.
             Positioned(
-              left: 16,
-              right: 16,
+              left: 0,
+              right: 0,
               bottom: MediaQuery.paddingOf(context).bottom + 10,
-              child: SizedBox(
-                height: 50,
-                child: Stack(
-                  alignment: Alignment.centerRight,
-                  children: [
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 340),
-                        // iOS-ish standard: long tail, no bounce.
-                        curve: const Cubic(0.32, 0.72, 0, 1),
-                        height: 50,
-                        width: MediaQuery.sizeOf(context).width -
-                            32 -
-                            (fab.visible ? 66 : 0),
-                        child: AppSearchField(
-                          // Float on the page: no fill at all behind the
-                          // field — only a hairline capsule for tappable
-                          // affordance, so the background stays visible.
-                          transparent: true,
-                          controller: _searchController,
-                          focusNode: _searchFocus,
-                          hint: 'Search sites, filters or apps…',
-                          textStyle:
-                              TextStyle(color: AppColors.ink, fontSize: 12),
-                          hintStyle: TextStyle(
-                              color: AppColors.inkFaint, fontSize: 12),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: LayoutBuilder(builder: (context, box) {
+                  return SizedBox(
+                    height: 50,
+                    child: Stack(
+                      alignment: Alignment.centerRight,
+                      children: [
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 340),
+                            // iOS-ish standard: long tail, no bounce.
+                            curve: const Cubic(0.32, 0.72, 0, 1),
+                            height: 50,
+                            width: box.maxWidth - (fab.visible ? 66 : 0),
+                            child: AppSearchField(
+                              controller: _searchController,
+                              focusNode: _searchFocus,
+                              hint: 'Search sites, filters or apps…',
+                              textStyle: TextStyle(
+                                  color: AppColors.ink, fontSize: 12),
+                              hintStyle: TextStyle(
+                                  color: AppColors.inkFaint, fontSize: 12),
+                            ),
+                          ),
                         ),
-                      ),
+                        // Plus — the lift/sink spring already lives inside
+                        // _ActionFab; it rides the bar's right end.
+                        _ActionFab(visible: fab.visible, onTap: fab.onTap),
+                      ],
                     ),
-                    // Plus — the lift/sink spring already lives inside
-                    // _ActionFab; it rides the bar's right end.
-                    Padding(
-                      padding: const EdgeInsets.only(left: 4),
-                      child: _ActionFab(visible: fab.visible, onTap: fab.onTap),
-                    ),
-                  ],
-                ),
+                  );
+                }),
               ),
             ),
           ],
