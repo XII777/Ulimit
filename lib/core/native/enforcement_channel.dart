@@ -285,7 +285,8 @@ class InstalledApp {
 /// Writes the enabled-domain filter file and asks native to reload it.
 /// Kept as a small service rather than inline logic so every writer
 /// (custom rule toggle, list download, category toggle) produces an
-/// identical, atomic update.
+/// identical, atomic update. An optional sources sidecar (`domain|Human
+/// label`) lets the browser block page name WHICH filter caught a hit.
 class DomainFilterSync {
   DomainFilterSync(this._path);
 
@@ -293,12 +294,29 @@ class DomainFilterSync {
 
   static const _placeholder = '';
 
-  Future<void> sync(Set<String> enabledDomains) async {
+  String get _sourcesPath =>
+      p.join(p.dirname(_path), 'blocked_domain_sources.txt');
+
+  Future<void> sync(
+      Set<String> enabledDomains, Map<String, String> sources) async {
     if (_path.isEmpty) return;
     final file = File(_path);
     final tmp = File(p.join(p.dirname(_path), '.${p.basename(_path)}.tmp'));
     await tmp.writeAsString(enabledDomains.join('\n'), flush: true);
     await tmp.rename(file.path);
+
+    final srcFile = File(_sourcesPath);
+    if (sources.isEmpty) {
+      if (await srcFile.exists()) await srcFile.delete();
+    } else {
+      final srcTmp = File('$_sourcesPath.tmp');
+      await srcTmp.writeAsString(
+        sources.entries.map((e) => '${e.key}|${e.value}').join('\n'),
+        flush: true,
+      );
+      await srcTmp.rename(srcFile.path);
+    }
+
     await EnforcementChannel.reloadDomainFilter();
   }
 

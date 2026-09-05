@@ -388,6 +388,153 @@ class BlockOverlayManager(
         }
     }
 
+    /**
+     * The browser block page — a FULL-SCREEN opaque takeover shown
+     * inside the browser instead of the silent back press. It states
+     * WHO blocked (Ulimit), WHAT was blocked (the domain) and WHICH
+     * filter caught it (custom rule / category name). The user leaves
+     * through Back (also returns the browser a step) or Close.
+     */
+    fun showBlockedPage(packageName: String, domain: String, source: String) {
+        if (overlayView != null && overlayPackageName == "$packageName#web") return
+        dismissOverlay()
+        try {
+            val density = context.resources.displayMetrics.density
+            fun dp(v: Int) = (v * density).toInt()
+            fun rounded(color: String, radiusDp: Float) =
+                GradientDrawable().apply {
+                    setColor(Color.parseColor(color))
+                    cornerRadius = radiusDp * density
+                }
+            fun iconHolder(size: Int, icon: android.graphics.drawable.Drawable?, iconSize: Int) =
+                android.widget.FrameLayout(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(size), dp(size)).apply {
+                        gravity = Gravity.CENTER_HORIZONTAL
+                    }
+                    background = rounded("#1FFFFFFF", 20f)
+                    icon?.let {
+                        addView(
+                            ImageView(context).apply {
+                                setImageDrawable(it)
+                                layoutParams = android.widget.FrameLayout.LayoutParams(
+                                    dp(iconSize), dp(iconSize), Gravity.CENTER
+                                )
+                            },
+                        )
+                    }
+                }
+            fun spacer(h: Int = 0, wWidth: Int = 0, w: Float = 0f) =
+                LinearLayout.LayoutParams(wWidth, h).apply { weight = w }
+
+            val ulimitIcon = try {
+                context.packageManager.getApplicationIcon(context.packageName)
+            } catch (_: Exception) {
+                null
+            }
+
+            val root = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(Color.parseColor("#0A0A0B"))
+                setPadding(dp(28), dp(40), dp(28), dp(28))
+            }
+            root.addView(iconHolder(72, ulimitIcon, 44))
+            root.addView(
+                TextView(context).apply {
+                    text = "Blocked by Ulimit"
+                    setTextColor(Color.parseColor("#F5F5F4"))
+                    textSize = 22f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(18), 0, 0)
+                },
+            )
+            root.addView(
+                TextView(context).apply {
+                    text = domain
+                    setTextColor(Color.parseColor("#F5F5F4"))
+                    textSize = 15f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    gravity = Gravity.CENTER
+                    setPadding(dp(8), dp(12), dp(8), 0)
+                },
+            )
+            root.addView(
+                TextView(context).apply {
+                    text = "\"$source\" is holding this site. Manage your block lists in Ulimit → Internet & Sites."
+                    setTextColor(Color.parseColor("#A3A3A6"))
+                    textSize = 13.5f
+                    gravity = Gravity.CENTER
+                    setLineSpacing(dp(3).toFloat(), 1f)
+                    setPadding(dp(10), dp(8), dp(10), 0)
+                },
+            )
+            // flexible space, then the action pills at the bottom
+            root.addView(
+                View(context),
+                LinearLayout.LayoutParams(0, 0, 1f),
+            )
+            val rows = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            rows.addView(
+                TextView(context).apply {
+                    text = "Back"
+                    setTextColor(Color.parseColor("#0D0D0F"))
+                    textSize = 14f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    gravity = Gravity.CENTER
+                    background = rounded("#F5F5F4", 26f)
+                    setPadding(dp(34), dp(14), dp(34), dp(14))
+                    setOnClickListener {
+                        dismissOverlay()
+                        onWebBack?.invoke()
+                    }
+                },
+            )
+            rows.addView(View(context), LinearLayout.LayoutParams(dp(12), 1))
+            rows.addView(
+                TextView(context).apply {
+                    text = "Stay"
+                    setTextColor(Color.parseColor("#F5F5F4"))
+                    textSize = 14f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    gravity = Gravity.CENTER
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#14FFFFFF"))
+                        cornerRadius = 26f * density
+                        setStroke(dp(1), Color.parseColor("#3A3A3E"))
+                    }
+                    setPadding(dp(34), dp(14), dp(34), dp(14))
+                    // Staying = dismiss the page; the browser tab stays
+                    // on whatever rendered behind it. A reload back to
+                    // the blocked URL re-triggers the scan naturally.
+                    setOnClickListener { dismissOverlay() }
+                },
+            )
+            root.addView(rows)
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                windowType,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT,
+            )
+            windowManager.addView(root, params)
+            overlayView = root
+            // Package-scoped key so the BLOCKED-page dedupe doesn't fight
+            // an app-block sheet for the same browser.
+            overlayPackageName = "$packageName#web"
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Invoked by the blocked page's Back pill (the accessibility host
+     *  wires this to its own performGlobalAction). */
+    var onWebBack: (() -> Unit)? = null
+
     private fun formatRemainingTime(millis: Long): String {
         val totalSec = (millis / 1000).coerceAtLeast(0L)
         val h = totalSec / 3600

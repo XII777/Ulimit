@@ -363,6 +363,15 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
             "__doom_open__:" + packageName,
             now
         )
+        // Refresh the notification chip straight from the detector —
+        // the Dart side only sees sentinels while its EventChannel is
+        // attached, but a scrolling counter must tick on the chip even
+        // when the app was swiped away.
+        FocusIndicatorService.pushDoomState(
+            this,
+            packageName,
+            PolicySnapshot.doomscrollCounts(this)[packageName] ?: 0,
+        )
     }
 
     /** True while [packageName]'s feed should be blocked right now:
@@ -637,17 +646,45 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
 
         for (match in FQDN_REGEX.findAll(text)) {
             val candidate = match.value.lowercase().trimEnd('.')
-            if (candidate in domains || domains.any { candidate.endsWith(".$it") }) {
-                // Blocked domain present in the visible browser content.
-                // Back out and lock the package until it changes screens.
+            val matched = domains.firstOrNull { candidate == it || candidate.endsWith(".$it") }
+            if (matched != null) {
                 BrowserScanMarkers.blocks++
                 BrowserScanMarkers.lastBlockAt = now
                 BrowserScanMarkers.lastBlockDomain = candidate
-                onBlockedDomainInBrowser(packageName, candidate)
+                // Full block PAGE (not a back + toast): names the
+                // filter that caught it and the app, then the user
+                // leaves via Back/Stay themselves.
+                onBlockedDomainInBrowser(packageName, candidate, sourceOf(matched))
                 return
             }
         }
     }
+
+    /** Label of the filter behind [domain] — custom block, or the
+     *  human category name from the sibling sources map file. */
+    private fun sourceOf(domain: String): String {
+        try {
+            val file = java.io.File(filesDir, "blocked_domain_sources.txt")
+            if (!file.exists()) return "Ulimit block list"
+            if (fileSourcesStamp != file.lastModified()) {
+                fileSourcesStamp = file.lastModified()
+                cachedSources = file.readLines()
+                    .mapNotNull { line ->
+                        val i = line.indexOf('|')
+                        if (i <= 0) null
+                        else line.substring(0, i).trim().lowercase() to
+                            line.substring(i + 1).trim()
+                    }
+                    .toMap()
+            }
+            return cachedSources[domain] ?: "Ulimit block list"
+        } catch (_: Exception) {
+            return "Ulimit block list"
+        }
+    }
+
+    private var fileSourcesStamp = -1L
+    private var cachedSources: Map<String, String> = emptyMap()
 
     /** Traverses the active window's node tree and gathers visible text.
      * Bounded: stops after a node/char budget so a huge DOM or a deep
@@ -688,14 +725,12 @@ class UlimitAccessibilityService : AccessibilityService(), BlockEngine.Ejector {
         }
     }
 
-    private fun onBlockedDomainInBrowser(packageName: String, domain: String) {
-        // One visible notice, then an automatic back. The back also
-        // covers the case where the user manually entered a blocked
-        // URL in the address bar (the typed URL shows up in the text).
-        overlayManager.showSmallNotice(
-            packageName = packageName,
-            message = "Adult content blocked: $domain",
-        )
-        pressBack()
+    private fun onBlockedDomainInBrowser(packageName: String, domain: String, source: String) {
+        // A full block PAGE instead of the back press: it says the app
+        // name (Ulimit), the domain, and which filter matched. Its
+        // Back pill performs the actual pressBack once the user is
+        // ready to leave.
+        overlayManager.onWebBack = { pressBack() }
+        overlayManager.showBlockedPage(packageName, domain, source)
     }
 }

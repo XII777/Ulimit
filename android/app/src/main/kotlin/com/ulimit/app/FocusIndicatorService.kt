@@ -79,6 +79,33 @@ class FocusIndicatorService : Service() {
                 true
             }
 
+        /**
+         * Push the live doomscroll count to the chip straight from the
+         * detector (accessibility service calls this on every counted
+         * session): while the app itself is swiped away its Dart side
+         * gets no events, but the notification must still climb.
+         * No-ops when no indicator is running; label/timer fields keep
+         * their current values (the action only overwrites extras that
+         * are actually passed).
+         */
+        fun pushDoomState(context: Context, packageName: String?, count: Int) {
+            if (!isRunning) return
+            try {
+                context.startService(
+                    Intent(context, FocusIndicatorService::class.java).apply {
+                        action = ACTION_UPDATE
+                        if (packageName != null) {
+                            putExtra(EXTRA_DOOM_PACKAGE, packageName)
+                            putExtra(EXTRA_DOOM_COUNT, count)
+                        } else {
+                            putExtra(EXTRA_DOOM_PACKAGE, "")
+                        }
+                    }
+                )
+            } catch (_: Exception) {
+            }
+        }
+
         fun channelImportance(context: Context): Int =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 (context.getSystemService(android.content.Context.NOTIFICATION_SERVICE)
@@ -169,33 +196,19 @@ class FocusIndicatorService : Service() {
                 "notifications disabled for the app"
             } else null
         }
-        // Escalating attempt ladder: OEM stacks (ColorOS here) reject
-        // individual FGS types inconsistently; whichever start succeeds
-        // wins, and the FIRST REASON is recorded for the report instead
-        // of a silent dead pill.
+        // The notification is no longer call-styled, so the SERVICE is
+        // no longer a phoneCall either — specialUse (the honest type
+        // for a session timer) with an untyped fallback for OEM stacks
+        // that reject it.
         val notification = buildNotification()
         val errors = StringBuilder()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            // phoneCall type: REQUIRED for CallStyle — a
-            // specialUse-typed service's CallStyle notification is
-            // rejected/demoted on Android 14+.
-            try {
-                startForeground(
-                    NOTIFICATION_ID, notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL
-                )
-                isRunning = true
-                return
-            } catch (t: Throwable) {
-                errors.append("phoneCall: ${t.message}; ")
-            }
             try {
                 startForeground(
                     NOTIFICATION_ID, notification,
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
                 )
                 isRunning = true
-                lastStartError = "phoneCall rejected ($errors)→specialUse"
                 return
             } catch (t: Throwable) {
                 errors.append("specialUse: ${t.message}; ")
@@ -302,22 +315,15 @@ class FocusIndicatorService : Service() {
             builder.setSubText("$doomCount scrolls today · $appName")
         }
 
-        // API 31+: promote to the call-style surface — it is the only
-        // channel to the status-bar DURATION PILL. The old generic
-        // Person avatar rendered as the system "call person" glyph —
-        // the call icon; the avatar now carries the app's focus-ring
-        // icon instead, so the pill reads meditation/focus, not phone.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val person = Person.Builder()
-                .setName(label)
-                .setIcon(Icon.createWithResource(this, R.drawable.ic_stat_focus))
-                .setImportant(true)
-                .build()
-            val callStyle = Notification.CallStyle
-                .forOngoingCall(person, openPopupIntent())
-            builder.setStyle(callStyle)
-            builder.setCategory(Notification.CATEGORY_CALL)
-        }
+        // The status-bar presence: an ongoing notification with our
+        // focus-ring small icon. NO CallStyle / CATEGORY_CALL — that
+        // surface forced the system call affordances (person avatar =
+        // the call icon, a hang-up button, a full-screen call answer
+        // sheet). The plain ongoing notification keeps the app icon
+        // visible in the status bar while the session runs, taps open
+        // our own fly-out popup, and the action row stays ours (no
+        // hang-up anywhere).
+        builder.setCategory(Notification.CATEGORY_PROGRESS)
 
         return builder.build()
     }

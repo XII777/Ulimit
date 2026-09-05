@@ -9,12 +9,10 @@
          specialUse (DNS-level filtering is its exact purpose). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Required for the call-style Focus Session notification (the
-         status-bar duration chip) on several Android versions. -->
-    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
-    <!-- Android 14+ additionally requires the phoneCall FGS permission
-         for CallStyle notifications to be posted. -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <!-- The Focus Session indicator is a plain ongoing notification on a
+         specialUse foreground service — deliberately NOT call-styled
+         (no call avatar, no hang-up button, no phoneCall FGS type that
+         would light up the system "phone in use" privacy dot). -->
 
     <!-- Usage access (special, user-granted in system Settings → Usage
          access): lets the app read UsageStatsManager's authoritative

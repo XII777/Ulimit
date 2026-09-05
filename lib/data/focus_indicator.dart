@@ -29,6 +29,13 @@ final focusIndicatorSyncProvider = Provider<FocusIndicatorSync>((ref) {
   // notification chip: entering a feed app pushes its count to the chip,
   // leaving it restores the plain countdown text.
   ref.listen(liveForegroundProvider, (_, __) => sync.syncDoomscrollChip());
+  // A counted scroll session pushes the chip counter IMMEDIATELY —
+  // without waiting for a foreground transition (the user keeps
+  // scrolling the same app, so foreground events are rare while the
+  // count climbs every second).
+  UsageTracker.doomSessionTick.addListener(() {
+    unawaited(sync.syncDoomscrollChip());
+  });
   return sync;
 });
 

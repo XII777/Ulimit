@@ -37,6 +37,14 @@ final class AppTheme {
         error: c.danger,
         onError: c.bg,
       ),
+      // NEVER the framework default (which paints amber/yellow
+      // selection + handles on some OEM builds): every text-editing
+      // affordance stays in the monochrome palette.
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: c.ink,
+        selectionColor: c.inkDim.withValues(alpha: 0.30),
+        selectionHandleColor: c.ink,
+      ),
       // Switch: strong-contrast thumb when active, muted when off.
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(

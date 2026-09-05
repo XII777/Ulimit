@@ -91,8 +91,10 @@ class FocusSessionPopupActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Full-window scrim so the sheet visibly DROPS out of the
-        // status-bar chip over whatever was on screen.
+        // Fly-out sheet: the window stays fully transparent except the
+        // card itself — no dim, no full-screen surface. Tap outside =
+        // dismiss (the scrim's click handler), the card swallows its
+        // own taps.
         window.requestFeature(Window.FEATURE_NO_TITLE)
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
@@ -102,7 +104,7 @@ class FocusSessionPopupActivity : Activity() {
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
         )
-        window.setDimAmount(0.5f)
+        window.setDimAmount(0f)
 
         val label = intent.getStringExtra(EXTRA_LABEL) ?: "Focus"
         paused = intent.getBooleanExtra(EXTRA_PAUSED, false)
@@ -112,7 +114,7 @@ class FocusSessionPopupActivity : Activity() {
         val doomCount = intent.getIntExtra(EXTRA_DOOM_COUNT, 0)
 
         val scrim = FrameLayout(this).apply {
-            setBackgroundColor(0x59000000) // theme bg at ~35%
+            setBackgroundColor(0x01000000) // hit-sink only, no visual
             setOnClickListener { springOutAndFinish() }
         }
 
@@ -120,22 +122,26 @@ class FocusSessionPopupActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 setColor(0xFF141414.toInt()) // card surface
-                val r = dpF(26f)
-                // Top corners rounded, bottom square: a sheet hanging
-                // off the status bar, like the system's call sheet.
-                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+                // All corners rounded + light elevation: a floating
+                // fly-out card, not an edge-attached sheet.
+                cornerRadius = dpF(26f)
                 setStroke(max(1, dpF(1.2f).toInt()), 0xFF26262A.toInt())
             }
-            setPadding(dp(22), dp(52), dp(22), dp(20))
+            elevation = dpF(18f)
+            setPadding(dp(22), dp(20), dp(22), dp(20))
             isClickable = true // card taps must not reach the scrim
         }
         scrim.addView(
             card,
             FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP,
-            ),
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                // Top-end: right under the status-bar icon the user
+                // tapped — a fly-out, with side margin.
+                Gravity.TOP or Gravity.END,
+            ).apply {
+                setMargins(dp(120), dp(44), dp(16), dp(16))
+            },
         )
 
         buildHeader(label)
@@ -204,7 +210,10 @@ class FocusSessionPopupActivity : Activity() {
         )
         header.addView(
             col,
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
                 marginStart = dp(12)
                 marginEnd = dp(8)
             },
@@ -282,7 +291,10 @@ class FocusSessionPopupActivity : Activity() {
     }
 
     private fun buildButtons() {
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
 
         toggleBtn = pill(if (paused) "Resume" else "Pause", filled = true) {
             sendAction(
@@ -295,13 +307,21 @@ class FocusSessionPopupActivity : Activity() {
             statusText.text = if (paused) "Paused" else "Session running"
             toggleBtn.text = if (paused) "Resume" else "Pause"
         }
-        row.addView(toggleBtn, weightedPill(dp(48), 1f).apply { marginEnd = dp(6) })
+        row.addView(
+            toggleBtn,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(46))
+                .apply { marginEnd = dp(8) },
+        )
 
         val end = pill("End", filled = false) {
             sendAction(FocusSessionActionReceiver.ACTION_END)
             finish()
         }
-        row.addView(end, weightedPill(dp(48), 1f).apply { marginStart = dp(6) })
+        row.addView(
+            end,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(46))
+                .apply { marginStart = dp(8) },
+        )
 
         card.addView(
             row,
@@ -455,6 +475,8 @@ class FocusSessionPopupActivity : Activity() {
         TextView(this).apply {
             text = label
             gravity = Gravity.CENTER
+            minWidth = dp(124)
+            setPadding(dp(22), 0, dp(22), 0)
             setTextColor(if (filled) 0xFF0D0D0F.toInt() else 0xFFF5F5F4.toInt())
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
             setTypeface(typeface, Typeface.BOLD)
@@ -465,9 +487,6 @@ class FocusSessionPopupActivity : Activity() {
             }
             setOnClickListener { onTap() }
         }
-
-    private fun weightedPill(h: Int, wgt: Float) =
-        LinearLayout.LayoutParams(0, h, wgt)
 
     private fun frameLp(w: Int, h: Int) =
         FrameLayout.LayoutParams(w, h, Gravity.START)

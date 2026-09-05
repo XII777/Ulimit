@@ -162,84 +162,104 @@ class _InternetSitesScreenState extends ConsumerState<InternetSitesScreen>
       backgroundColor: AppColors.bg,
       body: SafeArea(
         bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        // Full-width floating layout: lists scroll all the way down, and
+        // the SEARCH pill + plus hover over them at the bottom edge with
+        // NO panel behind them — the page background shows through.
+        child: Stack(
           children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: PremiumHeader(
-                title: 'Internet & Sites',
-                subtitle: 'Local, on-device filtering — no remote proxy',
-              ),
-            ),
-            const SizedBox(height: 18),
-            const _VpnCard(),
-            const SizedBox(height: 14),
-            // Column selector (Filters / Custom / Apps) — the pills line
-            // above the lists. The search field + the conditional plus
-            // now live at the BOTTOM of the page, so the pills own the
-            // full line here.
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: SizedBox(
-                height: 48,
-                child: Align(
-                  alignment: Alignment.centerLeft,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: PremiumHeader(
+                    title: 'Internet & Sites',
+                    subtitle: 'Local, on-device filtering — no remote proxy',
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const _VpnCard(),
+                const SizedBox(height: 14),
+                // Column selector (Filters / Custom / Apps) — own row,
+                // just under Protection.
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: SizedBox(
-                    width: 250,
-                    child: _ColumnPills(
-                      controller: _pageController,
-                      activeIndex: _column,
-                      onTap: _goToColumn,
+                    height: 48,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: SizedBox(
+                        width: 250,
+                        child: _ColumnPills(
+                          controller: _pageController,
+                          activeIndex: _column,
+                          onTap: _goToColumn,
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Expanded(
-              child: PageView(
-                controller: _pageController,
-                onPageChanged: _onPageChanged,
-                children: [
-                  _FiltersColumn(query: _query),
-                  _CustomColumn(query: _query),
-                  _AppsColumn(query: _query),
-                ],
-              ),
-            ),
-            // Bottom search bar: ONLY the search field and the plus
-            // button ride here. The row sits inside the Column (not over
-            // the lists), so list content never hides behind it — and
-            // with the keyboard up, Scaffold's resize pushes the bar
-            // right above it, so the field stays on screen while typing.
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                16,
-                6,
-                16,
-                MediaQuery.viewInsetsOf(context).bottom > 0
-                    ? 10
-                    : MediaQuery.paddingOf(context).bottom + 10,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: AppSearchField(
-                      controller: _searchController,
-                      focusNode: _searchFocus,
-                      hint: 'Search sites, filters or apps…',
-                      textStyle:
-                          TextStyle(color: AppColors.ink, fontSize: 12),
-                      hintStyle: TextStyle(
-                          color: AppColors.inkFaint, fontSize: 12),
-                    ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: PageView(
+                    controller: _pageController,
+                    onPageChanged: _onPageChanged,
+                    children: [
+                      _FiltersColumn(query: _query),
+                      _CustomColumn(query: _query),
+                      _AppsColumn(query: _query),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  // Plus — lifts in/out on the column condition (always
-                  // on Custom) with its slide+scale+fade spring.
-                  _ActionFab(visible: fab.visible, onTap: fab.onTap),
-                ],
+                ),
+              ],
+            ),
+            // ---------------- the floating bottom bar ----------------
+            // iOS curve: the search pill smoothly gives up room on its
+            // right when the plus is up (Custom / Apps tabs) and takes
+            // the full width back on Filters. The Scaffold resizes the
+            // body above the keyboard, so this bar rides up with it.
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.paddingOf(context).bottom + 10,
+              child: SizedBox(
+                height: 50,
+                child: Stack(
+                  alignment: Alignment.centerRight,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 340),
+                        // iOS-ish standard: long tail, no bounce.
+                        curve: const Cubic(0.32, 0.72, 0, 1),
+                        height: 50,
+                        width: MediaQuery.sizeOf(context).width -
+                            32 -
+                            (fab.visible ? 66 : 0),
+                        child: AppSearchField(
+                          // Float on the page: no fill at all behind the
+                          // field — only a hairline capsule for tappable
+                          // affordance, so the background stays visible.
+                          transparent: true,
+                          controller: _searchController,
+                          focusNode: _searchFocus,
+                          hint: 'Search sites, filters or apps…',
+                          textStyle:
+                              TextStyle(color: AppColors.ink, fontSize: 12),
+                          hintStyle: TextStyle(
+                              color: AppColors.inkFaint, fontSize: 12),
+                        ),
+                      ),
+                    ),
+                    // Plus — the lift/sink spring already lives inside
+                    // _ActionFab; it rides the bar's right end.
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: _ActionFab(visible: fab.visible, onTap: fab.onTap),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -467,13 +487,13 @@ class _FiltersColumn extends ConsumerWidget {
         if (ordered.isEmpty && !showSiteHits) {
           return ListView(
             physics: springScrollPhysics,
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 96),
             children: const [_EmptyHint(text: 'No filters match this search')],
           );
         }
         return ListView(
           physics: springScrollPhysics,
-          padding: EdgeInsets.fromLTRB(20, showSiteHits ? 4 : 18, 20, 8),
+          padding: EdgeInsets.fromLTRB(20, showSiteHits ? 4 : 18, 20, 96),
           children: [
               if (showSiteHits) ...[
               const Padding(
@@ -593,7 +613,7 @@ class _CustomColumn extends ConsumerWidget {
         if (filtered.isEmpty) {
           return ListView(
             physics: springScrollPhysics,
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 96),
             children: [
               _EmptyHint(
                 text: q.isEmpty
@@ -605,7 +625,7 @@ class _CustomColumn extends ConsumerWidget {
         }
         return ListView.builder(
           physics: springScrollPhysics,
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 96),
           itemCount: filtered.length,
           // Breathing room between toggle rows so switches never crowd.
           itemBuilder: (context, i) => Padding(
@@ -646,7 +666,7 @@ class _AppsColumn extends ConsumerWidget {
         if (filtered.isEmpty) {
           return ListView(
             physics: springScrollPhysics,
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 96),
             children: [
               _EmptyHint(
                 text: q.isEmpty
@@ -658,7 +678,7 @@ class _AppsColumn extends ConsumerWidget {
         }
         return ListView.builder(
           physics: springScrollPhysics,
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 96),
           itemCount: filtered.length,
           itemBuilder: (context, i) => Padding(
             padding: const EdgeInsets.only(bottom: 12),

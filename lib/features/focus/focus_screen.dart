@@ -98,9 +98,7 @@ class _IdleFocusViewState extends ConsumerState<_IdleFocusView> {
   @override
   Widget build(BuildContext context) {
     final customTags = ref.watch(focusTagsProvider).valueOrNull ?? const <FocusTag>[];
-    final colored = ref.watch(coloredSessionTagsProvider).valueOrNull ?? false;
-
-    return ListView(
+    final colored = ref.watch(coloredSessionTagsProvider).valueOrNull ?? false;    return ListView(
       physics: springScrollPhysics,
       padding: EdgeInsets.fromLTRB(20, 16, 20, ref.watch(hideNavBarProvider).valueOrNull == true ? navBarHiddenInset : navBarPillInset),
       children: [
@@ -565,6 +563,21 @@ class _RunningFocusView extends ConsumerWidget {
                       child: Text('Full screen', style: TextStyle(color: AppColors.inkDim)),
                     ),
                   ),
+                  const SizedBox(width: 10),
+                  // The clock lives on the MAIN focus screen — not
+                  // inside the countdown takeover. Opens a silent,
+                  // steady, edge-to-edge HH:MM:SS wall.
+                  OutlinedButton(
+                    onPressed: () => _openClock(context),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.all(14),
+                      minimumSize: const Size(52, 48),
+                      backgroundColor: AppColors.surface2,
+                      side: BorderSide(color: AppColors.stroke),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+                    ),
+                    child: AppIcon(AppIconName.clock, size: 16, color: AppColors.inkDim),
+                  ),
                 ],
               ),
             ],
@@ -585,6 +598,26 @@ class _RunningFocusView extends ConsumerWidget {
         transitionDuration: const Duration(milliseconds: 280),
         reverseTransitionDuration: const Duration(milliseconds: 220),
         pageBuilder: (_, __, ___) => _FullScreenFocusView(session: session),
+        transitionsBuilder: (_, animation, __, child) => FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  /// The full-screen CLOCK — reached from this running focus screen
+  /// (not from the countdown takeover). Silent, steady HH:MM:SS on a
+  /// black immersive canvas: no status bar, no rolling numbers,
+  /// nothing that moves. Tap reveals an Exit pill; it retreats itself
+  /// after a few seconds.
+  void _openClock(BuildContext context) {
+    Navigator.of(context, rootNavigator: true).push(
+      PageRouteBuilder(
+        opaque: true,
+        transitionDuration: const Duration(milliseconds: 280),
+        reverseTransitionDuration: const Duration(milliseconds: 220),
+        pageBuilder: (_, __, ___) => const ScreenClockScreen(),
         transitionsBuilder: (_, animation, __, child) => FadeTransition(
           opacity: CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
           child: child,
@@ -676,8 +709,9 @@ Future<void> confirmEndFocusSession(
 /// [_autoHideAfter], and a tap while they're shown hides them again.
 /// Buttons are small, bottom-CENTREd, and have no decoration at all —
 /// bare text on the background, matching the app's monochrome
-/// language; the clock button opens the current-time page which
-/// carries its own Exit control.
+/// language. There is NO clock here — the clock lives on the main
+/// focus running screen (_openClock); this surface is the countdown
+/// only.
 class _FullScreenFocusView extends ConsumerStatefulWidget {
   const _FullScreenFocusView({required this.session});
 
@@ -691,16 +725,11 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
   static const _autoHideAfter = Duration(seconds: 4);
 
   Timer? _hideTimer;
-  Timer? _clockTimer;
 
   /// Controls (title + buttons) start HIDDEN — the big digits own the
   /// whole screen from the first frame; a tap summons them, and they
   /// leave again by tap or after [_autoHideAfter].
   bool _controlsVisible = false;
-
-  /// 'current time' page: the centre swaps countdown → live clock.
-  bool _timeMode = false;
-  DateTime _now = DateTime.now();
 
   @override
   void initState() {
@@ -709,14 +738,15 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
+    // Sticky immersive — no status bar, and the edge-swipe does not
+    // peek it back over the countdown.
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     // Controls start concealed: no hide timer until a tap reveals them.
   }
 
   @override
   void dispose() {
     _hideTimer?.cancel();
-    _clockTimer?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
@@ -740,25 +770,6 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
     _hideTimer = Timer(_autoHideAfter, () {
       if (mounted) setState(() => _controlsVisible = false);
     });
-  }
-
-  void _setTimeMode(bool on) {
-    setState(() {
-      _timeMode = on;
-      _controlsVisible = true;
-      if (on) {
-        _now = DateTime.now();
-        _clockTimer?.cancel();
-        _clockTimer =
-            Timer.periodic(const Duration(seconds: 1), (_) {
-          if (mounted) setState(() => _now = DateTime.now());
-        });
-      } else {
-        _clockTimer?.cancel();
-        _clockTimer = null;
-      }
-    });
-    _scheduleHide();
   }
 
   void _exit() => Navigator.of(context).pop();
@@ -790,46 +801,35 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
           fit: StackFit.expand,
           children: [
             // ---------------- centre: the big numbers only ----------------
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              child: _timeMode
-                  ? Padding(
-                      key: const ValueKey('clock'),
-                      padding: const EdgeInsets.all(24),
-                      child: Center(child: _liveClock()),
-                    )
-                   : Padding(
-                      key: const ValueKey('count'),
-                      padding: const EdgeInsets.all(24),
-                      child: Center(
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: untimed
-                              ? Text(
-                                  'UNTIMED',
-                                  style: GoogleFonts.spaceGrotesk(
-                                    fontSize: 180,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.ink,
-                                  ),
-                                )
-                              : Text(
-                                  // STATIC digits — the rolling
-                                  // (DurationFlow/scroll) effect was
-                                  // explicitly removed from fullscreen:
-                                  // only the numbers change, nothing
-                                  // moves.
-                                  _fmt(remaining),
-                                  style: GoogleFonts.spaceGrotesk(
-                                    fontSize: 180,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.ink,
-                                    fontFeatures: const [FontFeature.tabularFigures()],
-                                  ),
-                                ),
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: untimed
+                      ? Text(
+                          'UNTIMED',
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 180,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.ink,
+                          ),
+                        )
+                      : Text(
+                          // STATIC digits — the rolling
+                          // (DurationFlow/scroll) effect was
+                          // explicitly removed from fullscreen:
+                          // only the numbers change, nothing moves.
+                          _fmt(remaining),
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 180,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.ink,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
                         ),
-                      ),
-                    ),
+                ),
+              ),
             ),
 
             // ---------------- top chrome: title ----------------
@@ -850,10 +850,8 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
                       padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
                       child: Center(
                         child: Text(
-                          _timeMode
-                              ? 'Current time'
-                              : '${widget.session.label}'
-                                  '${paused ? ' · PAUSED' : ''}',
+                          '${widget.session.label}'
+                              '${paused ? ' · PAUSED' : ''}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -887,55 +885,39 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
                     ignoring: !_controlsVisible,
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      child: _timeMode
-                          ? Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                _ChromeButton(
-                                  icon: AppIconName.close,
-                                  label: 'Exit',
-                                  onTap: () => _setTimeMode(false),
-                                ),
-                              ],
-                            )
-                           : Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                _ChromeButton(
-                                  // Icon-only (the text was removed by
-                                  // request) and larger than the rest.
-                                  icon: paused ? AppIconName.play : AppIconName.pause,
-                                  iconSize: 26,
-                                  emphasized: true,
-                                  onTap: () {
-                                    unawaited(paused
-                                        ? ref.read(focusControllerProvider).resume()
-                                        : ref.read(focusControllerProvider).pause());
-                                    _scheduleHide();
-                                  },
-                                ),
-                                const SizedBox(width: 22),
-                                _ChromeButton(
-                                  label: 'End',
-                                  onTap: () => confirmEndFocusSession(
-                                    context,
-                                    ref,
-                                    widget.session,
-                                    onEnded: _exit,
-                                  ),
-                                ),
-                                const SizedBox(width: 22),
-                                _ChromeButton(
-                                  label: 'Exit',
-                                  onTap: _exit,
-                                ),
-                                const SizedBox(width: 22),
-                                _ChromeButton(
-                                  icon: AppIconName.clock,
-                                  onTap: () => _setTimeMode(true),
-                                ),
-                              ],
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _ChromeButton(
+                            // Icon-only (the text was removed by
+                            // request) and larger than the rest.
+                            icon: paused ? AppIconName.play : AppIconName.pause,
+                            iconSize: 26,
+                            emphasized: true,
+                            onTap: () {
+                              unawaited(paused
+                                  ? ref.read(focusControllerProvider).resume()
+                                  : ref.read(focusControllerProvider).pause());
+                              _scheduleHide();
+                            },
+                          ),
+                          const SizedBox(width: 22),
+                          _ChromeButton(
+                            label: 'End',
+                            onTap: () => confirmEndFocusSession(
+                              context,
+                              ref,
+                              widget.session,
+                              onEnded: _exit,
                             ),
+                          ),
+                          const SizedBox(width: 22),
+                          _ChromeButton(
+                            label: 'Exit',
+                            onTap: _exit,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -944,41 +926,6 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
           ],
         ),
       ),
-    );
-  }
-
-  /// The live wall clock — same giant type as the countdown, plus the
-  /// date under it in the app's caption style.
-  Widget _liveClock() {
-    final hour = _now.hour.toString().padLeft(2, '0');
-    final minute = _now.minute.toString().padLeft(2, '0');
-    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
-    ];
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            '$hour:$minute',
-            style: GoogleFonts.spaceGrotesk(
-              fontSize: 180,
-              fontWeight: FontWeight.w600,
-              color: AppColors.ink,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        Text(
-          '${weekdays[_now.weekday - 1]} · ${_now.day} ${months[_now.month - 1]} ${_now.year}',
-          style: TextStyle(
-              fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.inkDim),
-        ),
-      ],
     );
   }
 }
@@ -1023,6 +970,145 @@ class _ChromeButton extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Full-screen CLOCK from the running focus screen: a steady,
+/// un-animated HH:MM:SS on an edge-to-edge immersive black canvas —
+/// no status bar, no rolling digits, no transitions. The only motion
+/// is the tap-revealed Exit pill, which auto-retreats.
+class ScreenClockScreen extends StatefulWidget {
+  const ScreenClockScreen({super.key});
+
+  @override
+  State<ScreenClockScreen> createState() => _ScreenClockScreenState();
+}
+
+class _ScreenClockScreenState extends State<ScreenClockScreen> {
+  static const _autoHideAfter = Duration(seconds: 7);
+
+  late DateTime _now = DateTime.now();
+  Timer? _ticker;
+  Timer? _hideTimer;
+  bool _controlsVisible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Immersive, no status bar, no gesture-reveal peek (sticky).
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    _hideTimer?.cancel();
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    super.dispose();
+  }
+
+  void _poke() {
+    setState(() {
+      _controlsVisible = !_controlsVisible ? true : false;
+      if (!_controlsVisible) {
+        _hideTimer?.cancel();
+      } else {
+        _hideTimer?.cancel();
+        _hideTimer = Timer(_autoHideAfter, () {
+          if (mounted) setState(() => _controlsVisible = false);
+        });
+      }
+    });
+  }
+
+  String get _timeText {
+    final h = _now.hour.toString().padLeft(2, '0');
+    final m = _now.minute.toString().padLeft(2, '0');
+    final s = _now.second.toString().padLeft(2, '0');
+    return '$h:$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _poke,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  // Plain Text — no AnimatedSwitcher, no rolling.
+                  child: Text(
+                    _timeText,
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 120,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.ink,
+                      letterSpacing: 2,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // Minimal date line under the clock, always visible.
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 28),
+                child: Text(
+                  _dateText(_now),
+                  style: TextStyle(
+                      fontSize: 12, letterSpacing: 1.5, color: AppColors.inkFaint),
+                ),
+              ),
+            ),
+            AnimatedSlide(
+              duration: const Duration(milliseconds: 240),
+              curve: _controlsVisible ? Curves.easeOutCubic : Curves.easeInCubic,
+              offset: _controlsVisible ? Offset.zero : const Offset(0, 1.2),
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 220),
+                opacity: _controlsVisible ? 1.0 : 0.0,
+                child: IgnorePointer(
+                  ignoring: !_controlsVisible,
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 56),
+                      child: _ChromeButton(
+                        icon: AppIconName.close,
+                        label: 'Exit',
+                        emphasized: true,
+                        onTap: () => Navigator.of(context).pop(),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _dateText(DateTime t) {
+    const weekdays = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const months = [
+      'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
+      'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
+    ];
+    return '${weekdays[t.weekday - 1]}  ${t.day} ${months[t.month - 1]}';
   }
 }
 

@@ -500,31 +500,45 @@ class EnforcementSync {
   Future<void> _syncDomains(Ref ref) async {
     final custom = ref.read(customWebsiteRulesProvider).valueOrNull ?? const [];
     final categories = ref.read(blockListCategoriesProvider).valueOrNull ?? const [];
+    final categoryTitles = {
+      for (final c in categories) c.template.id: c.template.title,
+    };
     final enabledCategories = <String>{
       for (final c in categories)
         if (c.downloaded && c.enabled) c.template.id,
     };
 
+    // domain → human label ("Custom rules" / the category name), so
+    // the browser block page can name the exact filter that caught it.
+    final sources = <String, String>{};
+    final domains = <String>{
+      for (final r in custom)
+        if (r.enabled) r.domain,
+    };
+    for (final r in custom) {
+      if (r.enabled) sources.putIfAbsent(r.domain, () => 'your own rules');
+    }
+
     if (enabledCategories.isEmpty) {
-      // Only custom rules — stream them straight into the filter file.
-      final domains = <String>{for (final r in custom) if (r.enabled) r.domain};
       _domainSync ??= await DomainFilterSync.create();
-      await _domainSync!.sync(domains);
+      await _domainSync!.sync(domains, sources);
       return;
     }
 
     // With whole categories enabled the set can be 100k+ domains; pull
     // only enabled ones for the filter file.
     final db = ref.read(databaseProvider);
-    final domains = <String>{
-      for (final r in custom)
-        if (r.enabled) r.domain,
-    };
     final rows = await (db.select(db.websiteRules)
           ..where((t) => t.enabled.equals(true) & t.category.isIn(enabledCategories)))
         .get();
     domains.addAll(rows.map((r) => r.domain));
+    for (final r in rows) {
+      sources.putIfAbsent(
+        r.domain,
+        () => categoryTitles[r.category] ?? 'a block list',
+      );
+    }
     _domainSync ??= await DomainFilterSync.create();
-    await _domainSync!.sync(domains);
+    await _domainSync!.sync(domains, sources);
   }
 }

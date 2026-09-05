@@ -17,6 +17,7 @@ class AppSearchField extends StatelessWidget {
     this.autofocus = false,
     this.textStyle,
     this.hintStyle,
+    this.transparent = false,
   });
 
   final TextEditingController? controller;
@@ -30,6 +31,12 @@ class AppSearchField extends StatelessWidget {
   /// these; everyone else keeps the default body-scale field.
   final TextStyle? textStyle;
   final TextStyle? hintStyle;
+
+  /// Float the field over scrolling content: no solid panel — a barely-
+  /// tinted translucent capsule so the page background reads through
+  /// while the text stays legible. Hairline stroke keeps the tap target
+  /// obvious. Used by the Internet bottom bar.
+  final bool transparent;
 
   @override
   Widget build(BuildContext context) {
@@ -45,14 +52,15 @@ class AppSearchField extends StatelessWidget {
         hintStyle:
             hintStyle ?? TextStyle(color: AppColors.inkFaint, fontSize: 13.5),
         filled: true,
-        fillColor: AppColors.surface,
+        fillColor: transparent ? AppColors.bg.withValues(alpha: 0.55) : AppColors.surface,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.pill),
           borderSide: BorderSide(color: AppColors.stroke),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.pill),
-          borderSide: BorderSide(color: AppColors.stroke),
+          borderSide: BorderSide(
+              color: transparent ? AppColors.stroke.withValues(alpha: 0.6) : AppColors.stroke),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.pill),
