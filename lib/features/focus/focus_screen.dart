@@ -692,7 +692,11 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
 
   Timer? _hideTimer;
   Timer? _clockTimer;
-  bool _controlsVisible = true;
+
+  /// Controls (title + buttons) start HIDDEN — the big digits own the
+  /// whole screen from the first frame; a tap summons them, and they
+  /// leave again by tap or after [_autoHideAfter].
+  bool _controlsVisible = false;
 
   /// 'current time' page: the centre swaps countdown → live clock.
   bool _timeMode = false;
@@ -706,7 +710,7 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
       DeviceOrientation.landscapeRight,
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
-    _scheduleHide();
+    // Controls start concealed: no hide timer until a tap reveals them.
   }
 
   @override
@@ -759,6 +763,17 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
 
   void _exit() => Navigator.of(context).pop();
 
+  /// Plain mm:ss / h:mm:ss — deliberately NO rolling animation here.
+  String _fmt(Duration d) {
+    final s = d.isNegative ? Duration.zero : d;
+    final h = s.inHours;
+    final m = s.inMinutes % 60;
+    final sec = s.inSeconds % 60;
+    final mm = m.toString().padLeft(2, '0');
+    final ss = sec.toString().padLeft(2, '0');
+    return h > 0 ? '$h:$mm:$ss' : '$mm:$ss';
+  }
+
   @override
   Widget build(BuildContext context) {
     final remaining = ref.watch(focusRemainingProvider).valueOrNull ?? Duration.zero;
@@ -783,7 +798,7 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
                       padding: const EdgeInsets.all(24),
                       child: Center(child: _liveClock()),
                     )
-                  : Padding(
+                   : Padding(
                       key: const ValueKey('count'),
                       padding: const EdgeInsets.all(24),
                       child: Center(
@@ -798,9 +813,13 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
                                     color: AppColors.ink,
                                   ),
                                 )
-                              : DurationFlow(
-                                  Duration(seconds: remaining.inSeconds),
-                                  showSeconds: true,
+                              : Text(
+                                  // STATIC digits — the rolling
+                                  // (DurationFlow/scroll) effect was
+                                  // explicitly removed from fullscreen:
+                                  // only the numbers change, nothing
+                                  // moves.
+                                  _fmt(remaining),
                                   style: GoogleFonts.spaceGrotesk(
                                     fontSize: 180,
                                     fontWeight: FontWeight.w600,
@@ -879,12 +898,14 @@ class _FullScreenFocusViewState extends ConsumerState<_FullScreenFocusView> {
                                 ),
                               ],
                             )
-                          : Row(
+                           : Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 _ChromeButton(
+                                  // Icon-only (the text was removed by
+                                  // request) and larger than the rest.
                                   icon: paused ? AppIconName.play : AppIconName.pause,
-                                  label: paused ? 'Resume' : 'Pause',
+                                  iconSize: 26,
                                   emphasized: true,
                                   onTap: () {
                                     unawaited(paused
@@ -971,12 +992,14 @@ class _ChromeButton extends StatelessWidget {
     this.icon,
     this.label,
     this.emphasized = false,
+    this.iconSize = 14,
   });
 
   final VoidCallback onTap;
   final AppIconName? icon;
   final String? label;
   final bool emphasized;
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
@@ -988,7 +1011,7 @@ class _ChromeButton extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (icon != null) AppIcon(icon!, size: 14, color: color),
+            if (icon != null) AppIcon(icon!, size: iconSize, color: color),
             if (icon != null && label != null) const SizedBox(width: 6),
             if (label != null)
               Text(

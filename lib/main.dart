@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/crash/crash_collector.dart';
 import 'core/native/enforcement_channel.dart';
@@ -20,10 +21,16 @@ import 'features/onboarding/permissions_recovery_screen.dart';
 import 'features/onboarding/permissions_screen.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+
   // Crash collection starts before anything else — an error thrown
   // during startup itself is exactly the kind of crash that is hardest
   // to reproduce without a trace.
   unawaited(CrashCollector.initialize());
+
+  // Warm-start navigation: the Focus sheet's "Open Ulimit" pushes a
+  // route through here into the live GoRouter.
+  NavBridge.install();
 
   // Release builds render build exceptions as BLANK widgets — which
   // looks like "the screen is empty". Surface the actual error text
@@ -96,6 +103,9 @@ class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserv
     // mid-gesture on low-end devices. Warming during the launch frame
     // makes the first visit to ANY tab instant.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Cold start from the Focus sheet: land on the screen it asked
+      // for (warm starts arrive via the "navigate" push instead).
+      unawaited(NavBridge.consumeColdStartRoute());
       ref.read(allPermissionsProvider);
       ref.read(appsCatalogProvider);
       ref.read(ulimitSettingsProvider);
@@ -259,5 +269,44 @@ class _UlimitAppState extends ConsumerState<UlimitApp> with WidgetsBindingObserv
       default:
         return ThemeMode.system;
     }
+  }
+}
+
+/// Bridge for launching INTO a specific screen from Android system UI.
+///
+/// The Focus Session popup's "Open Ulimit" button (and any future
+/// route-carrying intent) targets [MainActivity], which forwards the
+/// go_router location here over a dedicated channel. The engine-alive
+/// case calls [GoRouter.go] directly; a cold start is consumed once on
+/// the first frame. Keeping this out of the widget tree means a system
+/// tap can land anywhere without reconstructing the app.
+class NavBridge {
+  static const _channel = MethodChannel('com.ulimit.app/nav');
+
+  static void install() {
+    _channel.setMethodCallHandler((call) async {
+      final route = call.method == 'navigate'
+          ? call.arguments as String?
+          : null;
+      if (route != null) _go(route);
+    });
+  }
+
+  /// Pull the cold-start route (if the Activity was created by a
+  /// route-carrying intent) once the router tree is ready.
+  static Future<void> consumeColdStartRoute() async {
+    try {
+      final route = await _channel.invokeMethod<String>('getInitialRoute');
+      if (route != null) _go(route);
+    } catch (_) {
+      // No native reply yet / handler missing — silently fine.
+    }
+  }
+
+  static void _go(String route) {
+    if (route.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      appRouter.go(route);
+    });
   }
 }

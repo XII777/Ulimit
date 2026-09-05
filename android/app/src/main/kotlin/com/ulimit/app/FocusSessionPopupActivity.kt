@@ -1,42 +1,41 @@
 package com.ulimit.app
 
+import android.animation.TimeInterpolator
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
-import android.animation.TimeInterpolator
-import android.os.Build
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.view.Window
 import android.view.WindowManager
-import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.LinearLayout.LayoutParams
+import kotlin.math.max
 
 /**
  * Damped-spring [TimeInterpolator] (no androidx dependency): maps a
  * 0..1 progress to an over/undershoot curve so the popup visibly
  * springs into place instead of easing. [dampingRatio] is the
- * @(zeta) of the oscillator, tuned iOS-popover-style: ~0.72 gives one
- * clean overshoot and a quick settle — visible bounce, zero wobble
- * (the old 0.57 oscillated 2+ times, which read as jitter).
+ * oscillator's zeta — ~0.72 gives one clean overshoot and a quick
+ * settle (iOS-sheet feel), zero jitter.
  */
 class SpringBounceInterpolator(
-    private val dpi: Float = 96f,
+    private val stiffness: Float = 96f,
     private val dampingRatio: Float = 0.72f,
 ) : TimeInterpolator {
     override fun getInterpolation(input: Float): Float {
-        // Underdamped harmonic oscillator closed form:
-        // x(t) = 1 - e^(-ζωn t) · (cos(ωd t) + (ζωn/ωd)·sin(ωd t))
-        // ω_n (angular frequency) is derived from the elastic dpi scale:
-        // 96*12 ≈ stiffness 470 => ω_n ≈ 21.7 rad/s, a snappy but
-        // controlled iOS-sheet feel.
-        val omegaN = Math.sqrt(dpi.toDouble() * 12.0)
-        // Clamp ζ < 1 so ωd stays real (no NaN).
+        val omegaN = Math.sqrt(stiffness.toDouble() * 12.0)
         val zeta = dampingRatio.toDouble().coerceAtMost(0.995)
-        val t = input.toDouble()
+        val t = input.toDouble().coerceIn(0.0, 1.0)
         val omegaD = omegaN * Math.sqrt(1.0 - zeta * zeta)
         val decay = Math.exp(-zeta * omegaN * t)
         val phase = omegaD * t
@@ -46,34 +45,54 @@ class SpringBounceInterpolator(
 }
 
 /**
- * The chip tap target. On API 31+ the ongoing call-style chip opens this
- * translucent activity — a compact panel that springs down from the top
- * of the screen (the same gesture the system uses when you tap a call
- * chip) and offers the session controls:
+ * The notification / status-bar-pill tap target — an app-themed sheet
+ * that springs out of the chip, in the app's monochrome dark palette
+ * (literals mirror lib/core/theme/tokens.dart):
  *
- *   Pause / Resume (single button, flips with state)
- *   End session
+ *  - focus-ring badge + session label + Running/Paused status;
+ *  - the LIVE remaining time ROLLING like Flutter's NumberFlow — the
+ *    old value lifts out faded, the new springs up from below — and
+ *    clamped at 00:00, never a negative;
+ *  - session progress line (fills left→right), like the in-app ring;
+ *  - redesigned pill buttons: Pause/Resume (ink pill), End (ghost
+ *    pill) — routed through [FocusSessionActionReceiver], the SAME
+ *    source of truth as the notification buttons;
+ *  - "Open Ulimit  →" launches the app ON THE FOCUS SCREEN itself
+ *    (warm engine re-navigates via MainActivity's navigation extras).
  *
- * All actions route through [FocusSessionActionReceiver] — the same
- * single source of truth the notification buttons use — and the panel
- * dismisses itself immediately after the tap. No engine is spawned
- * here: the receiver owns the Dart bridge.
+ * A tap on the scrim outside springs the sheet back out.
  */
 class FocusSessionPopupActivity : Activity() {
 
     companion object {
         const val EXTRA_LABEL = "label"
         const val EXTRA_PAUSED = "paused"
+        const val EXTRA_END = "endMillis"
+        const val EXTRA_STARTED_AT = "startedAtMillis"
+        const val EXTRA_DOOM_PACKAGE = "doomPackage"
+        const val EXTRA_DOOM_COUNT = "doomCount"
     }
 
-    private lateinit var root: LinearLayout
-    private lateinit var toggleAction: () -> Unit
+    private val tick = Handler(Looper.getMainLooper())
+    private val openedAt = System.currentTimeMillis()
+
+    private var startedAt = 0L
+    private var endAt = 0L
+    private var paused = false
+    private var lastShownTime = ""
+
+    private lateinit var card: LinearLayout
+    private lateinit var timeText: TextView
+    private lateinit var statusText: TextView
+    private lateinit var toggleBtn: TextView
+    private lateinit var progressTrack: View
+    private lateinit var progressFill: View
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Translucent window over the existing task: the popup feels like
-        // it dropped out of the status-bar chip, not a new screen.
+        // Full-window scrim so the sheet visibly DROPS out of the
+        // status-bar chip over whatever was on screen.
         window.requestFeature(Window.FEATURE_NO_TITLE)
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
@@ -81,100 +100,378 @@ class FocusSessionPopupActivity : Activity() {
         window.navigationBarColor = Color.TRANSPARENT
         window.setLayout(
             WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT
+            WindowManager.LayoutParams.MATCH_PARENT,
         )
-        window.setGravity(Gravity.TOP)
-        window.setDimAmount(0.25f)
+        window.setDimAmount(0.5f)
 
         val label = intent.getStringExtra(EXTRA_LABEL) ?: "Focus"
-        val paused = intent.getBooleanExtra(EXTRA_PAUSED, false)
+        paused = intent.getBooleanExtra(EXTRA_PAUSED, false)
+        startedAt = intent.getLongExtra(EXTRA_STARTED_AT, openedAt)
+        endAt = intent.getLongExtra(EXTRA_END, 0L)
+        val doomPkg = intent.getStringExtra(EXTRA_DOOM_PACKAGE)
+        val doomCount = intent.getIntExtra(EXTRA_DOOM_COUNT, 0)
 
-        // The toggle flips: running → paused (send PAUSE), paused →
-        // running (send RESUME). Same receiver the pixels of the
-        // notification use, so the popup and the chip can never drift.
-        toggleAction = {
-            if (paused) {
-                sendAction(FocusSessionActionReceiver.ACTION_RESUME)
-            } else {
-                sendAction(FocusSessionActionReceiver.ACTION_PAUSE)
+        val scrim = FrameLayout(this).apply {
+            setBackgroundColor(0x59000000) // theme bg at ~35%
+            setOnClickListener { springOutAndFinish() }
+        }
+
+        card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(0xFF141414.toInt()) // card surface
+                val r = dpF(26f)
+                // Top corners rounded, bottom square: a sheet hanging
+                // off the status bar, like the system's call sheet.
+                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+                setStroke(max(1, dpF(1.2f).toInt()), 0xFF26262A.toInt())
+            }
+            setPadding(dp(22), dp(52), dp(22), dp(20))
+            isClickable = true // card taps must not reach the scrim
+        }
+        scrim.addView(
+            card,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP,
+            ),
+        )
+
+        buildHeader(label)
+        doomPkg?.takeIf { doomCount > 0 }?.let { buildDoomLine(it, doomCount) }
+        buildCountdown()
+        buildProgressLine()
+        buildButtons()
+        buildOpenLink()
+
+        setContentView(scrim)
+
+        // Spring entrance out of the chip.
+        card.translationY = -dpF(90f)
+        card.alpha = 0f
+        card.animate()
+            .translationY(0f)
+            .alpha(1f)
+            .setDuration(440)
+            .setInterpolator(SpringBounceInterpolator())
+            .start()
+
+        tick.postDelayed(ticker, 250)
+    }
+
+    // ------------------------------------------------------------------
+    // pieces
+    // ------------------------------------------------------------------
+
+    private fun buildHeader(label: String) {
+        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        header.gravity = Gravity.CENTER_VERTICAL
+
+        val badge = ImageView(this).apply {
+            setImageResource(R.drawable.ic_stat_focus)
+            setColorFilter(0xFF77777C.toInt())
+            background = GradientDrawable().apply {
+                setColor(0xFF1D1D21.toInt())
+                val r = dpF(14f)
+                cornerRadii = floatArrayOf(r, r, r, r, r, r, r, r)
+                setStroke(max(1, dpF(1f).toInt()), 0xFF26262A.toInt())
+            }
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dp(7), dp(7), dp(7), dp(7))
+        }
+        header.addView(badge, LinearLayout.LayoutParams(dp(36), dp(36)))
+
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(
+            textView(label, 16f, 0xFFF5F5F4.toInt(), bold = true),
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        statusText = textView(
+            if (paused) "Paused" else "Session running",
+            11.5f,
+            0xFF6E6E73.toInt(),
+        )
+        col.addView(
+            statusText,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        header.addView(
+            col,
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dp(12)
+                marginEnd = dp(8)
+            },
+        )
+
+        card.addView(
+            header,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+    }
+
+    private fun buildDoomLine(doomPkg: String, doomCount: Int) {
+        val appName = try {
+            packageManager.getApplicationLabel(
+                packageManager.getApplicationInfo(doomPkg, 0),
+            ).toString()
+        } catch (_: Exception) {
+            doomPkg
+        }
+        card.addView(
+            textView(
+                "$doomCount scrolls today · $appName",
+                11f,
+                0xFF5C5C62.toInt(),
+            ).apply { setPadding(0, dp(10), 0, 0) },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+    }
+
+    private fun buildCountdown() {
+        lastShownTime = remainingText()
+        timeText = textView(lastShownTime, 46f, 0xFFF5F5F4.toInt(), bold = true).apply {
+            letterSpacing = 0.06f
+            setTypeface(Typeface.create("sans-serif", Typeface.BOLD))
+            setPadding(0, dp(18), 0, 0)
+        }
+        card.addView(
+            timeText,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+    }
+
+    private fun buildProgressLine() {
+        val frame = FrameLayout(this)
+        progressTrack = View(this).apply {
+            background = GradientDrawable().apply {
+                setColor(0xFF242428.toInt())
+                cornerRadius = dpF(1.5f)
             }
         }
+        frame.addView(progressTrack, frameLp(FrameLayout.LayoutParams.MATCH_PARENT, dp(3)))
+        progressFill = View(this).apply {
+            background = GradientDrawable().apply {
+                setColor(0xFFF5F5F4.toInt())
+                cornerRadius = dpF(1.5f)
+            }
+        }
+        frame.addView(progressFill, frameLp(0, dp(3)))
+        card.addView(
+            frame,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(12) },
+        )
+    }
 
-        root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(40), dp(20), dp(24))
-            setBackgroundColor(Color.WHITE)
-        }
+    private fun buildButtons() {
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
 
-        // Title row
-        val title = TextView(this).apply {
-            text = "Focus · $label"
-            textSize = 16f
-            setTextColor(Color.parseColor("#141414"))
+        toggleBtn = pill(if (paused) "Resume" else "Pause", filled = true) {
+            sendAction(
+                if (paused) FocusSessionActionReceiver.ACTION_RESUME
+                else FocusSessionActionReceiver.ACTION_PAUSE,
+            )
+            // Flip the panel in place instantly; Dart re-pushes the
+            // truth a moment later and the pill reflects it.
+            paused = !paused
+            statusText.text = if (paused) "Paused" else "Session running"
+            toggleBtn.text = if (paused) "Resume" else "Pause"
         }
-        root.addView(title, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        row.addView(toggleBtn, weightedPill(dp(48), 1f).apply { marginEnd = dp(6) })
 
-        val status = TextView(this).apply {
-            text = if (paused) "Paused" else "Session running"
-            textSize = 12f
-            setTextColor(Color.parseColor("#666666"))
-        }
-        root.addView(status, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-
-        // Buttons row
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp(16), 0, 0)
-        }
-        val toggle = Button(this).apply {
-            text = if (paused) "Resume" else "Pause"
-            isAllCaps = false
-        }
-        val end = Button(this).apply {
-            text = "End"
-            isAllCaps = false
-            setTextColor(Color.parseColor("#E5484D"))
-        }
-        row.addView(toggle, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
-            marginEnd = dp(10)
-        })
-        row.addView(end, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-        root.addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-
-        setContentView(root)
-
-        toggle.setOnClickListener {
-            toggleAction()
-            finish()
-        }
-        end.setOnClickListener {
+        val end = pill("End", filled = false) {
             sendAction(FocusSessionActionReceiver.ACTION_END)
             finish()
         }
+        row.addView(end, weightedPill(dp(48), 1f).apply { marginStart = dp(6) })
 
-        // Spring bounce: enter with an overshoot so the panel visibly
-        // springs out of the chip, and exit springs back up.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            root.scaleX = 0.85f
-            root.scaleY = 0.85f
-            root.translationY = -dp(60).toFloat()
-            root.animate()
-                .scaleX(1f)
-                .scaleY(1f)
-                .translationY(0f)
-                .setDuration(420L)
-                .setInterpolator(SpringBounceInterpolator(440f, 26f))
-                .start()
+        card.addView(
+            row,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(20) },
+        )
+    }
+
+    private fun buildOpenLink() {
+        card.addView(
+            textView("Open Ulimit  →", 12f, 0xFF6E6E73.toInt()).apply {
+                gravity = Gravity.CENTER
+                setOnClickListener { openSessionScreen() }
+                setPadding(0, dp(14), 0, dp(4))
+            },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // the live ticking
+    // ------------------------------------------------------------------
+
+    private val ticker = object : Runnable {
+        override fun run() {
+            updateLive()
+            tick.postDelayed(this, 1000)
         }
     }
+
+    private fun updateLive() {
+        val next = remainingText()
+        if (next != lastShownTime) rollTo(next)
+        val total = endAt - startedAt
+        if (total > 0 && progressTrack.width > 0) {
+            val elapsed = (System.currentTimeMillis() - startedAt)
+                .coerceIn(0L, total)
+                .toFloat()
+            val lp = progressFill.layoutParams as FrameLayout.LayoutParams
+            lp.width = (progressTrack.width * elapsed / total.toFloat()).toInt()
+            progressFill.layoutParams = lp
+        }
+    }
+
+    /** NumberFlow descending roll: the old value lifts away faded,
+     *  the new springs up from under it. */
+    private fun rollTo(next: String) {
+        lastShownTime = next
+        timeText.animate().cancel()
+        timeText.animate()
+            .alpha(0f)
+            .translationY(-dpF(20f))
+            .setDuration(110)
+            .withEndAction {
+                timeText.text = next
+                timeText.translationY = dpF(20f)
+                timeText.alpha = 0f
+                timeText.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .setDuration(200)
+                    .setInterpolator(
+                        SpringBounceInterpolator(stiffness = 250f, dampingRatio = 0.82f),
+                    )
+                    .start()
+            }
+            .start()
+    }
+
+    /** Remaining time: live while running, FROZEN at the moment the
+     *  panel opened while paused — and clamped at zero, so a negative
+     *  is structurally impossible. */
+    private fun remainingText(): String {
+        if (endAt <= 0L) return "00:00"
+        val from = if (paused) openedAt else System.currentTimeMillis()
+        val secs = maxOf(0L, (endAt - from) / 1000L)
+        val h = secs / 3600
+        val m = (secs % 3600) / 60
+        val s = secs % 60
+        return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
+    }
+
+    // ------------------------------------------------------------------
+    // actions
+    // ------------------------------------------------------------------
 
     private fun sendAction(action: String) {
-        val intent = Intent(this, FocusSessionActionReceiver::class.java).apply {
-            this.action = action
-        }
-        sendBroadcast(intent)
+        sendBroadcast(
+            Intent(this, FocusSessionActionReceiver::class.java).apply {
+                this.action = action
+            },
+        )
     }
 
-    private fun dp(v: Int): Int =
-        (v * resources.displayMetrics.density).toInt()
+    /** Launch (or reuse) the app engine and land ON THE FOCUS SCREEN —
+     *  [MainActivity] forwards the route to GoRouter over its
+     *  navigation channel, and cold-starts with it as initial route. */
+    private fun openSessionScreen() {
+        startActivity(
+            Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra(MainActivity.EXTRA_ROUTE, MainActivity.ROUTE_FOCUS)
+            },
+        )
+        finish()
+    }
+
+    private fun springOutAndFinish() {
+        tick.removeCallbacksAndMessages(null)
+        card.animate()
+            .translationY(-dpF(70f))
+            .alpha(0f)
+            .setDuration(180)
+            .setInterpolator(android.view.animation.DecelerateInterpolator())
+            .withEndAction { finish() }
+            .start()
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        springOutAndFinish()
+    }
+
+    override fun onDestroy() {
+        tick.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+
+    // ------------------------------------------------------------------
+    // builders
+    // ------------------------------------------------------------------
+
+    private fun textView(
+        value: String,
+        sizeSp: Float,
+        color: Int,
+        bold: Boolean = false,
+    ): TextView = TextView(this).apply {
+        text = value
+        setTextColor(color)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
+        if (bold) setTypeface(typeface, Typeface.BOLD)
+    }
+
+    private fun pill(label: String, filled: Boolean, onTap: () -> Unit): TextView =
+        TextView(this).apply {
+            text = label
+            gravity = Gravity.CENTER
+            setTextColor(if (filled) 0xFF0D0D0F.toInt() else 0xFFF5F5F4.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
+            setTypeface(typeface, Typeface.BOLD)
+            background = GradientDrawable().apply {
+                setColor(if (filled) 0xFFF5F5F4.toInt() else 0xFF191A1D.toInt())
+                cornerRadius = dpF(24f)
+                if (!filled) setStroke(max(1, dpF(1f).toInt()), 0xFF2E2E33.toInt())
+            }
+            setOnClickListener { onTap() }
+        }
+
+    private fun weightedPill(h: Int, wgt: Float) =
+        LinearLayout.LayoutParams(0, h, wgt)
+
+    private fun frameLp(w: Int, h: Int) =
+        FrameLayout.LayoutParams(w, h, Gravity.START)
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+    private fun dpF(v: Float) = v * resources.displayMetrics.density
 }

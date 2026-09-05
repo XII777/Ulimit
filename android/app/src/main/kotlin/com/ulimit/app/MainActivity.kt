@@ -29,6 +29,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     private val permissionsChannelName = "com.ulimit.app/permissions"
     private val usageEventsChannelName = "com.ulimit.app/usage_events"
+    private val navChannelName = "com.ulimit.app/nav"
 
     private val postNotificationsRequestCode = 5002
     private val importRequestCode = 5003
@@ -36,6 +37,11 @@ class MainActivity : FlutterFragmentActivity() {
     // Kept alive across the async import flow — the channel result must
     // be completed exactly once, after the document picker returns.
     private var pendingImportResult: MethodChannel.Result? = null
+
+    // Pop-up / deep-link navigation: the Focus sheet's "Open Ulimit"
+    // arrives here and is pushed to GoRouter over [navChannelName].
+    private var navChannel: MethodChannel? = null
+    private var pendingRoute: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -53,6 +59,29 @@ class MainActivity : FlutterFragmentActivity() {
         // Engine-independent handlers (enforcement, VPN, DND, bedtime,
         // focus indicator, app catalog).
         UlimitChannels.registerCommon(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
+
+        // Navigation bridge for "Open Ulimit" from the Focus sheet:
+        // warm engine → go() over "navigate"; cold engine → Dart asks
+        // "getInitialRoute" once before the first frame.
+        navChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            navChannelName,
+        ).also { ch ->
+            ch.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getInitialRoute" -> {
+                        val r = (pendingRoute ?: intent?.getStringExtra(EXTRA_ROUTE))
+                        pendingRoute = null
+                        result.success(r ?: "")
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
+        pendingRoute?.let { route ->
+            navChannel?.invokeMethod("navigate", route)
+            pendingRoute = null
+        }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, permissionsChannelName)
             .setMethodCallHandler { call, result ->
@@ -208,6 +237,27 @@ class MainActivity : FlutterFragmentActivity() {
             FlutterEngineCache.getInstance().remove(FocusIndicatorService.ENGINE_ID)
         }
         super.cleanUpFlutterEngine(flutterEngine)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // The Focus sheet's "Open Ulimit" re-enters here (warm engine):
+        // push the route straight into GoRouter.
+        val route = intent.getStringExtra(EXTRA_ROUTE) ?: return
+        val ch = navChannel
+        if (ch != null) {
+            ch.invokeMethod("navigate", route)
+        } else {
+            pendingRoute = route
+        }
+    }
+
+    companion object {
+        /** Extras key + route constants shared with the Focus sheet. */
+        const val EXTRA_ROUTE = "ulimit_route"
+        const val ROUTE_FOCUS = "/focus"
+        const val ROUTE_DOOMSCROLL = "/doomscroll"
     }
 
     private fun putAll(target: org.json.JSONObject, map: Map<String, Any?>?) {

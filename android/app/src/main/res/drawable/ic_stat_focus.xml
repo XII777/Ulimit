@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Focus Session status-bar / notification small icon: the app's focus
+  ring — a broken circle (12-4 and 8-12 arcs, a deliberate gap) with a
+  filled centre dot. Flat white; the system tints it to follow the
+  theme, exactly like the in-app focus ring reads.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- centre dot: the still point the ring orbits -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,9.6a2.4,2.4 0 1,0 0.01,0z" />
+
+    <!-- ring upper-left run: opens at 8 o'clock, ends at 12 -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M6.34,17.66 A8,8 0 0,1 12,4" />
+
+    <!-- ring right run: from ~1 o'clock around to 4:30 -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M14.99,4.54 A8,8 0 1,1 9.5,19.28" />
+</vector>

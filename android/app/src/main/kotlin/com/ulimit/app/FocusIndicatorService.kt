@@ -219,6 +219,10 @@ class FocusIndicatorService : Service() {
             )
             channel.description = "Active Focus Session timer"
             channel.setShowBadge(false)
+            // Theme accent: pure white — the app is monochrome, and the
+            // system tints the small icon + buttons with this.
+            channel.enableLights(false)
+            channel.enableVibration(false)
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
                 .createNotificationChannel(channel)
         }
@@ -231,44 +235,61 @@ class FocusIndicatorService : Service() {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
         }
-            .setContentTitle("Focus · $label")
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            // The focus-ring glyph (broken circle + centre dot) — the
+            // app's meditation/focus icon replacing the old media-play
+            // stand-in, theme white.
+            .setSmallIcon(R.drawable.ic_stat_focus)
+            .setColor(0xFFFFFFFF.toInt())
+            .setColorized(false)
+            .setContentTitle(label)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setContentIntent(chipClickIntent())
-            .addAction(buildAction("End", FocusSessionActionReceiver.ACTION_END, 11))
+            .setContentIntent(openPopupIntent())
 
-        // The LIVE DURATION CHIP: an ongoing call-style notification
-        // makes the system show the elapsed-time chip/pill in the status
-        // bar (exactly like a phone call in progress). The chronometer
-        // keeps the chip ticking without per-second app updates; while
-        // paused we freeze it at the current remaining text.
+        // The LIVE timer (WhatsApp-call-style pill, no negative sign):
+        // a count-UP chronometer from the session's start — elapsed can
+        // only grow, so "-MM:SS" is structurally impossible even if the
+        // session overruns its end by seconds before Dart settles it.
+        // Paused sessions freeze the chronometer and say so.
+        //
+        // Session progress as the thin determinate bar the system
+        // paints under the text — mirrors the ring the in-app running
+        // view shows.
+        if (startedAtMillis > 0L && endMillis > startedAtMillis) {
+            val total = endMillis - startedAtMillis
+            val elapsed = (System.currentTimeMillis() - startedAtMillis).coerceIn(0L, total)
+            builder.setProgress(100, ((elapsed * 100) / total).toInt(), false)
+        }
+
+        // Primary action first (pause/resume), End second — the order
+        // OEMs expand consistently.
         if (paused) {
-            val remaining = ((endMillis - System.currentTimeMillis()) / 1000).coerceAtLeast(0)
-            val mm = remaining / 60
-            val ss = remaining % 60
-            builder
-                .setContentText("Paused · %02d:%02d remaining".format(mm, ss))
-                .addAction(buildAction("Resume", FocusSessionActionReceiver.ACTION_RESUME, 10))
+            builder.setContentText("Paused")
+            builder.addAction(
+                buildAction("Resume", FocusSessionActionReceiver.ACTION_RESUME, 10,
+                    R.drawable.ic_focus_play)
+            )
         } else {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 builder
                     .setUsesChronometer(true)
-                    .setChronometerCountDown(true)
-                    .setWhen(endMillis)
-            } else {
-                val remaining = ((endMillis - System.currentTimeMillis()) / 1000).coerceAtLeast(0)
-                val mm = remaining / 60
-                val ss = remaining % 60
-                builder.setContentText("%02d:%02d remaining".format(mm, ss))
+                    .setWhen(startedAtMillis)
             }
-            builder.addAction(buildAction("Pause", FocusSessionActionReceiver.ACTION_PAUSE, 10))
+            builder.setContentText("Running")
+            builder.addAction(
+                buildAction("Pause", FocusSessionActionReceiver.ACTION_PAUSE, 10,
+                    R.drawable.ic_focus_pause)
+            )
         }
+        builder.addAction(
+            buildAction("End", FocusSessionActionReceiver.ACTION_END, 11,
+                R.drawable.ic_focus_end)
+        )
 
         // Live doomscroll counting: while the user is scrolling one of
-        // the infinite-feed apps, the notification shows today's open
-        // count right in the chip ("12 opens today · TikTok"). Pushed on
-        // every foreground transition, not per second.
+        // the infinite-feed apps, the notification shows today's live
+        // scroll count right in the chip ("12 scrolls · TikTok"). Pushed
+        // on every foreground transition, not per second.
         val doomPkg = doomPackage
         if (doomPkg != null && doomCount > 0) {
             val appName = try {
@@ -278,19 +299,22 @@ class FocusIndicatorService : Service() {
             } catch (_: Exception) {
                 doomPkg
             }
-            builder.setSubText("$doomCount opens today · $appName")
+            builder.setSubText("$doomCount scrolls today · $appName")
         }
 
-        // API 31+: promote to the call-style surface. A normal ongoing
-        // notification never paints the status-bar duration chip; the
-        // call style is what gives us the WhatsApp-call treatment.
+        // API 31+: promote to the call-style surface — it is the only
+        // channel to the status-bar DURATION PILL. The old generic
+        // Person avatar rendered as the system "call person" glyph —
+        // the call icon; the avatar now carries the app's focus-ring
+        // icon instead, so the pill reads meditation/focus, not phone.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val person = Person.Builder()
-                .setName("Focus · $label")
+                .setName(label)
+                .setIcon(Icon.createWithResource(this, R.drawable.ic_stat_focus))
                 .setImportant(true)
                 .build()
             val callStyle = Notification.CallStyle
-                .forOngoingCall(person, chipClickIntent())
+                .forOngoingCall(person, openPopupIntent())
             builder.setStyle(callStyle)
             builder.setCategory(Notification.CATEGORY_CALL)
         }
@@ -300,14 +324,18 @@ class FocusIndicatorService : Service() {
 
     /** Chip tap target. On API 31+ the call-style chip's tap PendingIntent
      *  opens the spring-bouncy popup panel; otherwise it opens the app. */
-    private fun chipClickIntent(): PendingIntent {
-        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Intent(this, FocusSessionPopupActivity::class.java).apply {
-                putExtra(FocusSessionPopupActivity.EXTRA_LABEL, label)
-                putExtra(FocusSessionPopupActivity.EXTRA_PAUSED, paused)
+    private fun openPopupIntent(): PendingIntent {
+        val intent = Intent(this, FocusSessionPopupActivity::class.java).apply {
+            putExtra(FocusSessionPopupActivity.EXTRA_LABEL, label)
+            putExtra(FocusSessionPopupActivity.EXTRA_PAUSED, paused)
+            putExtra(FocusSessionPopupActivity.EXTRA_END, endMillis)
+            putExtra(FocusSessionPopupActivity.EXTRA_STARTED_AT, startedAtMillis)
+            // The popup needs the live counter state too — same fields
+            // as the notification.
+            doomPackage?.let {
+                putExtra(FocusSessionPopupActivity.EXTRA_DOOM_PACKAGE, it)
+                putExtra(FocusSessionPopupActivity.EXTRA_DOOM_COUNT, doomCount)
             }
-        } else {
-            packageManager.getLaunchIntentForPackage(packageName) ?: Intent()
         }
         return PendingIntent.getActivity(
             this, 7, intent,
@@ -315,7 +343,12 @@ class FocusIndicatorService : Service() {
         )
     }
 
-    private fun buildAction(title: String, action: String, requestCode: Int): Notification.Action {
+    private fun buildAction(
+        title: String,
+        action: String,
+        requestCode: Int,
+        iconRes: Int = R.drawable.ic_focus_end,
+    ): Notification.Action {
         val intent = Intent(this, FocusSessionActionReceiver::class.java).apply {
             this.action = action
         }
@@ -323,9 +356,7 @@ class FocusIndicatorService : Service() {
             this, requestCode, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val icon = Icon.createWithResource(
-            this, android.R.drawable.ic_media_play
-        )
+        val icon = Icon.createWithResource(this, iconRes)
         return Notification.Action.Builder(icon, title, pending).build()
     }
 
